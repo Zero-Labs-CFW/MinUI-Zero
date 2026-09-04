@@ -73,6 +73,10 @@ _plan_rich() {
 	mfile="$1"; dst="$2"
 	while IFS="$TAB" read -r rel size mtime class hash; do
 		[ -n "$rel" ] || continue
+		# reject path traversal / absolute paths from a peer-supplied manifest: every consumer
+		# (delta / plan-net / apply-net / dir-to-dir) routes through here, so one guard covers writes,
+		# backups and downloads. An unsafe rel could escape dst and the undo/backup safety net.
+		case "$rel" in /*|..|../*|*/..|*/../*) printf 'UNSAFE\t%s\n' "$rel" >&2; continue ;; esac
 		rule=$(rule_for "$class")
 		if [ ! -e "$dst/$rel" ]; then
 			printf 'ADD\t%s\t%s\n' "$mtime" "$rel"
@@ -95,20 +99,35 @@ _plan_rich() {
 # Atomic writes, pre-overwrite backup, never-delete, mtime stamped from the manifest.
 _apply_rich() {
 	mfile="$1"; staging="$2"; dst="$3"; bdir="$4"
+	# fail closed on a reused backup dir: clobbering a prior snapshot's ops.log would strand its undo
+	if [ -e "$bdir/ops.log" ]; then
+		echo "apply: backup dir already used ($bdir); refusing to clobber a prior snapshot" >&2; return 1
+	fi
 	mkdir -p "$bdir"; : > "$bdir/ops.log"
 	_plan_rich "$mfile" "$dst" | while IFS="$TAB" read -r action mtime rel; do
 		case "$action" in
 		ADD|UPDATE)
 			[ -e "$staging/$rel" ] || { printf 'MISS\t%s\n' "$rel" >&2; continue; }
 			if [ "$action" = UPDATE ]; then
-				mkdir -p "$bdir/$(dirname "$rel")"; cp "$dst/$rel" "$bdir/$rel"   # back up the loser first
+				# back up the loser FIRST, verified (rc + size). If the backup is not a faithful copy,
+				# do NOT overwrite: an intact local save beats an unrecoverable one (guarantee #2).
+				# Plain cp + set_mtime (touch-based, busybox-safe) carries the original mtime -- do not
+				# rely on `cp -p`, which busybox may not support (would skip every UPDATE).
+				omt=$(file_mtime "$dst/$rel")
+				if ! mkdir -p "$bdir/$(dirname "$rel")" 2>/dev/null \
+				   || ! cp "$dst/$rel" "$bdir/$rel" 2>/dev/null \
+				   || [ "$(file_size "$dst/$rel")" != "$(file_size "$bdir/$rel")" ]; then
+					rm -f "$bdir/$rel"; printf 'FAIL\t%s (backup)\n' "$rel" >&2; continue
+				fi
+				set_mtime "$bdir/$rel" "$omt"
 			fi
 			mkdir -p "$dst/$(dirname "$rel")"
 			cp "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
 			if [ "$(file_size "$staging/$rel")" = "$(file_size "$dst/$rel.dsync.tmp")" ]; then
 				mv "$dst/$rel.dsync.tmp" "$dst/$rel"
 				set_mtime "$dst/$rel" "$mtime"
-				printf '%s\t%s\n' "$action" "$rel" >> "$bdir/ops.log"
+				# ops.log carries the applied size so undo can tell an untouched ADD from a user-edited one
+				printf '%s\t%s\t%s\n' "$action" "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"
 			else
 				rm -f "$dst/$rel.dsync.tmp"; printf 'FAIL\t%s\n' "$rel" >&2
 			fi ;;
@@ -119,7 +138,7 @@ _apply_rich() {
 
 # ---- public: dir-to-dir (src holds manifest + bytes) ----
 plan()  { src="$1"; dst="$2"; t=$(tmpf); manifest "$src" > "$t"; _plan_rich "$t" "$dst" | cut -f1,3; rm -f "$t"; }
-apply() { src="$1"; dst="$2"; bdir="$3"; t=$(tmpf); manifest "$src" > "$t"; _apply_rich "$t" "$src" "$dst" "$bdir"; rm -f "$t"; }
+apply() { src="$1"; dst="$2"; bdir="$3"; t=$(tmpf); manifest "$src" > "$t"; _apply_rich "$t" "$src" "$dst" "$bdir"; rc=$?; rm -f "$t"; return $rc; }
 
 # ---- public: networked (manifest fetched over the wire, bytes downloaded into staging) ----
 delta()   { _plan_rich "$1" "$2" | grep -E '^(ADD|UPDATE)' | cut -f3; }   # receiver: files to download
@@ -130,16 +149,32 @@ apply_net(){ _apply_rich "$1" "$2" "$3" "$4"; }            # receiver: apply sta
 undo() {
 	dst="$1"; bdir="$2"
 	[ -f "$bdir/ops.log" ] || { echo "undo: no ops.log in $bdir" >&2; return 1; }
-	while IFS="$TAB" read -r action rel; do
+	while IFS="$TAB" read -r action size rel; do
 		case "$action" in
-			ADD)    # was new: remove the file, then any now-empty dirs the ADD created
-				rm -f "$dst/$rel"
-				d=$(dirname "$rel")
-				while [ "$d" != "." ] && [ "$d" != "/" ]; do
-					rmdir "$dst/$d" 2>/dev/null || break
-					d=$(dirname "$d")
-				done ;;
-			UPDATE) cp "$bdir/$rel" "$dst/$rel" ;;      # was overwritten: restore original
+			ADD)    # was new: remove it ONLY if unchanged since the sync, then clean now-empty dirs
+				if [ "$(file_size "$dst/$rel")" = "$size" ]; then
+					rm -f "$dst/$rel"
+					d=$(dirname "$rel")
+					while [ "$d" != "." ] && [ "$d" != "/" ]; do
+						rmdir "$dst/$d" 2>/dev/null || break
+						d=$(dirname "$d")
+					done
+				else
+					printf 'UNDO-SKIP\t%s (changed since sync)\n' "$rel" >&2
+				fi ;;
+			UPDATE) # restore the original atomically (tmp+verify+rename), mtime restored; refuse if backup missing/short
+				if [ -e "$bdir/$rel" ]; then
+					mkdir -p "$dst/$(dirname "$rel")"
+					cp "$bdir/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
+					if [ "$(file_size "$bdir/$rel")" = "$(file_size "$dst/$rel.dsync.tmp")" ]; then
+						mv "$dst/$rel.dsync.tmp" "$dst/$rel"
+						set_mtime "$dst/$rel" "$(file_mtime "$bdir/$rel")"
+					else
+						rm -f "$dst/$rel.dsync.tmp"; printf 'UNDO-FAIL\t%s\n' "$rel" >&2
+					fi
+				else
+					printf 'UNDO-MISS\t%s\n' "$rel" >&2
+				fi ;;
 		esac
 	done < "$bdir/ops.log"
 }

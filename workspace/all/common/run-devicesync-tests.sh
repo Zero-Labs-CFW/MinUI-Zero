@@ -114,6 +114,59 @@ E undo "$B2" "$BK2"
 if diff -r "$REF2" "$B2" >/dev/null 2>&1; then ok "undo restored EXACT pre-sync state"; else bad "undo mismatch"; diff -r "$REF2" "$B2" | sed 's/^/    /'; fi
 
 ######################################################################
+echo "########## SCENARIO 3: safety failure injection (the review's findings) ##########"
+
+echo "== A: a failed/blocked backup must NOT overwrite the local save =="
+A3="$WORK/s3a/sender"; B3="$WORK/s3a/local"; mkdir -p "$A3" "$B3"
+mk "$A3" "Saves/GBA/x.srm" "SENDER-NEW" 202602010000; mk "$B3" "Saves/GBA/x.srm" "LOCAL-OLD" 202601010000
+BADBK="$WORK/s3a/badbk"; mkdir -p "$BADBK"; chmod 000 "$BADBK"
+E apply "$A3" "$B3" "$BADBK/sub" 2>/dev/null
+check "A: backup-fail leaves local save intact" "$(cat "$B3/Saves/GBA/x.srm")" "LOCAL-OLD"
+chmod 755 "$BADBK"
+
+echo "== B: undo with a missing backup must not truncate the live save =="
+A3b="$WORK/s3b/sender"; B3b="$WORK/s3b/local"; BK3b="$WORK/s3b/bk"; mkdir -p "$A3b" "$B3b"
+mk "$A3b" "Saves/GBA/y.srm" "Y-NEW" 202602010000; mk "$B3b" "Saves/GBA/y.srm" "Y-OLD" 202601010000
+E apply "$A3b" "$B3b" "$BK3b"
+rm -f "$BK3b/Saves/GBA/y.srm"
+E undo "$B3b" "$BK3b" 2>/dev/null
+check "B: undo w/ lost backup leaves save intact (not truncated)" "$(cat "$B3b/Saves/GBA/y.srm")" "Y-NEW"
+
+echo "== C: unsafe manifest paths (.. and absolute) are rejected =="
+MFC="$WORK/s3c.manifest"; DSTC="$WORK/s3c/local"; STC="$WORK/s3c/staging"; mkdir -p "$DSTC" "$STC/Saves/GBA"
+printf 'Saves/GBA/ok.srm\t5\t1700000000\tsave\t-\n../evil.srm\t4\t1700000000\tsave\t-\n/etc/evil\t4\t1700000000\tsave\t-\n' > "$MFC"
+DLC=$(E delta "$MFC" "$DSTC" 2>/dev/null)
+has "Saves/GBA/ok.srm" "$DLC"
+nohas "evil" "$DLC"
+printf OK123 > "$STC/Saves/GBA/ok.srm"
+E apply-net "$MFC" "$STC" "$DSTC" "$WORK/s3c/bk" 2>/dev/null
+check "C: ../evil not created outside dst" "$([ -e "$WORK/s3c/evil.srm" ] && echo LEAK || echo safe)" "safe"
+
+echo "== D: a reused backup dir is refused (protects the prior snapshot) =="
+A3d="$WORK/s3d/sender"; B3d="$WORK/s3d/local"; BK3d="$WORK/s3d/bk"; mkdir -p "$A3d" "$B3d"
+mk "$A3d" "Saves/GBA/z.srm" "Z1"; E apply "$A3d" "$B3d" "$BK3d"; OPS1=$(cat "$BK3d/ops.log")
+mk "$A3d" "Saves/GBA/z2.srm" "Z2"
+E apply "$A3d" "$B3d" "$BK3d" 2>/dev/null; RC=$?
+check "D: reused bdir refused (nonzero rc)" "$([ "$RC" != "0" ] && echo refused || echo allowed)" "refused"
+check "D: prior snapshot ops.log intact" "$(cat "$BK3d/ops.log")" "$OPS1"
+
+echo "== E: undo restores the ORIGINAL mtime, not undo's cp time =="
+A3e="$WORK/s3e/sender"; B3e="$WORK/s3e/local"; BK3e="$WORK/s3e/bk"; mkdir -p "$A3e" "$B3e"
+mk "$A3e" "Saves/GBA/m.srm" "M-NEW" 202602010000; mk "$B3e" "Saves/GBA/m.srm" "M-OLD" 202601010000
+OMT=$(mt "$B3e/Saves/GBA/m.srm"); E apply "$A3e" "$B3e" "$BK3e"; E undo "$B3e" "$BK3e"
+check "E: undo restored original content" "$(cat "$B3e/Saves/GBA/m.srm")" "M-OLD"
+check "E: undo restored original mtime"   "$(mt "$B3e/Saves/GBA/m.srm")" "$OMT"
+
+echo "== F: undo of an ADD keeps a file the user changed after the sync =="
+A3f="$WORK/s3f/sender"; B3f="$WORK/s3f/local"; BK3f="$WORK/s3f/bk"; mkdir -p "$A3f" "$B3f"
+mk "$A3f" "Saves/GBA/new1.srm" "ADDED"; mk "$A3f" "Saves/GBA/new2.srm" "ADDED2"
+E apply "$A3f" "$B3f" "$BK3f"
+printf 'USER-EDITED-BIGGER' > "$B3f/Saves/GBA/new1.srm"
+E undo "$B3f" "$BK3f" 2>/dev/null
+check "F: undo kept user-edited ADD"   "$(cat "$B3f/Saves/GBA/new1.srm" 2>/dev/null)" "USER-EDITED-BIGGER"
+check "F: undo removed untouched ADD"  "$([ -e "$B3f/Saves/GBA/new2.srm" ] && echo present || echo removed)" "removed"
+
+######################################################################
 echo "########## prune ##########"
 PR="$WORK/backups"; mkdir -p "$PR"
 for d in 20260101-0000 20260102-0000 20260103-0000 20260104-0000 20260105-0000 20260106-0000 20260107-0000; do mkdir -p "$PR/$d"; done
