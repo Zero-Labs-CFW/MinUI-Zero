@@ -1,28 +1,33 @@
 #!/bin/sh
 # Device Sync -- transport-blind sync engine.
 #
-# NO radios, NO network, NO UI. Operates on two local directories and nothing else, so it is
-# fully testable on the macOS dummy platform (see .notes/2026-09-03-device-sync/test-engine.sh).
-# The pak's launch.sh layers UI (confirm.elf/say.elf) and transport (SoftAP) on top of this.
+# NO radios, NO network, NO UI. Operates on local directories + a manifest, so it is fully testable
+# on the host (see workspace/all/common/run-devicesync-tests.sh). The pak's launch.sh layers UI
+# (confirm.elf/say.elf) and transport (SoftAP + httpd/wget, see sync-net.sh) on top of this.
 #
-# Model: a DIRECTIONAL reconcile. "src" is the incoming tree (from the peer on receive), "dst" is
-# the local tree. reconcile brings src's missing/newer files INTO dst. Two-way sync = both devices
-# reconcile with the other as src. The engine only ever writes to dst.
+# TWO MODES, one core:
+#   dir-to-dir  (host tests): src dir holds both the manifest and the bytes.
+#   networked   (on device):  the receiver has the sender's MANIFEST (fetched over HTTP) plus the
+#               downloaded delta bytes in a STAGING dir. wget does not preserve mtime, so the
+#               manifest's mtime is authoritative for the merge decision AND is stamped onto the
+#               applied file -- otherwise every freshly-downloaded file looks "newer" than local.
 #
-# HARD SAFETY GUARANTEES (this is the whole point -- must be incapable of losing a save):
-#   1. Never overwrite in place. Write to <file>.dsync.tmp, verify size, then atomic mv over target.
-#      A power loss mid-write leaves the tmp and the original intact, never a truncated save.
-#   2. Always back up before replacing. An UPDATE copies dst's current file into the backup dir
-#      BEFORE overwriting. ops.log records every ADD/UPDATE so "undo" restores the exact pre-sync
-#      state (ADDs removed, UPDATEs restored).
-#   3. Never delete. A file that exists only in dst is never touched. Absence in src is not a signal.
+# HARD SAFETY GUARANTEES (must be incapable of losing a save):
+#   1. Never overwrite in place. Write <file>.dsync.tmp, verify size, atomic mv. Power loss mid-write
+#      leaves the tmp + original intact, never a truncated save.
+#   2. Always back up before replacing. UPDATE copies dst's current file into the backup dir first.
+#      ops.log records every ADD/UPDATE so undo restores the EXACT pre-sync state.
+#   3. Never delete. A file only in dst is never touched; absence in the manifest is not a signal.
 #
-# CLOCK CAVEAT: these devices can carry a wrong RTC/timezone (see the clock saga), so "newer mtime"
-# is advisory. Identical files (hash match) are skipped untouched; when files genuinely differ, the
-# newer wins BUT the loser on the dst side is always backed up, so a wrong clock can never lose data.
+# CLOCK CAVEAT: devices can carry a wrong RTC/timezone, so "newer mtime" is advisory. Identical files
+# (size+hash match) are skipped untouched; when files genuinely differ the newer wins BUT the loser
+# on the dst side is always backed up, so a wrong clock can never lose data.
 #
-# TODO(verify on-device): confirm the real on-card save/state/cfg paths before shipping. The
-# classify() prefixes below (Roms/, Saves/, Collections/, *.cfg, map.txt) are the assumed layout.
+# MANIFEST format, one line per file: relpath \t size \t mtime(epoch) \t class \t hash
+#   hash = md5 for non-ROM; "-" for ROM (immutable + large: size-compare only, don't hash gigabytes).
+#
+# TODO(verify on-device): confirm the real on-card save/state/cfg paths. classify() prefixes
+# (Roms/, Saves/, Collections/, *.cfg, map.txt) are the assumed layout.
 
 TAB=$(printf '\t')
 
@@ -34,6 +39,9 @@ file_hash()  {
 	elif command -v md5    >/dev/null 2>&1; then md5 -q "$1" 2>/dev/null
 	else echo "nohash-$(file_size "$1")"; fi
 }
+fmt_ts()   { date -r "$1" +%Y%m%d%H%M.%S 2>/dev/null || date -d @"$1" +%Y%m%d%H%M.%S 2>/dev/null; }
+set_mtime(){ ts=$(fmt_ts "$2"); [ -n "$ts" ] && touch -t "$ts" "$1" 2>/dev/null; }
+tmpf()     { mktemp "${TMPDIR:-/tmp}/dsync.XXXXXX"; }
 
 # ---- classification: relpath -> class, class -> merge rule ----
 classify() {
@@ -46,73 +54,61 @@ classify() {
 		*)                   echo other ;;
 	esac
 }
-rule_for() { # rom = additive (never overwrite); everything else = newer-wins + backup
-	case "$1" in rom) echo additive ;; *) echo newer ;; esac
-}
+rule_for() { case "$1" in rom) echo additive ;; *) echo newer ;; esac; }  # rom never overwritten
 
-# ---- manifest: relpath \t size \t mtime \t class, one line per file ----
+# ---- manifest: rel \t size \t mtime \t class \t hash ----
 manifest() {
-	d="$1"
-	( cd "$d" 2>/dev/null || exit 0
+	( cd "$1" 2>/dev/null || exit 0
 	  find . -type f 2>/dev/null | sed 's|^\./||' | while IFS= read -r rel; do
 		[ -n "$rel" ] || continue
-		printf '%s\t%s\t%s\t%s\n' "$rel" "$(file_size "$rel")" "$(file_mtime "$rel")" "$(classify "$rel")"
+		cls=$(classify "$rel")
+		if [ "$cls" = rom ]; then h="-"; else h=$(file_hash "$rel"); fi
+		printf '%s\t%s\t%s\t%s\t%s\n' "$rel" "$(file_size "$rel")" "$(file_mtime "$rel")" "$cls" "$h"
 	  done )
 }
 
-# ---- plan: compare src against dst, emit one ACTION\trelpath per src file ----
+# ---- _plan_rich: compare a manifest against dst. Emits ACTION \t MTIME \t REL (internal form) ----
 # Actions: ADD UPDATE SKIP KEEP-LOCAL CONFLICT-ROM. dst-only files never appear (never deleted).
-plan() {
-	src="$1"; dst="$2"
-	manifest "$src" | while IFS="$TAB" read -r rel size mtime class; do
+_plan_rich() {
+	mfile="$1"; dst="$2"
+	while IFS="$TAB" read -r rel size mtime class hash; do
+		[ -n "$rel" ] || continue
 		rule=$(rule_for "$class")
 		if [ ! -e "$dst/$rel" ]; then
-			printf 'ADD\t%s\n' "$rel"
+			printf 'ADD\t%s\t%s\n' "$mtime" "$rel"
 		elif [ "$rule" = additive ]; then
-			if [ "$size" = "$(file_size "$dst/$rel")" ]; then
-				printf 'SKIP\t%s\n' "$rel"          # same ROM, leave it
-			else
-				printf 'CONFLICT-ROM\t%s\n' "$rel"  # different dump; keep local, never overwrite a ROM
-			fi
+			if [ "$size" = "$(file_size "$dst/$rel")" ]; then printf 'SKIP\t%s\t%s\n' "$mtime" "$rel"
+			else printf 'CONFLICT-ROM\t%s\t%s\n' "$mtime" "$rel"; fi
 		else
-			if [ "$size" = "$(file_size "$dst/$rel")" ] && \
-			   [ "$(file_hash "$src/$rel")" = "$(file_hash "$dst/$rel")" ]; then
-				printf 'SKIP\t%s\n' "$rel"          # byte-identical
+			if [ "$size" = "$(file_size "$dst/$rel")" ] && [ "$hash" = "$(file_hash "$dst/$rel")" ]; then
+				printf 'SKIP\t%s\t%s\n' "$mtime" "$rel"
 			else
 				dmtime=$(file_mtime "$dst/$rel")
-				if [ "${mtime:-0}" -gt "${dmtime:-0}" ]; then
-					printf 'UPDATE\t%s\n' "$rel"    # src newer: overwrite (after backing up dst)
-				else
-					printf 'KEEP-LOCAL\t%s\n' "$rel" # dst newer-or-equal: keep local, nothing lost
-				fi
+				if [ "${mtime:-0}" -gt "${dmtime:-0}" ]; then printf 'UPDATE\t%s\t%s\n' "$mtime" "$rel"
+				else printf 'KEEP-LOCAL\t%s\t%s\n' "$mtime" "$rel"; fi
 			fi
 		fi
-	done
+	done < "$mfile"
 }
 
-# ---- apply: execute the plan with atomic writes, pre-overwrite backup, never-delete ----
-apply() {
-	src="$1"; dst="$2"; bdir="$3"
-	mkdir -p "$bdir"
-	: > "$bdir/ops.log"
-	plan "$src" "$dst" | while IFS="$TAB" read -r action rel; do
+# ---- _apply_rich: execute a manifest's plan, pulling bytes from a staging dir ----
+# Atomic writes, pre-overwrite backup, never-delete, mtime stamped from the manifest.
+_apply_rich() {
+	mfile="$1"; staging="$2"; dst="$3"; bdir="$4"
+	mkdir -p "$bdir"; : > "$bdir/ops.log"
+	_plan_rich "$mfile" "$dst" | while IFS="$TAB" read -r action mtime rel; do
 		case "$action" in
-		ADD)
+		ADD|UPDATE)
+			[ -e "$staging/$rel" ] || { printf 'MISS\t%s\n' "$rel" >&2; continue; }
+			if [ "$action" = UPDATE ]; then
+				mkdir -p "$bdir/$(dirname "$rel")"; cp "$dst/$rel" "$bdir/$rel"   # back up the loser first
+			fi
 			mkdir -p "$dst/$(dirname "$rel")"
-			cp "$src/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
-			if [ "$(file_size "$src/$rel")" = "$(file_size "$dst/$rel.dsync.tmp")" ]; then
+			cp "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
+			if [ "$(file_size "$staging/$rel")" = "$(file_size "$dst/$rel.dsync.tmp")" ]; then
 				mv "$dst/$rel.dsync.tmp" "$dst/$rel"
-				printf 'ADD\t%s\n' "$rel" >> "$bdir/ops.log"
-			else
-				rm -f "$dst/$rel.dsync.tmp"; printf 'FAIL\t%s\n' "$rel" >&2
-			fi ;;
-		UPDATE)
-			mkdir -p "$bdir/$(dirname "$rel")"
-			cp "$dst/$rel" "$bdir/$rel"                 # BACK UP the loser first
-			cp "$src/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
-			if [ "$(file_size "$src/$rel")" = "$(file_size "$dst/$rel.dsync.tmp")" ]; then
-				mv "$dst/$rel.dsync.tmp" "$dst/$rel"
-				printf 'UPDATE\t%s\n' "$rel" >> "$bdir/ops.log"
+				set_mtime "$dst/$rel" "$mtime"
+				printf '%s\t%s\n' "$action" "$rel" >> "$bdir/ops.log"
 			else
 				rm -f "$dst/$rel.dsync.tmp"; printf 'FAIL\t%s\n' "$rel" >&2
 			fi ;;
@@ -120,6 +116,15 @@ apply() {
 		esac
 	done
 }
+
+# ---- public: dir-to-dir (src holds manifest + bytes) ----
+plan()  { src="$1"; dst="$2"; t=$(tmpf); manifest "$src" > "$t"; _plan_rich "$t" "$dst" | cut -f1,3; rm -f "$t"; }
+apply() { src="$1"; dst="$2"; bdir="$3"; t=$(tmpf); manifest "$src" > "$t"; _apply_rich "$t" "$src" "$dst" "$bdir"; rm -f "$t"; }
+
+# ---- public: networked (manifest fetched over the wire, bytes downloaded into staging) ----
+delta()   { _plan_rich "$1" "$2" | grep -E '^(ADD|UPDATE)' | cut -f3; }   # receiver: files to download
+plan_net(){ _plan_rich "$1" "$2" | cut -f1,3; }            # receiver: dry-run preview
+apply_net(){ _apply_rich "$1" "$2" "$3" "$4"; }            # receiver: apply staged bytes
 
 # ---- undo: restore the exact pre-sync state from a backup dir's ops.log ----
 undo() {
@@ -131,7 +136,7 @@ undo() {
 				rm -f "$dst/$rel"
 				d=$(dirname "$rel")
 				while [ "$d" != "." ] && [ "$d" != "/" ]; do
-					rmdir "$dst/$d" 2>/dev/null || break   # stops at the first non-empty dir; never touches dst
+					rmdir "$dst/$d" 2>/dev/null || break
 					d=$(dirname "$d")
 				done ;;
 			UPDATE) cp "$bdir/$rel" "$dst/$rel" ;;      # was overwritten: restore original
@@ -139,7 +144,7 @@ undo() {
 	done < "$bdir/ops.log"
 }
 
-# ---- prune: keep the newest N backup snapshots under a root (timestamp-named dirs) ----
+# ---- prune: keep the newest N backup snapshots (timestamp-named dirs) ----
 prune() {
 	root="$1"; keep="$2"
 	n=$(ls -1 "$root" 2>/dev/null | wc -l | tr -d ' ')
@@ -148,14 +153,17 @@ prune() {
 	ls -1 "$root" | sort | head -n "$rmn" | while IFS= read -r old; do rm -rf "$root/$old"; done
 }
 
-# ---- CLI dispatch (used by tests and by launch.sh) ----
+# ---- CLI dispatch ----
 cmd="$1"; [ $# -gt 0 ] && shift
 case "$cmd" in
-	manifest) manifest "$@" ;;
-	plan)     plan "$@" ;;
-	apply)    apply "$@" ;;
-	undo)     undo "$@" ;;
-	prune)    prune "$@" ;;
-	classify) classify "$@" ;;
-	*) echo "usage: sync-engine.sh {manifest|plan|apply|undo|prune|classify} ..." >&2; exit 2 ;;
+	manifest)  manifest "$@" ;;
+	plan)      plan "$@" ;;
+	apply)     apply "$@" ;;
+	delta)     delta "$@" ;;
+	plan-net)  plan_net "$@" ;;
+	apply-net) apply_net "$@" ;;
+	undo)      undo "$@" ;;
+	prune)     prune "$@" ;;
+	classify)  classify "$@" ;;
+	*) echo "usage: sync-engine.sh {manifest|plan|apply|delta|plan-net|apply-net|undo|prune|classify} ..." >&2; exit 2 ;;
 esac
