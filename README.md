@@ -9,8 +9,8 @@ dependable sleep and saves. No bloat, no menus to wrangle, just the power each g
 
 **Full speed. Zero tinkering.**
 
-Runs on the **TrimUI Brick**, **Brick Pro**, and **Smart Pro**. Alpha builds for the **Anbernic RG35XX
-Plus / H** and the **Miyoo Mini family**.
+Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**, **Anbernic RG35XX Plus / H**, and the
+**Miyoo Mini family**.
 
 ## Why MinUI Zero?
 
@@ -60,7 +60,7 @@ philosophy.
 | Features | Minimal by design: no box art, store, themes, or accounts | Box art, WiFi, Bluetooth audio, cheats, game switcher, Pak Store, LED effects, themes |
 | Background services in-game | keymon only, rewritten for zero idle wakeups | keymon, battery monitor, audio monitor, plus WiFi and Bluetooth stacks when enabled |
 | Deep sleep | Yes | Yes |
-| Devices | Brick, Brick Pro, Smart Pro (+ alpha Anbernic RG35XX Plus / H and Miyoo Mini family) | Brick, Brick Pro, Smart Pro, Smart Pro S |
+| Devices | Brick, Brick Pro, Smart Pro (+ Anbernic RG35XX Plus / H and Miyoo Mini family) | Brick, Brick Pro, Smart Pro, Smart Pro S |
 
 Measured at MinUI Zero v1.5 and NextUI v6.14.0. Source lines count each firmware's own `.c`/`.h` and
 exclude the emulator cores both ship; download sizes are each project's base release zip. The NextUI
@@ -104,12 +104,12 @@ tuned core already installed.
 [The latest release](https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/latest) carries four
 artifacts, and they are not interchangeable.
 
-| Device | Status | Download | Install |
-|---|---|---|---|
-| TrimUI Brick / Brick Pro / Smart Pro | Stable | `MinUI-Zero-trimui-*.zip` | Copy onto a card |
-| Miyoo Mini / Plus / Flip | Alpha | `MinUI-Zero-miyoo-*-alpha.zip` | Copy onto a card |
-| Anbernic RG35XX Plus | Alpha | `MinUI-Zero-h700-*-rg35xx-plus.img.xz` | Flash the card |
-| Anbernic RG35XX H | Alpha | `MinUI-Zero-h700-*-rg35xx-h.img.xz` | Flash the card |
+| Device | Download | Install method |
+|---|---|---|
+| TrimUI Brick / Brick Pro / Smart Pro | `MinUI-Zero-trimui-*.zip` | Copy onto a card |
+| Miyoo Mini / Plus / Flip | `MinUI-Zero-miyoo-*.zip` | Copy onto a card |
+| Anbernic RG35XX Plus | `MinUI-Zero-h700-*-rg35xx-plus.img.xz` | Flash the card |
+| Anbernic RG35XX H | `MinUI-Zero-h700-*-rg35xx-h.img.xz` | Flash the card |
 
 ## Boot times, measured
 
@@ -172,7 +172,7 @@ second device stops after its firmware's loading screen. Use a card per device, 
 `Saves` across if you want the same library on both. Note that battery saves move between devices but
 save *states* may not, since they are tied to the emulator core's architecture.
 
-## Anbernic RG35XX Plus / H (alpha)
+## Anbernic RG35XX Plus / H
 
 Same launcher, same closed-loop governor, same cores, but newer than the TrimUI builds and less
 proven. **Each device has its own image**, carrying that board's boot chain, device tree and kernel;
@@ -187,7 +187,7 @@ Rough edges to expect: **updates are a reflash** (no in-place updater yet, and s
 ROMS partition), six of the fifteen systems are verified by launch test, L3 and R3 are unmapped, and
 no third-party pak has been run end to end.
 
-## Miyoo Mini family (alpha)
+## Miyoo Mini family
 
 A real port for the SigmaStar SSD202D: same launcher, same governor, the same eleven cores rebuilt
 for ARMv7/NEON. One card serves all three models and the firmware detects which it woke up on. The

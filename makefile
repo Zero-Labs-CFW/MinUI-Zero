@@ -30,8 +30,9 @@ RELEASE_BETA=
 FAMILY_tg5040=trimui
 FAMILY_miyoomini=miyoo
 FAMILY=$(if $(FAMILY_$(firstword $(PLATFORMS))),$(FAMILY_$(firstword $(PLATFORMS))),$(firstword $(PLATFORMS)))
-# miyoo is experimental: mark its artifacts so nobody mistakes it for the shipped platform
-RELEASE_BETA_miyoo=-alpha
+# No -alpha suffix (dropped 2026-09-04): the ports fix more stock MinUI bugs than they lack, so the
+# "alpha" label undersold them. Maturity nuance lives in the per-device README sections instead.
+RELEASE_BETA_miyoo=
 RELEASE_BASE=MinUI-Zero-$(FAMILY)-$(RELEASE_TIME)$(RELEASE_BETA)$(RELEASE_BETA_$(FAMILY))
 # highest existing suffix + 1 — counting files breaks after any deletion (a stale count
 # can re-issue an existing name and zip -r would append into the shipped artifact)

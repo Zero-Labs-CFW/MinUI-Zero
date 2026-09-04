@@ -11,14 +11,16 @@ CPU clock that still holds its target frame rate**, so the device stays cool and
 This is *not* a feature fork — it's the opposite. NextUI is the feature-rich/GL fork; this
 one is the distilled, runs-cold one.
 
-## Scope — **`tg5040` is the fork** (TrimUI Brick + TrimUI Smart Pro); `miyoomini` is alpha
+## Scope — **`tg5040` is the fork** (TrimUI Brick + TrimUI Smart Pro); `miyoomini` is a secondary port
 The thesis is A133P-specific (cpufreq/OPP/thermal/PMIC), so `tg5040` is the only platform that
 carries it and the only one that ships as a real release. `make` still defaults to
 `PLATFORMS = tg5040`; a bare `make miyoomini` is rejected on purpose.
 
 **`miyoomini` (Miyoo Mini Plus, SigmaStar SSD202D) is a second, experimental platform** — built,
-running, and advertised in `README.md` as an **alpha**, but it is NOT a second first-class target.
-Build it explicitly: `make PLATFORMS=miyoomini miyoomini`. Its artifacts are stamped `-alpha`.
+running, and shipped as a supported (but newer, less-proven) platform, NOT a second first-class
+target. Build it explicitly: `make PLATFORMS=miyoomini miyoomini`. Its artifacts are no longer
+`-alpha`-stamped (dropped 2026-09-04: the ports fix more stock MinUI bugs than they lack, so the
+label undersold them; per-device maturity nuance lives in the README sections instead).
 MEASURED and worth knowing before spending effort there: **the efficiency thesis does not transfer**
 (~1% — on that SoC the CPU is not where the power goes), so MMP work is parity/polish, not thesis
 work. Deep sleep is proven impossible there. Anything that costs the Brick to serve the MMP loses.
