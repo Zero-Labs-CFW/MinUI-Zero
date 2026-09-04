@@ -14,13 +14,14 @@ Plus / H** and the **Miyoo Mini family**.
 
 ## Why MinUI Zero?
 
-- **Cooler gameplay** without lowering frame rates
-- **Longer battery life**: ~7.5 hours on Game Boy, ~7 on PlayStation (TrimUI, measured)
-- **Smoother gameplay**: panel-matched frame pacing, better audio resampling, roughly one frame less
-  input latency
-- **No CPU settings to manage.** Every game is tuned automatically and continuously
-- **Deep sleep by default** on TrimUI and Anbernic: near-zero draw, instant resume, never running
-  hot in your bag
+- **Longer battery life**: ~7.5 hours on Game Boy, ~7 on PlayStation
+- **Cooler gameplay**: 2-5°C below stock, without dropping frame rate
+- **No CPU settings to manage**: every game is tuned automatically and continuously, with opt-in
+  per-chip undervolting
+- **Deep sleep by default**: near-zero draw, instant resume, never running hot in your bag
+- **Fast boot**: power-on to a browsable menu in seconds (as quick as 3s), and instant wake from sleep
+- **Hard to break**: bad ROMs exit cleanly and saves are written crash-safe, so a crash never loses
+  your progress
 - **The simplicity of MinUI**: no box art, stores, accounts, or themes
 
 For people who want to turn on a handheld and play games, not spend their time configuring one.
