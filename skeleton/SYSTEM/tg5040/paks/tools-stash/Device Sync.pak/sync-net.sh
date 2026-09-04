@@ -71,11 +71,14 @@ pull() { # <host> <port> <dst> <backup>
 		echo "pull: manifest fetch failed" >&2; rm -rf "$work"; return 1
 	fi
 	eng delta "$mf" "$dst" > "$work/dl"
+	total=$(grep -c . "$work/dl" 2>/dev/null)
+	[ -n "$DS_PROGRESS" ] && echo "0/$total" > "$DS_PROGRESS"
 
 	fail=0; n=0; got=0
 	while IFS= read -r rel; do
 		[ -n "$rel" ] || continue
 		n=$((n+1))
+		[ -n "$DS_PROGRESS" ] && echo "$n/$total" > "$DS_PROGRESS"
 		mkdir -p "$staging/$(dirname "$rel")"
 		if ! wget -q -O "$staging/$rel" "$base/$(urlenc "$rel")"; then
 			echo "pull: download failed: $rel" >&2; rm -f "$staging/$rel"; fail=1; continue
@@ -166,6 +169,7 @@ join() { # <ssid> <psk> : leave home wifi, join the receiver AP BY NAME (no manu
 	ssid="$1"; psk="$2"; save_home_wifi
 	printf 'network={\n\tssid="%s"\n\tpsk="%s"\n}\n' "$ssid" "$psk" > /tmp/dsync-join.conf
 	killall wpa_supplicant 2>/dev/null; sleep 1
+	ifconfig "$STA_IF" up 2>/dev/null          # in case WiFi was off (interface down)
 	wpa_supplicant -B -Dnl80211 -i"$STA_IF" -c /tmp/dsync-join.conf 2>/dev/null
 	i=0
 	while [ "$i" -lt 90 ]; do
@@ -182,6 +186,11 @@ restore_wifi() { # bring STA_IF back onto the saved home network
 	wpa_supplicant -B -Dnl80211 -i"$STA_IF" -c "$c" 2>/dev/null
 	sleep 4; udhcpc -i "$STA_IF" -n -q 2>/dev/null
 }
+wifi_off() { # take the radio down and leave it off (as it was) -- do NOT reconnect to anything
+	killall wpa_supplicant 2>/dev/null
+	ip addr flush dev "$STA_IF" 2>/dev/null
+	ifconfig "$STA_IF" down 2>/dev/null
+}
 sta_count() { iw dev "$AP_IF" station dump 2>/dev/null | grep -c '^Station'; }  # sender: # of joined devices
 
 # CLI dispatch
@@ -197,6 +206,7 @@ case "$cmd" in
 	scan)         scan "$@" ;;
 	join)         join "$@" ;;
 	restore-wifi) restore_wifi "$@" ;;
+	wifi-off)     wifi_off "$@" ;;
 	sta-count)    sta_count "$@" ;;
 	*) echo "usage: sync-net.sh {build-export|serve|stop-serve|pull|ap-up|ap-down|scan|join|restore-wifi|sta-count|urlenc} ..." >&2; exit 2 ;;
 esac
