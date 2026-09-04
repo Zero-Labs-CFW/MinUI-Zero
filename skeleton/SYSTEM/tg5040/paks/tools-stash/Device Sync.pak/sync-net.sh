@@ -107,7 +107,17 @@ pull() { # <host> <port> <dst> <backup>
 
 ap_up() { # <ssid> <psk> : raise AP on wlan1 at wlan0's channel; leaves wlan0 alone
 	ssid="$1"; psk="$2"
-	ch=$(iw dev "$STA_IF" info 2>/dev/null | sed -n 's/.*channel \([0-9]*\).*/\1/p' | head -1); [ -z "$ch" ] && ch=6
+	# match the AP to the station's current channel so the shared radio is never forced to switch
+	# (that switch is what could drop the sender's home wifi). iw ... info often omits channel, so
+	# fall back to deriving it from the associated frequency (iw ... link), then to 6.
+	ch=$(iw dev "$STA_IF" info 2>/dev/null | sed -n 's/.*channel \([0-9]*\).*/\1/p' | head -1)
+	if [ -z "$ch" ]; then
+		fr=$(iw dev "$STA_IF" link 2>/dev/null | sed -n 's/.*freq:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
+		if [ -n "$fr" ]; then
+			if [ "$fr" -ge 5000 ]; then ch=$(( (fr - 5000) / 5 )); else ch=$(( (fr - 2407) / 5 )); fi
+		fi
+	fi
+	[ -z "$ch" ] && ch=6
 	cat > /tmp/dsync-hostapd.conf <<EOC
 interface=$AP_IF
 driver=nl80211
