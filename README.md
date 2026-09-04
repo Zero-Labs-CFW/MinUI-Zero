@@ -1,13 +1,16 @@
 # MinUI Zero
 
-## Same simple MinUI. Runs cooler, lasts longer, plays smoother.
+## Same simple MinUI. Tuned end to end.
 
-**MinUI Zero** is a low-power [MinUI](https://github.com/shauninman/MinUI) fork for the **TrimUI
-Brick**, **Brick Pro** and **Smart Pro**, with alpha builds for the **Anbernic RG35XX Plus / H** and the
-**Miyoo Mini family**. It keeps MinUI's fast, distraction-free experience and tunes everything
-underneath to use only the power each game actually needs.
+**MinUI Zero** is a refined [MinUI](https://github.com/shauninman/MinUI) fork that keeps what makes
+MinUI great: fast, simple, distraction-free gaming with almost nothing to configure. Underneath, Zero
+runs cooler and lasts longer, with smoother frame pacing, cleaner audio, lower input lag, and more
+dependable sleep and saves. No bloat, no menus to wrangle, just the power each game actually needs.
 
 **Full speed. Zero tinkering.**
+
+Runs on the **TrimUI Brick**, **Brick Pro**, and **Smart Pro**. Alpha builds for the **Anbernic RG35XX
+Plus / H** and the **Miyoo Mini family**.
 
 ## Why MinUI Zero?
 
