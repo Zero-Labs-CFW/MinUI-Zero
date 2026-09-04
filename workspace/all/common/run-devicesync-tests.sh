@@ -167,6 +167,24 @@ check "F: undo kept user-edited ADD"   "$(cat "$B3f/Saves/GBA/new1.srm" 2>/dev/n
 check "F: undo removed untouched ADD"  "$([ -e "$B3f/Saves/GBA/new2.srm" ] && echo present || echo removed)" "removed"
 
 ######################################################################
+echo "########## SCENARIO 4: push mode (DS_MODE=push -- directional send, sender wins) ##########"
+A4="$WORK/s4/sender"; B4="$WORK/s4/local"; BK4="$WORK/s4/bk"; build_trees "$A4" "$B4"
+MF4="$WORK/s4.manifest"; DS_MODE=push sh "$ENGINE" manifest "$A4" > "$MF4"
+P4=$(DS_MODE=push sh "$ENGINE" plan-net "$MF4" "$B4"); printf '%s\n' "$P4" | sed 's/^/    /'
+has "UPDATE${TAB}Saves/GBA/save2.srm" "$P4"       # sender newer -> UPDATE
+has "UPDATE${TAB}Saves/GBA/save3.srm" "$P4"       # local newer, but PUSH -> sender still wins
+has "SKIP${TAB}Saves/GBA/save4.srm" "$P4"         # identical -> still skipped (no needless copy)
+has "CONFLICT-ROM${TAB}Roms/GBA/game3.gba" "$P4"  # ROMs still additive, never overwritten
+ST4="$WORK/s4/staging"; mkdir -p "$ST4"
+DS_MODE=push sh "$ENGINE" delta "$MF4" "$B4" | while IFS= read -r rel; do [ -n "$rel" ] || continue; mkdir -p "$ST4/$(dirname "$rel")"; cp "$A4/$rel" "$ST4/$rel"; done
+DS_MODE=push sh "$ENGINE" apply-net "$MF4" "$ST4" "$B4" "$BK4"
+check "push: local-newer save OVERWRITTEN by sender" "$(cat "$B4/Saves/GBA/save3.srm")"        "A-OLD-CONTENT"
+check "push: the overwritten local save is backed up" "$(cat "$BK4/Saves/GBA/save3.srm")"      "B-IS-NEWER-CONTENT"
+check "push: identical save left untouched"           "$(cat "$B4/Saves/GBA/save4.srm")"       "SAME-SAVE"
+check "push: ROM conflict still kept local"           "$(cat "$B4/Roms/GBA/game3.gba")"        "ROM-VERSION-B"
+check "push: local-only file NOT deleted"             "$(cat "$B4/Saves/GBA/localonly.srm")"   "ONLY-ON-B-NEVER-DELETE"
+
+######################################################################
 echo "########## prune ##########"
 PR="$WORK/backups"; mkdir -p "$PR"
 for d in 20260101-0000 20260102-0000 20260103-0000 20260104-0000 20260105-0000 20260106-0000 20260107-0000; do mkdir -p "$PR/$d"; done

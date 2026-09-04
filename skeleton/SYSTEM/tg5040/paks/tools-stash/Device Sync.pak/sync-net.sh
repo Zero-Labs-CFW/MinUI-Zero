@@ -161,13 +161,20 @@ save_home_wifi() {
 	[ -z "$c" ] && c=/etc/wifi/wpa_supplicant.conf
 	echo "$c" > "$HOME_CONF_FLAG"
 }
-join() { # <ssid> <psk> : join the sender AP on STA_IF; prints the acquired IP
+join() { # <ssid> <psk> : leave home wifi, join the receiver AP BY NAME (no manual scan -- wpa_supplicant
+	# finds it), patiently (the receiver may open after we start). Prints the acquired 192.168.42.x IP.
 	ssid="$1"; psk="$2"; save_home_wifi
 	printf 'network={\n\tssid="%s"\n\tpsk="%s"\n}\n' "$ssid" "$psk" > /tmp/dsync-join.conf
 	killall wpa_supplicant 2>/dev/null; sleep 1
 	wpa_supplicant -B -Dnl80211 -i"$STA_IF" -c /tmp/dsync-join.conf 2>/dev/null
-	sleep 6; udhcpc -i "$STA_IF" -n -q 2>/dev/null; sleep 1
-	ip -4 addr show "$STA_IF" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1
+	i=0
+	while [ "$i" -lt 90 ]; do
+		udhcpc -i "$STA_IF" -n -q >/dev/null 2>&1
+		ipx=$(ip -4 addr show "$STA_IF" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)
+		case "$ipx" in 192.168.42.*) echo "$ipx"; return 0 ;; esac
+		sleep 3; i=$((i+3))
+	done
+	echo ""; return 1
 }
 restore_wifi() { # bring STA_IF back onto the saved home network
 	c=$(cat "$HOME_CONF_FLAG" 2>/dev/null); [ -z "$c" ] && c=/etc/wifi/wpa_supplicant.conf

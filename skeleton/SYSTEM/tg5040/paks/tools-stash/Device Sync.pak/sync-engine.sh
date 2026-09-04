@@ -85,8 +85,13 @@ _plan_rich() {
 			else printf 'CONFLICT-ROM\t%s\t%s\n' "$mtime" "$rel"; fi
 		else
 			if [ "$size" = "$(file_size "$dst/$rel")" ] && [ "$hash" = "$(file_hash "$dst/$rel")" ]; then
-				printf 'SKIP\t%s\t%s\n' "$mtime" "$rel"
+				printf 'SKIP\t%s\t%s\n' "$mtime" "$rel"          # byte-identical: never re-copy
+			elif [ "$DS_MODE" = push ]; then
+				# directional SEND: the sender's version wins on any content difference. Clock-independent
+				# (no mtime compare) -- the right semantics for "send my saves", and immune to bad RTCs.
+				printf 'UPDATE\t%s\t%s\n' "$mtime" "$rel"
 			else
+				# two-way MERGE (default): newer mtime wins, loser backed up.
 				dmtime=$(file_mtime "$dst/$rel")
 				if [ "${mtime:-0}" -gt "${dmtime:-0}" ]; then printf 'UPDATE\t%s\t%s\n' "$mtime" "$rel"
 				else printf 'KEEP-LOCAL\t%s\t%s\n' "$mtime" "$rel"; fi
