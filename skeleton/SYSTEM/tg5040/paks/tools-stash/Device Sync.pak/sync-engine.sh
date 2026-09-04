@@ -33,7 +33,7 @@ TAB=$(printf '\t')
 
 # ---- portable shims: busybox (device) and BSD (macOS dev) ----
 file_size()  { [ -e "$1" ] && wc -c < "$1" | tr -d ' ' || echo 0; }
-file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
+file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || date -r "$1" +%s 2>/dev/null || echo 0; }  # busybox has no stat; date -r reads a file's mtime there
 file_hash()  {
 	if   command -v md5sum >/dev/null 2>&1; then md5sum "$1" 2>/dev/null | cut -d' ' -f1
 	elif command -v md5    >/dev/null 2>&1; then md5 -q "$1" 2>/dev/null
@@ -59,7 +59,7 @@ rule_for() { case "$1" in rom) echo additive ;; *) echo newer ;; esac; }  # rom 
 # ---- manifest: rel \t size \t mtime \t class \t hash ----
 manifest() {
 	( cd "$1" 2>/dev/null || exit 0
-	  find . -type f 2>/dev/null | sed 's|^\./||' | while IFS= read -r rel; do
+	  find -L . -type f 2>/dev/null | sed 's|^\./||' | while IFS= read -r rel; do
 		[ -n "$rel" ] || continue
 		cls=$(classify "$rel")
 		if [ "$cls" = rom ]; then h="-"; else h=$(file_hash "$rel"); fi
