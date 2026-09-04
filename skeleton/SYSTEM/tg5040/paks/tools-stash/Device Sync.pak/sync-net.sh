@@ -153,6 +153,30 @@ ap_down() {
 }
 scan() { iw dev "$STA_IF" scan 2>/dev/null | sed -n 's/.*SSID: \(MinUI-Sync-.*\)/\1/p'; }
 
+# ---- receiver: leave home wifi to join the sender AP, then restore. The launch.sh trap calls
+# restore_wifi on EXIT so home wifi always comes back. HOME_CONF is captured before joining. ----
+HOME_CONF_FLAG=/tmp/dsync-home-conf
+save_home_wifi() {
+	c=$(ps 2>/dev/null | grep -v grep | grep wpa_supplicant | grep -- "-i$STA_IF" | sed -n 's/.*-c[ =]*\([^ ]*\).*/\1/p' | head -1)
+	[ -z "$c" ] && c=/etc/wifi/wpa_supplicant.conf
+	echo "$c" > "$HOME_CONF_FLAG"
+}
+join() { # <ssid> <psk> : join the sender AP on STA_IF; prints the acquired IP
+	ssid="$1"; psk="$2"; save_home_wifi
+	printf 'network={\n\tssid="%s"\n\tpsk="%s"\n}\n' "$ssid" "$psk" > /tmp/dsync-join.conf
+	killall wpa_supplicant 2>/dev/null; sleep 1
+	wpa_supplicant -B -Dnl80211 -i"$STA_IF" -c /tmp/dsync-join.conf 2>/dev/null
+	sleep 6; udhcpc -i "$STA_IF" -n -q 2>/dev/null; sleep 1
+	ip -4 addr show "$STA_IF" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1
+}
+restore_wifi() { # bring STA_IF back onto the saved home network
+	c=$(cat "$HOME_CONF_FLAG" 2>/dev/null); [ -z "$c" ] && c=/etc/wifi/wpa_supplicant.conf
+	killall wpa_supplicant 2>/dev/null; sleep 1
+	wpa_supplicant -B -Dnl80211 -i"$STA_IF" -c "$c" 2>/dev/null
+	sleep 4; udhcpc -i "$STA_IF" -n -q 2>/dev/null
+}
+sta_count() { iw dev "$AP_IF" station dump 2>/dev/null | grep -c '^Station'; }  # sender: # of joined devices
+
 # CLI dispatch
 cmd="$1"; [ $# -gt 0 ] && shift
 case "$cmd" in
@@ -164,5 +188,8 @@ case "$cmd" in
 	ap-up)        ap_up "$@" ;;
 	ap-down)      ap_down "$@" ;;
 	scan)         scan "$@" ;;
-	*) echo "usage: sync-net.sh {build-export|serve|stop-serve|pull|ap-up|ap-down|scan|urlenc} ..." >&2; exit 2 ;;
+	join)         join "$@" ;;
+	restore-wifi) restore_wifi "$@" ;;
+	sta-count)    sta_count "$@" ;;
+	*) echo "usage: sync-net.sh {build-export|serve|stop-serve|pull|ap-up|ap-down|scan|join|restore-wifi|sta-count|urlenc} ..." >&2; exit 2 ;;
 esac
