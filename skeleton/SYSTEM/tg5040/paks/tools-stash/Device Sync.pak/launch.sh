@@ -41,10 +41,15 @@ status_off(){ killall status.elf 2>/dev/null; rm -f "$SMSG" "$SPROG"; }
 
 dbg "==== launch name=$NAME ===="
 if [ -s "$LAST" ] && [ -d "$(cat "$LAST" 2>/dev/null)" ]; then MID="UNDO LAST"; else MID="CANCEL"; fi
+# remembered peer hint (name only -- no age, the RTC can be wrong)
+LP="$SDCARD/.userdata/tg5040/devicesync/last-peer"; HINT=""
+if [ -s "$LP" ]; then lpn=$(cut -d'|' -f1 "$LP" 2>/dev/null); [ -n "$lpn" ] && HINT="
+
+Last: received from $lpn"; fi
 confirm.elf "Device Sync
 
 Copy your saves to another
-device. No internet needed." "SEND" "$MID" "RECEIVE"
+device. No internet needed.$HINT" "SEND" "$MID" "RECEIVE"
 case "$?" in
 	0) MODE=send ;;
 	2) MODE=receive ;;
@@ -93,25 +98,32 @@ $SENDER.
 
 Nothing new to copy."; exit 0; fi
 
-	confirm.elf "Get saves from
-$SENDER?
+	# Device confirm as a cancelable countdown (zero required taps): names the sender, auto-proceeds,
+	# B cancels (status.elf exits 1). Nothing is written until this passes.
+	printf 'Receiving from\n%s\n\n%s save(s) will update or copy over.\nMatching saves are replaced (undoable).' "$SENDER" "$N" > "$SMSG"
+	status.elf "$SMSG" --countdown 6 --cancel-b
+	if [ "$?" != 0 ]; then say.elf "Cancelled.
 
-$N file(s) will copy. Nothing
-is deleted, and this is undoable." "YES" "NO"
-	[ "$?" = 0 ] || exit 0
+Nothing was copied."; exit 0; fi
 
 	status "Copying from $SENDER..."
 	BK="$BK_ROOT/$(ts)"
 	net pull "$CLIENT_IP" "$PORT" "$LOCAL" "$BK" >/tmp/dsync-pull.log 2>&1
 	cat /tmp/dsync-pull.log >> "$LOGF" 2>/dev/null
 	echo "$BK" > "$LAST"; eng prune "$BK_ROOT" 5 >/dev/null 2>&1
+	printf '%s|%s' "$SENDER" "$(date +%s 2>/dev/null)" > "$SDCARD/.userdata/tg5040/devicesync/last-peer" 2>/dev/null
+	VERIFIED=$(grep -o 'pull: [0-9]*/[0-9]*' /tmp/dsync-pull.log | head -1 | sed 's/pull: //')
+	GOT=${VERIFIED%%/*}; TOT=${VERIFIED##*/}
+	dbg "recv $VERIFIED"
 	status_off
-	dbg "recv $(grep -o 'pull: [0-9]*/[0-9]*' /tmp/dsync-pull.log | head -1)"
-	say.elf "Done!
-
-Got saves from $SENDER.
-Undo any time from the
-Device Sync menu."
+	if [ -n "$GOT" ] && [ "$GOT" = "$TOT" ]; then
+		printf 'Done!\n\nGot %s save(s) from\n%s.\n\nUndo from the Device Sync menu.' "$GOT" "$SENDER" > "$SMSG"
+	elif [ -n "$GOT" ]; then
+		printf 'Partly done.\n\nGot %s of %s from %s.\nRun Device Sync again to finish.' "$GOT" "$TOT" "$SENDER" > "$SMSG"
+	else
+		printf 'Sync finished.\n\nUndo from the Device Sync menu.' > "$SMSG"
+	fi
+	status.elf "$SMSG" --timeout 5
 	exit 0
 fi
 

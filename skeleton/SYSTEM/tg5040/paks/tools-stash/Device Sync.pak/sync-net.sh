@@ -80,23 +80,18 @@ pull() { # <host> <port> <dst> <backup>
 		n=$((n+1))
 		[ -n "$DS_PROGRESS" ] && echo "$n/$total" > "$DS_PROGRESS"
 		mkdir -p "$staging/$(dirname "$rel")"
-		if ! wget -q -O "$staging/$rel" "$base/$(urlenc "$rel")"; then
-			echo "pull: download failed: $rel" >&2; rm -f "$staging/$rel"; fail=1; continue
-		fi
-		# verify size + hash against the manifest line
 		want=$(awk -F"$TAB" -v r="$rel" '$1==r{print $2"|"$5}' "$mf")
 		wsize=${want%|*}; whash=${want#*|}
-		gotsize=$(wc -c < "$staging/$rel" | tr -d ' ')
-		if [ "$gotsize" != "$wsize" ]; then
-			echo "pull: size mismatch $rel ($gotsize/$wsize)" >&2; rm -f "$staging/$rel"; fail=1; continue
-		fi
-		if [ "$whash" != "-" ]; then
-			goth=$(md5sum "$staging/$rel" 2>/dev/null | cut -d' ' -f1)
-			if [ "$goth" != "$whash" ]; then
-				echo "pull: hash mismatch $rel" >&2; rm -f "$staging/$rel"; fail=1; continue
-			fi
-		fi
-		got=$((got+1))
+		# retry each file up to 3 times (download + size + hash), so a WiFi blip does not fail the sync
+		ok_file=0; try=0
+		while [ "$try" -lt 3 ]; do
+			try=$((try+1))
+			wget -q -O "$staging/$rel" "$base/$(urlenc "$rel")" || { rm -f "$staging/$rel"; continue; }
+			[ "$(wc -c < "$staging/$rel" | tr -d ' ')" = "$wsize" ] || { rm -f "$staging/$rel"; continue; }
+			if [ "$whash" != "-" ] && [ "$(md5sum "$staging/$rel" 2>/dev/null | cut -d' ' -f1)" != "$whash" ]; then rm -f "$staging/$rel"; continue; fi
+			ok_file=1; break
+		done
+		if [ "$ok_file" = 1 ]; then got=$((got+1)); else echo "pull: gave up on $rel after $try tries" >&2; fail=1; fi
 	done < "$work/dl"
 
 	# apply-net skips any file missing from staging, so only verified files are written
