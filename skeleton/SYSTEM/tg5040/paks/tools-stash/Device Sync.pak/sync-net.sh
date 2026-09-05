@@ -34,11 +34,17 @@ urlenc() {
 ######################################## SENDER ########################################
 
 # Build a serve dir that exposes ONLY the chosen scope (symlinks, no data copy) + a manifest.
-# Never serves the card root, so wifi.txt / .userdata are never reachable.
-build_export() { # <cardroot> <servedir> <scope-dir>...
+# Each scope entry is a relpath -- a top-level dir (Saves, Roms) OR a nested dir/file
+# (.userdata/shared/GB-gambatte, .userdata/shared/.minui/recent.txt). Only the named paths are
+# symlinked in, so the card root, wifi.txt, our own devicesync backups, and logs are never reachable.
+build_export() { # <cardroot> <servedir> <scope-relpath>...
 	card="$1"; sv="$2"; shift 2
 	rm -rf "$sv"; mkdir -p "$sv"
-	for d in "$@"; do [ -e "$card/$d" ] && ln -s "$card/$d" "$sv/$d"; done
+	for d in "$@"; do
+		[ -e "$card/$d" ] || continue
+		mkdir -p "$sv/$(dirname "$d")"          # nested rels need their parent created first
+		ln -s "$card/$d" "$sv/$d"
+	done
 	# generate the manifest to a temp then move it in, so the manifest never lists itself
 	tmp=$(mktemp "${TMPDIR:-/tmp}/dsync.XXXXXX")
 	eng manifest "$sv" > "$tmp"

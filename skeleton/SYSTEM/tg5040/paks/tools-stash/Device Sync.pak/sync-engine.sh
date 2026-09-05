@@ -48,7 +48,9 @@ classify() {
 	case "$1" in
 		Roms/*)              echo rom ;;
 		Saves/*)             echo save ;;
+		*.st[0-9])           echo save ;;        # save states live in .userdata/shared/<tag>-<core>/<game>.st0..9 -- treat as a save (conflict-protected)
 		Collections/*)       echo collection ;;
+		*/recent.txt)        echo recent ;;      # the recently-played list (.userdata/shared/.minui/recent.txt)
 		map.txt|*/map.txt)   echo map ;;
 		*.cfg)               echo config ;;
 		*)                   echo other ;;
@@ -87,11 +89,17 @@ _plan_rich() {
 			if [ "$size" = "$(file_size "$dst/$rel")" ] && [ "$hash" = "$(file_hash "$dst/$rel")" ]; then
 				printf 'SKIP\t%s\t%s\n' "$mtime" "$rel"          # byte-identical: never re-copy
 			elif [ "$DS_MODE" = ask ]; then
-				# both devices have this game with DIFFERENT saves. The tool cannot know which has more
-				# progress (mtime lies via bad RTCs; SRAM is fixed-size), so it is a CONFLICT: apply only
-				# if the user approves it (DS_TAKE lists approved rels in _apply_rich). Prevents the
-				# "sync wiped my Mario Golf character" case in either direction.
-				printf 'CONFLICT\t%s\t%s\n' "$mtime" "$rel"
+				# Conflict protection is for SAVES only. A save that differs on both devices could hold
+				# progress the tool cannot rank (mtime lies via bad RTCs; SRAM is fixed-size), so it is a
+				# CONFLICT: applied only if the user approves it (DS_TAKE, resolved in _apply_rich). This is
+				# what stops the "sync wiped my Mario Golf character" case in either direction.
+				if [ "$class" = save ]; then
+					printf 'CONFLICT\t%s\t%s\n' "$mtime" "$rel"
+				else
+					# configs / recents / collections / other: the user explicitly PICKED this category to
+					# copy over, so the sender wins (clock-independent). No prompt on settings and lists.
+					printf 'UPDATE\t%s\t%s\n' "$mtime" "$rel"
+				fi
 			elif [ "$DS_MODE" = push ]; then
 				# directional SEND: the sender's version wins on any content difference. Clock-independent
 				# (no mtime compare) -- the right semantics for "send my saves", and immune to bad RTCs.

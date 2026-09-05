@@ -227,6 +227,55 @@ check "ask (keep-mine-all): save3 untouched"     "$(cat "$B5b/Saves/GBA/save3.sr
 check "ask (keep-mine-all): new save still added" "$(cat "$B5b/Saves/GBA/save1.srm")" "NEW-SAVE-ONLY-IN-A"
 
 ######################################################################
+echo "########## SCENARIO 6: Customize categories (saves conflict-protected; configs/recents take sender) ##########"
+NET="$ROOT/skeleton/SYSTEM/tg5040/paks/tools-stash/Device Sync.pak/sync-net.sh"
+# classify the real card paths the Customize picker will export
+check "classify: save state -> save"  "$(E classify '.userdata/shared/GB-gambatte/Mario.st0')"    "save"
+check "classify: recent.txt -> recent" "$(E classify '.userdata/shared/.minui/recent.txt')"       "recent"
+check "classify: game cfg -> config"  "$(E classify '.userdata/tg5040/GB-gambatte/Mario.cfg')"    "config"
+
+A6="$WORK/s6/sender"; B6="$WORK/s6/local"; mkdir -p "$A6" "$B6"
+mk "$A6" "Saves/GBC/Mario Golf.sav" "A-CHAR"       ; mk "$B6" "Saves/GBC/Mario Golf.sav" "B-CHAR"           # save -> CONFLICT
+mk "$A6" ".userdata/shared/GB-gambatte/Mario.st0" "A-STATE" ; mk "$B6" ".userdata/shared/GB-gambatte/Mario.st0" "B-STATE"  # state -> CONFLICT
+mk "$A6" ".userdata/tg5040/GB-gambatte/Mario.cfg" "A-CFG"   ; mk "$B6" ".userdata/tg5040/GB-gambatte/Mario.cfg" "B-CFG"    # config -> UPDATE (no prompt)
+mk "$A6" ".userdata/shared/.minui/recent.txt" "A-RECENT"    ; mk "$B6" ".userdata/shared/.minui/recent.txt" "B-RECENT"    # recent -> UPDATE (no prompt)
+MF6="$WORK/s6.manifest"; E manifest "$A6" > "$MF6"
+P6=$(DS_MODE=ask sh "$ENGINE" plan-net "$MF6" "$B6"); printf '%s\n' "$P6" | sed 's/^/    /'
+has   "CONFLICT${TAB}Saves/GBC/Mario Golf.sav" "$P6"                       # save differs -> conflict (protected)
+has   "CONFLICT${TAB}.userdata/shared/GB-gambatte/Mario.st0" "$P6"         # state differs -> conflict (protected)
+has   "UPDATE${TAB}.userdata/tg5040/GB-gambatte/Mario.cfg" "$P6"           # config differs -> sender wins, no prompt
+has   "UPDATE${TAB}.userdata/shared/.minui/recent.txt" "$P6"              # recents differ -> sender wins, no prompt
+nohas "CONFLICT${TAB}.userdata/tg5040/GB-gambatte/Mario.cfg" "$P6"        # a config is NEVER a conflict prompt
+
+# apply keeping mine on all save conflicts (empty DS_TAKE): saves+states untouched; config+recents replaced
+ST6="$WORK/s6/staging"; mkdir -p "$ST6"
+DS_MODE=ask sh "$ENGINE" delta "$MF6" "$B6" | while IFS= read -r rel; do [ -n "$rel" ] || continue; mkdir -p "$ST6/$(dirname "$rel")"; cp "$A6/$rel" "$ST6/$rel"; done
+TAKE6="$WORK/s6.take"; : > "$TAKE6"
+BK6="$WORK/s6/bk"; DS_MODE=ask DS_TAKE="$TAKE6" sh "$ENGINE" apply-net "$MF6" "$ST6" "$B6" "$BK6"
+check "cat: save conflict kept mine"    "$(cat "$B6/Saves/GBC/Mario Golf.sav")"                 "B-CHAR"
+check "cat: state conflict kept mine"   "$(cat "$B6/.userdata/shared/GB-gambatte/Mario.st0")"   "B-STATE"
+check "cat: config took the sender"     "$(cat "$B6/.userdata/tg5040/GB-gambatte/Mario.cfg")"   "A-CFG"
+check "cat: recents took the sender"    "$(cat "$B6/.userdata/shared/.minui/recent.txt")"       "A-RECENT"
+check "cat: replaced config backed up"  "$(cat "$BK6/.userdata/tg5040/GB-gambatte/Mario.cfg")"  "B-CFG"
+
+# build_export: nested paths are symlinked; our own backups / card root are NEVER exposed
+CARD6="$WORK/s6card"; SV6="$WORK/s6serve"
+mk "$CARD6" "Saves/GBC/x.sav" "S"
+mk "$CARD6" ".userdata/shared/GB-gambatte/x.st0" "ST"
+mk "$CARD6" ".userdata/shared/.minui/recent.txt" "R"
+mk "$CARD6" ".userdata/tg5040/devicesync/backups/old/junk" "OUR-BACKUP"   # must NEVER leave the device
+mk "$CARD6" "wifi.txt" "SSID+PSK"                                          # must NEVER be exported
+sh "$NET" build-export "$CARD6" "$SV6" "Saves" ".userdata/shared/GB-gambatte" ".userdata/shared/.minui/recent.txt" >/dev/null 2>&1
+check "export: nested state symlinked"     "$([ -e "$SV6/.userdata/shared/GB-gambatte/x.st0" ] && echo yes || echo no)"   "yes"
+check "export: recent.txt symlinked"       "$([ -e "$SV6/.userdata/shared/.minui/recent.txt" ] && echo yes || echo no)"  "yes"
+check "export: our backups NOT reachable"  "$([ -e "$SV6/.userdata/tg5040/devicesync/backups/old/junk" ] && echo LEAK || echo safe)" "safe"
+check "export: wifi.txt NOT reachable"     "$([ -e "$SV6/wifi.txt" ] && echo LEAK || echo safe)" "safe"
+MANI6=$(cat "$SV6/_dsync_manifest" 2>/dev/null)
+has   ".userdata/shared/GB-gambatte/x.st0" "$MANI6"
+nohas "devicesync" "$MANI6"
+nohas "wifi.txt" "$MANI6"
+
+######################################################################
 echo "########## prune ##########"
 PR="$WORK/backups"; mkdir -p "$PR"
 for d in 20260101-0000 20260102-0000 20260103-0000 20260104-0000 20260105-0000 20260106-0000 20260107-0000; do mkdir -p "$PR/$d"; done
