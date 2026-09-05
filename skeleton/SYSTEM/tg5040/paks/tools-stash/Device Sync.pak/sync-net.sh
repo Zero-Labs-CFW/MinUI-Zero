@@ -161,9 +161,20 @@ scan() { iw dev "$STA_IF" scan 2>/dev/null | sed -n 's/.*SSID: \(MinUI-Sync-.*\)
 # restore_wifi on EXIT so home wifi always comes back. HOME_CONF is captured before joining. ----
 HOME_CONF_FLAG=/tmp/dsync-home-conf
 save_home_wifi() {
-	c=$(ps 2>/dev/null | grep -v grep | grep wpa_supplicant | grep -- "-i$STA_IF" | sed -n 's/.*-c[ =]*\([^ ]*\).*/\1/p' | head -1)
-	[ -z "$c" ] && c=/etc/wifi/wpa_supplicant.conf
-	echo "$c" > "$HOME_CONF_FLAG"
+	# Read the running supplicant's -c path from /proc/<pid>/cmdline, NEVER from ps: busybox ps truncates
+	# the line at the terminal width, so "-c /etc/wifi/wpa_supplicant.conf" was captured as "/etc/wifi/wp",
+	# restore then launched the supplicant on a nonexistent file, it exited, and the device was left with
+	# no wifi daemon at all. That was every strand on 2026-09-05. Handles "-c PATH" and "-cPATH".
+	# Saved as the WHOLE command line (verified on the Brick: "wpa_supplicant -B -D nl80211 -iwlan0
+	# -c /etc/wifi/wpa_supplicant.conf -O /etc/wifi/sockets") so restore relaunches it exactly, -O and all.
+	line=""
+	for p in $(pidof wpa_supplicant 2>/dev/null); do
+		line=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null)
+		case "$line" in *"-i$STA_IF"*|*"-i $STA_IF"*) break ;; esac
+		line=""
+	done
+	[ -z "$line" ] && line="wpa_supplicant -B -Dnl80211 -i$STA_IF -c /etc/wifi/wpa_supplicant.conf"
+	printf '%s\n' "$line" > "$HOME_CONF_FLAG"
 }
 join() { # <ssid> <psk> : leave home wifi, join the receiver AP BY NAME (no manual scan -- wpa_supplicant
 	# finds it), patiently (the receiver may open after we start). Prints the acquired 192.168.42.x IP.
@@ -185,10 +196,10 @@ restore_wifi() { # bring STA_IF back onto the saved home network
 	# No saved config means we never changed the radio -- so do NOT restart wpa_supplicant with a
 	# guessed conf. Doing exactly that (fallback /etc/wifi/wpa_supplicant.conf) knocked a Brick off its
 	# home WiFi when a run was aborted before join (2026-09-05).
-	c=$(cat "$HOME_CONF_FLAG" 2>/dev/null); [ -n "$c" ] || return 0
+	line=$(cat "$HOME_CONF_FLAG" 2>/dev/null); [ -n "$line" ] || return 0
 	rm -f "$HOME_CONF_FLAG"
 	killall wpa_supplicant 2>/dev/null; sleep 1
-	wpa_supplicant -B -Dnl80211 -i"$STA_IF" -c "$c" 2>/dev/null
+	set -- $line; "$@" 2>/dev/null       # relaunch the stock supplicant EXACTLY as it was running
 	# wait for the association before asking for a lease: a fixed 4s then a single udhcpc -n was a
 	# race (no lease = associated but addressless = unreachable). Poll up to ~20s, then retry the lease.
 	i=0; while [ "$i" -lt 20 ]; do iw dev "$STA_IF" link 2>/dev/null | grep -q '^Connected' && break; sleep 1; i=$((i+1)); done
