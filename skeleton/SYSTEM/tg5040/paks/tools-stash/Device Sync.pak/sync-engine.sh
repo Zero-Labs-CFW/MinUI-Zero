@@ -33,40 +33,71 @@ TAB=$(printf '\t')
 
 # ---- portable shims: busybox (device) and BSD (macOS dev) ----
 file_size()  { [ -e "$1" ] && wc -c < "$1" | tr -d ' ' || echo 0; }
-file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || date -r "$1" +%s 2>/dev/null || echo 0; }  # busybox has no stat; date -r reads a file's mtime there
+# Pick the mtime tool ONCE. Every miss is a fork, and busybox (the device) has no stat at all, so the old
+# try-each-in-turn shim cost three forks per file; date -r is what works there.
+if   stat -c %Y . >/dev/null 2>&1; then MT=gnu
+elif stat -f %m . >/dev/null 2>&1; then MT=bsd
+else MT=date; fi
+file_mtime() {
+	case "$MT" in
+		gnu) stat -c %Y "$1" 2>/dev/null ;;
+		bsd) stat -f %m "$1" 2>/dev/null ;;
+		*)   date -r "$1" +%s 2>/dev/null ;;
+	esac || echo 0
+}
 file_hash()  {
 	if   command -v md5sum >/dev/null 2>&1; then md5sum "$1" 2>/dev/null | cut -d' ' -f1
 	elif command -v md5    >/dev/null 2>&1; then md5 -q "$1" 2>/dev/null
 	else echo "nohash-$(file_size "$1")"; fi
 }
 fmt_ts()   { date -r "$1" +%Y%m%d%H%M.%S 2>/dev/null || date -d @"$1" +%Y%m%d%H%M.%S 2>/dev/null; }
-set_mtime(){ ts=$(fmt_ts "$2"); [ -n "$ts" ] && touch -t "$ts" "$1" 2>/dev/null; }
+set_mtime(){ [ "${2:-0}" -gt 0 ] 2>/dev/null || return 0; ts=$(fmt_ts "$2"); [ -n "$ts" ] && touch -t "$ts" "$1" 2>/dev/null; }  # 0 = unknown: leave the file's own time
 tmpf()     { mktemp "${TMPDIR:-/tmp}/dsync.XXXXXX"; }
 
 # ---- classification: relpath -> class, class -> merge rule ----
-classify() {
+# _classify sets CLS with no fork (manifest() calls it once per file); classify is the echoing/CLI form.
+_classify() {
 	case "$1" in
-		Roms/*)              echo rom ;;
-		Saves/*)             echo save ;;
-		*.st[0-9])           echo save ;;        # save states live in .userdata/shared/<tag>-<core>/<game>.st0..9 -- treat as a save (conflict-protected)
-		Collections/*)       echo collection ;;
-		*/recent.txt)        echo recent ;;      # the recently-played list (.userdata/shared/.minui/recent.txt)
-		map.txt|*/map.txt)   echo map ;;
-		*.cfg)               echo config ;;
-		*)                   echo other ;;
+		Roms/*)              CLS=rom ;;
+		Saves/*)             CLS=save ;;
+		*.st[0-9])           CLS=save ;;        # save states live in .userdata/shared/<tag>-<core>/<game>.st0..9 -- treat as a save (conflict-protected)
+		Collections/*)       CLS=collection ;;
+		*/recent.txt)        CLS=recent ;;      # the recently-played list (.userdata/shared/.minui/recent.txt)
+		map.txt|*/map.txt)   CLS=map ;;
+		*.cfg)               CLS=config ;;
+		*)                   CLS=other ;;
 	esac
 }
+classify() { _classify "$1"; echo "$CLS"; }
 rule_for() { case "$1" in rom) echo additive ;; *) echo newer ;; esac; }  # rom never overwritten
 
 # ---- manifest: rel \t size \t mtime \t class \t hash ----
+# BATCHED, not per-file. The old loop forked wc + date + md5sum for every file; on a 765-game card that
+# was thousands of busybox forks, minutes of wall clock, and a black screen (2026-09-05). Now: sizes for
+# every file and md5 for every NON-ROM file come from a handful of `find -exec ... {} +` batches
+# (verified on the Brick's busybox 1.27: no -printf, but {} + works). mtime is still one date -r per
+# file but only for non-ROMs (saves/states/configs -- the few that matter); ROMs are additive, never
+# overwritten, so their mtime is cosmetic and is emitted as 0 (set_mtime skips 0). Class comes from the
+# shell _classify (single source of truth) with no fork. Filenames with spaces are preserved; the
+# only unsupported names are ones containing a tab or newline.
 manifest() {
 	( cd "$1" 2>/dev/null || exit 0
-	  find -L . -type f 2>/dev/null | sed 's|^\./||' | while IFS= read -r rel; do
-		[ -n "$rel" ] || continue
-		cls=$(classify "$rel")
-		if [ "$cls" = rom ]; then h="-"; else h=$(file_hash "$rel"); fi
-		printf '%s\t%s\t%s\t%s\t%s\n' "$rel" "$(file_size "$rel")" "$(file_mtime "$rel")" "$cls" "$h"
-	  done )
+	  t=$(tmpf)
+	  find -L . -type f -exec wc -c {} + 2>/dev/null > "$t.sz"
+	  find -L . -type f ! -path './Roms/*' -exec md5sum {} + 2>/dev/null > "$t.md5"
+	  find -L . -type f ! -path './Roms/*' 2>/dev/null | while IFS= read -r f; do
+		printf '%s\t%s\n' "$(file_mtime "$f")" "$f"; done > "$t.mt"
+	  sed 's/^ *[0-9]* //' "$t.sz" | while IFS= read -r f; do
+		[ "$f" = total ] && continue                 # wc's per-batch total line, never a real "./total"
+		_classify "${f#./}"; printf '%s\t%s\n' "$CLS" "$f"; done > "$t.cls"
+	  awk -F'\t' -v OFS='\t' '
+		FILENAME==ARGV[1] { s=$0; sub(/^ */,"",s); i=index(s," "); sz[substr(s,i+1)]=substr(s,1,i-1); next }
+		FILENAME==ARGV[2] { h[substr($0,35)]=substr($0,1,32); next }
+		FILENAME==ARGV[3] { mt[$2]=$1; next }
+		FILENAME==ARGV[4] { f=$2; c=$1
+		                    print substr(f,3), sz[f], (f in mt ? mt[f] : 0), c, (c=="rom" ? "-" : (f in h ? h[f] : "-")) }
+	  ' "$t.sz" "$t.md5" "$t.mt" "$t.cls"
+	  rm -f "$t" "$t.sz" "$t.md5" "$t.mt" "$t.cls" )
 }
 
 # ---- _plan_rich: compare a manifest against dst. Emits ACTION \t MTIME \t REL (internal form) ----

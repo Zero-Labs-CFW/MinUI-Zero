@@ -24,6 +24,7 @@ PORT=8145; PSK=minuizerosync
 SSID=MinUI-Sync; CLIENT_IP=192.168.42.10
 SERVE=/tmp/dsync-serve; LOCAL="$SDCARD"
 BK_ROOT="$SDCARD/.userdata/tg5040/devicesync/backups"
+STAGE="$SDCARD/.userdata/tg5040/devicesync/staging"   # receiver download staging: ON THE CARD, never /tmp (RAM)
 LAST="$SDCARD/.userdata/tg5040/devicesync/last-sync"
 LOGF="$SDCARD/.userdata/tg5040/logs/devicesync.txt"
 mkdir -p "$(dirname "$LOGF")" "$(dirname "$LAST")" 2>/dev/null
@@ -72,7 +73,7 @@ esac
 # ============================ RECEIVE: open, confirm sender, pull ============================
 if [ "$MODE" = receive ]; then
 	# receiver keeps its own WiFi (concurrent AP), so it never needs to reconnect -- just drop the AP.
-	trap 'status_off; net ap-down >/dev/null 2>&1; rm -rf "$SERVE"' EXIT INT TERM HUP
+	trap 'status_off; net ap-down >/dev/null 2>&1; rm -rf "$SERVE" "$STAGE"' EXIT INT TERM HUP
 	net ap-up "$SSID" "$PSK" >/dev/null 2>&1
 	dbg "recv ap-up hostapd=$(pidof hostapd >/dev/null 2>&1 && echo up || echo DOWN)"
 	if ! pidof hostapd >/dev/null 2>&1; then status_off; say.elf "Could not open to receive.
@@ -92,6 +93,7 @@ On it, choose Send."
 Make sure the other device
 chose Send, then try again."; exit 0; fi
 
+	status "Checking what is new..."           # the plan below stats every file we already have; say so
 	SENDER=$(wget -q -O - "http://$CLIENT_IP:$PORT/_dsync_name" 2>/dev/null); [ -z "$SENDER" ] && SENDER="the other device"
 	SCOPE_LABEL=$(wget -q -O - "http://$CLIENT_IP:$PORT/_dsync_scope" 2>/dev/null); [ -z "$SCOPE_LABEL" ] && SCOPE_LABEL="Saves"
 	# plan in "ask" mode: new saves = ADD (auto); same game + different save on both = CONFLICT (user decides)
@@ -105,6 +107,23 @@ chose Send, then try again."; exit 0; fi
 $SENDER.
 
 Nothing new to copy."; exit 0; fi
+
+	# Games can be gigabytes: stage downloads ON THE CARD (never /tmp, which is RAM on a 1 GB device), and
+	# refuse up front if the card cannot hold the incoming delta (Dan 2026-09-05). Need = every file we
+	# will download (ADD + CONFLICT), +10% and 50 MB headroom for the per-file tmp copy during apply.
+	rm -rf "$STAGE"; mkdir -p "$STAGE"; export TMPDIR="$STAGE"
+	NEED_KB=$(printf '%s\n' "$PLAN" | grep -E "^(ADD|CONFLICT)$TAB" | cut -f2- \
+		| awk -F"$TAB" 'NR==FNR{w[$0]=1;next} ($1 in w){s+=$2} END{printf "%d",(s+1023)/1024}' - "$MF")
+	FREE_KB=$(df -k "$SDCARD" 2>/dev/null | awk 'NR==2{print $4}')
+	dbg "recv need=${NEED_KB:-?}KB free=${FREE_KB:-?}KB"
+	if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt $((NEED_KB + NEED_KB/10 + 51200)) ] 2>/dev/null; then
+		say.elf "Not enough space on this card.
+
+Needs about $((NEED_KB/1024)) MB, but only
+$((FREE_KB/1024)) MB is free.
+
+Nothing was copied."; exit 0
+	fi
 
 	TAKE=/tmp/dsync-take; : > "$TAKE"; export DS_TAKE="$TAKE"
 	if [ "$NCON" -eq 0 ]; then
@@ -193,7 +212,12 @@ for k in $CHOICE; do case "$k" in
 	             # per-game + per-core configs under .userdata/tg5040/<tag>-<core>/. Require an actual .cfg:
 	             # this is what distinguishes a real config dir from app state that also has a hyphen
 	             # (e.g. nextui-pak-store) and from our own no-hyphen devicesync backups.
-	             for d in "$LOCAL"/.userdata/tg5040/*-*/; do [ -d "$d" ] || continue; ls "$d"*.cfg >/dev/null 2>&1 || continue; r=${d#"$LOCAL"/}; SCOPE="$SCOPE ${r%/}"; done ;;
+	             for d in "$LOCAL"/.userdata/tg5040/*-*/; do
+	                 [ -d "$d" ] || continue
+	                 n=${d%/}; n=${n##*/}; case "$n" in nextui-pak-store) continue ;; esac   # app state that happens to carry a .cfg (seen on the Brick 2026-09-05)
+	                 ls "$d"*.cfg >/dev/null 2>&1 || continue
+	                 r=${d#"$LOCAL"/}; SCOPE="$SCOPE ${r%/}"
+	             done ;;
 	collections) SCOPE="$SCOPE Collections"; LABELS="$LABELS, Collections" ;;
 esac; done
 LABELS=${LABELS#, }
@@ -213,6 +237,8 @@ teardown_send(){
 trap 'status_off; teardown_send' EXIT INT TERM HUP
 dbg "send name=$NAME had_wifi=$HAD_WIFI home=$HOMEIP"
 
+# the file list can take a moment with Games selected -- NEVER a black screen (2026-09-05: it was)
+status "Preparing your files..."
 net build-export "$LOCAL" "$SERVE" $SCOPE >/dev/null 2>&1
 echo "$NAME" > "$SERVE/_dsync_name"           # so the receiver can name us in its confirm
 printf '%s' "$LABELS" > "$SERVE/_dsync_scope" # so the receiver can name WHAT it is getting
