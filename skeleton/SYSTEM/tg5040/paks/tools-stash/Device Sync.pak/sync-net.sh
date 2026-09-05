@@ -182,7 +182,11 @@ join() { # <ssid> <psk> : leave home wifi, join the receiver AP BY NAME (no manu
 	echo ""; return 1
 }
 restore_wifi() { # bring STA_IF back onto the saved home network
-	c=$(cat "$HOME_CONF_FLAG" 2>/dev/null); [ -z "$c" ] && c=/etc/wifi/wpa_supplicant.conf
+	# No saved config means we never changed the radio -- so do NOT restart wpa_supplicant with a
+	# guessed conf. Doing exactly that (fallback /etc/wifi/wpa_supplicant.conf) knocked a Brick off its
+	# home WiFi when a run was aborted before join (2026-09-05).
+	c=$(cat "$HOME_CONF_FLAG" 2>/dev/null); [ -n "$c" ] || return 0
+	rm -f "$HOME_CONF_FLAG"
 	killall wpa_supplicant 2>/dev/null; sleep 1
 	wpa_supplicant -B -Dnl80211 -i"$STA_IF" -c "$c" 2>/dev/null
 	sleep 4; udhcpc -i "$STA_IF" -n -q 2>/dev/null
@@ -206,6 +210,7 @@ case "$cmd" in
 	ap-down)      ap_down "$@" ;;
 	scan)         scan "$@" ;;
 	join)         join "$@" ;;
+	save-home-wifi) save_home_wifi "$@" ;;
 	restore-wifi) restore_wifi "$@" ;;
 	wifi-off)     wifi_off "$@" ;;
 	sta-count)    sta_count "$@" ;;

@@ -229,6 +229,9 @@ dbg "send scope: $SCOPE"
 # 2) now touch the radio. Capture whether we HAD real WiFi, so we only "reconnect" if there was one.
 HOMEIP=$(ip -4 addr show "$STA_IF" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)
 case "$HOMEIP" in 192.168.42.*|"") HAD_WIFI=0 ;; *) HAD_WIFI=1 ;; esac
+# Save the live home-WiFi config NOW, before anything touches the radio. It used to be saved inside
+# join; an abort before join then "restored" a fallback conf and knocked the Brick off WiFi (2026-09-05).
+[ "$HAD_WIFI" = 1 ] && net save-home-wifi >/dev/null 2>&1
 teardown_send(){
 	net stop-serve >/dev/null 2>&1
 	if [ "$HAD_WIFI" = 1 ]; then net restore-wifi >/dev/null 2>&1; else net wifi-off >/dev/null 2>&1; fi
