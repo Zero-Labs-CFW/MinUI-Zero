@@ -86,6 +86,12 @@ _plan_rich() {
 		else
 			if [ "$size" = "$(file_size "$dst/$rel")" ] && [ "$hash" = "$(file_hash "$dst/$rel")" ]; then
 				printf 'SKIP\t%s\t%s\n' "$mtime" "$rel"          # byte-identical: never re-copy
+			elif [ "$DS_MODE" = ask ]; then
+				# both devices have this game with DIFFERENT saves. The tool cannot know which has more
+				# progress (mtime lies via bad RTCs; SRAM is fixed-size), so it is a CONFLICT: apply only
+				# if the user approves it (DS_TAKE lists approved rels in _apply_rich). Prevents the
+				# "sync wiped my Mario Golf character" case in either direction.
+				printf 'CONFLICT\t%s\t%s\n' "$mtime" "$rel"
 			elif [ "$DS_MODE" = push ]; then
 				# directional SEND: the sender's version wins on any content difference. Clock-independent
 				# (no mtime compare) -- the right semantics for "send my saves", and immune to bad RTCs.
@@ -110,6 +116,10 @@ _apply_rich() {
 	fi
 	mkdir -p "$bdir"; : > "$bdir/ops.log"
 	_plan_rich "$mfile" "$dst" | while IFS="$TAB" read -r action mtime rel; do
+		if [ "$action" = CONFLICT ]; then
+			# apply an approved conflict as an UPDATE (backup+atomic); otherwise keep local
+			if [ -n "$DS_TAKE" ] && grep -qxF "$rel" "$DS_TAKE" 2>/dev/null; then action=UPDATE; else continue; fi
+		fi
 		case "$action" in
 		ADD|UPDATE)
 			[ -e "$staging/$rel" ] || { printf 'MISS\t%s\n' "$rel" >&2; continue; }
@@ -146,7 +156,7 @@ plan()  { src="$1"; dst="$2"; t=$(tmpf); manifest "$src" > "$t"; _plan_rich "$t"
 apply() { src="$1"; dst="$2"; bdir="$3"; t=$(tmpf); manifest "$src" > "$t"; _apply_rich "$t" "$src" "$dst" "$bdir"; rc=$?; rm -f "$t"; return $rc; }
 
 # ---- public: networked (manifest fetched over the wire, bytes downloaded into staging) ----
-delta()   { _plan_rich "$1" "$2" | grep -E '^(ADD|UPDATE)' | cut -f3; }   # receiver: files to download
+delta()   { _plan_rich "$1" "$2" | grep -E "^(ADD|UPDATE|CONFLICT)$TAB" | cut -f3; }   # receiver: files to download (conflicts staged too, applied only if approved)
 plan_net(){ _plan_rich "$1" "$2" | cut -f1,3; }            # receiver: dry-run preview
 apply_net(){ _apply_rich "$1" "$2" "$3" "$4"; }            # receiver: apply staged bytes
 

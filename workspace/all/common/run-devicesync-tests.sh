@@ -185,6 +185,48 @@ check "push: ROM conflict still kept local"           "$(cat "$B4/Roms/GBA/game3
 check "push: local-only file NOT deleted"             "$(cat "$B4/Saves/GBA/localonly.srm")"   "ONLY-ON-B-NEVER-DELETE"
 
 ######################################################################
+echo "########## SCENARIO 5: ask mode (DS_MODE=ask -- same game, different save = CONFLICT the user resolves) ##########"
+# The Mario Golf case: a save that differs on both devices is NEVER blindly overwritten. It becomes a
+# CONFLICT; apply touches it only if the user approved that rel (DS_TAKE). New saves still auto-apply.
+A5="$WORK/s5/sender"; B5="$WORK/s5/local"; build_trees "$A5" "$B5"
+MF5="$WORK/s5.manifest"; E manifest "$A5" > "$MF5"
+P5=$(DS_MODE=ask sh "$ENGINE" plan-net "$MF5" "$B5"); printf '%s\n' "$P5" | sed 's/^/    /'
+has   "ADD${TAB}Saves/GBA/save1.srm" "$P5"        # new save -> auto ADD (no prompt)
+has   "CONFLICT${TAB}Saves/GBA/save2.srm" "$P5"   # differs on both -> CONFLICT, not UPDATE
+has   "CONFLICT${TAB}Saves/GBA/save3.srm" "$P5"   # differs on both (other direction) -> CONFLICT too
+has   "SKIP${TAB}Saves/GBA/save4.srm" "$P5"       # identical -> skipped
+nohas "UPDATE${TAB}Saves/GBA/save2.srm" "$P5"     # ask mode NEVER silently overwrites a differing save
+nohas "UPDATE${TAB}Saves/GBA/save3.srm" "$P5"
+
+# stage the delta (ADD + all CONFLICTs are downloaded; only approved conflicts get applied)
+ST5="$WORK/s5/staging"; mkdir -p "$ST5"
+DL5=$(DS_MODE=ask sh "$ENGINE" delta "$MF5" "$B5")
+printf '%s\n' "$DL5" | while IFS= read -r rel; do [ -n "$rel" ] || continue; mkdir -p "$ST5/$(dirname "$rel")"; cp "$A5/$rel" "$ST5/$rel"; done
+has "Saves/GBA/save2.srm" "$DL5"                  # conflicts ARE downloaded (so an approval can apply instantly)
+nohas "Saves/GBA/save4.srm" "$DL5"                # identical file never downloaded
+
+# user resolves: TAKE THEIRS for save3, KEEP MINE for save2
+TAKE5="$WORK/s5.take"; printf 'Saves/GBA/save3.srm\n' > "$TAKE5"
+BK5="$WORK/s5/bk"; DS_MODE=ask DS_TAKE="$TAKE5" sh "$ENGINE" apply-net "$MF5" "$ST5" "$B5" "$BK5"
+check "ask: new save auto-added"                 "$(cat "$B5/Saves/GBA/save1.srm")"   "NEW-SAVE-ONLY-IN-A"
+check "ask: KEEP MINE conflict left untouched"   "$(cat "$B5/Saves/GBA/save2.srm")"   "B-OLD-CONTENT"
+check "ask: TAKE THEIRS conflict overwritten"    "$(cat "$B5/Saves/GBA/save3.srm")"   "A-OLD-CONTENT"
+check "ask: the taken loser is backed up"        "$(cat "$BK5/Saves/GBA/save3.srm")"  "B-IS-NEWER-CONTENT"
+check "ask: un-taken conflict NOT backed up"     "$([ -e "$BK5/Saves/GBA/save2.srm" ] && echo yes || echo no)" "no"
+check "ask: ROM conflict still kept local"       "$(cat "$B5/Roms/GBA/game3.gba")"    "ROM-VERSION-B"
+
+# KEEP MINE for everything (empty DS_TAKE): no save the user has is ever changed, ADDs still apply
+A5b="$WORK/s5b/sender"; B5b="$WORK/s5b/local"; build_trees "$A5b" "$B5b"
+MF5b="$WORK/s5b.manifest"; E manifest "$A5b" > "$MF5b"
+ST5b="$WORK/s5b/staging"; mkdir -p "$ST5b"
+DS_MODE=ask sh "$ENGINE" delta "$MF5b" "$B5b" | while IFS= read -r rel; do [ -n "$rel" ] || continue; mkdir -p "$ST5b/$(dirname "$rel")"; cp "$A5b/$rel" "$ST5b/$rel"; done
+TAKE5b="$WORK/s5b.take"; : > "$TAKE5b"
+BK5b="$WORK/s5b/bk"; DS_MODE=ask DS_TAKE="$TAKE5b" sh "$ENGINE" apply-net "$MF5b" "$ST5b" "$B5b" "$BK5b"
+check "ask (keep-mine-all): save2 untouched"     "$(cat "$B5b/Saves/GBA/save2.srm")"  "B-OLD-CONTENT"
+check "ask (keep-mine-all): save3 untouched"     "$(cat "$B5b/Saves/GBA/save3.srm")"  "B-IS-NEWER-CONTENT"
+check "ask (keep-mine-all): new save still added" "$(cat "$B5b/Saves/GBA/save1.srm")" "NEW-SAVE-ONLY-IN-A"
+
+######################################################################
 echo "########## prune ##########"
 PR="$WORK/backups"; mkdir -p "$PR"
 for d in 20260101-0000 20260102-0000 20260103-0000 20260104-0000 20260105-0000 20260106-0000 20260107-0000; do mkdir -p "$PR/$d"; done

@@ -16,7 +16,9 @@ eng(){ sh "$ENG" "$@"; }
 
 SDCARD="${SDCARD_PATH:-/mnt/SDCARD}"
 export AP_IF=wlan1 STA_IF=wlan0 AP_IP=192.168.42.1 AP_PORT=8145
-export DS_MODE=push                          # Send is directional: the sender's saves win (clock-safe)
+export DS_MODE=ask                           # receiver: same game + different save on both = a conflict
+                                             # the user resolves (can't guess which has more progress)
+TAB=$(printf '\t')
 PORT=8145; PSK=minuizerosync
 SSID=MinUI-Sync; CLIENT_IP=192.168.42.10
 SERVE=/tmp/dsync-serve; LOCAL="$SDCARD"
@@ -90,21 +92,49 @@ Make sure the other device
 chose Send, then try again."; exit 0; fi
 
 	SENDER=$(wget -q -O - "http://$CLIENT_IP:$PORT/_dsync_name" 2>/dev/null); [ -z "$SENDER" ] && SENDER="the other device"
-	N=$(eng delta "$MF" "$LOCAL" | grep -c .)
-	dbg "recv sender=$SENDER delta N=$N"
+	# plan in "ask" mode: new saves = ADD (auto); same game + different save on both = CONFLICT (user decides)
+	PLAN=$(eng plan-net "$MF" "$LOCAL")
+	NADD=$(printf '%s\n' "$PLAN" | grep -c "^ADD$TAB")
+	CONFLICTS=$(printf '%s\n' "$PLAN" | grep "^CONFLICT$TAB" | cut -f2-)
+	NCON=$(printf '%s\n' "$CONFLICTS" | grep -c .)
+	dbg "recv sender=$SENDER add=$NADD conflicts=$NCON"
 	status_off
-	if [ "$N" -eq 0 ]; then say.elf "Already in sync with
+	if [ "$((NADD + NCON))" -eq 0 ]; then say.elf "Already in sync with
 $SENDER.
 
 Nothing new to copy."; exit 0; fi
 
-	# Device confirm as a cancelable countdown (zero required taps): names the sender, auto-proceeds,
-	# B cancels (status.elf exits 1). Nothing is written until this passes.
-	printf 'Receiving from\n%s\n\n%s save(s) will update or copy over.\nMatching saves are replaced (undoable).' "$SENDER" "$N" > "$SMSG"
-	status.elf "$SMSG" --countdown 6 --cancel-b
-	if [ "$?" != 0 ]; then say.elf "Cancelled.
+	TAKE=/tmp/dsync-take; : > "$TAKE"; export DS_TAKE="$TAKE"
+	if [ "$NCON" -eq 0 ]; then
+		# nothing you already have is overwritten -> zero-tap cancelable countdown
+		printf 'Receiving from\n%s\n\n%s new save(s) will copy over.\nNothing you already have changes.' "$SENDER" "$NADD" > "$SMSG"
+		status.elf "$SMSG" --countdown 6 --cancel-b
+		[ "$?" = 0 ] || { say.elf "Cancelled.
 
-Nothing was copied."; exit 0; fi
+Nothing was copied."; exit 0; }
+	else
+		# same game, different save on both. The tool cannot know which has more progress, so ask.
+		confirm.elf "$NCON game(s) have a different
+save here and on $SENDER
+(like a character you built up).
+
+Keep which copy?" "TAKE THEIRS" "KEEP MINE" "DECIDE EACH"
+		case "$?" in
+			0) printf '%s\n' "$CONFLICTS" > "$TAKE" ;;                 # take all from sender
+			1) : > "$TAKE" ;;                                          # keep all mine (conflicts skipped)
+			2) printf '%s\n' "$CONFLICTS" | while IFS= read -r cr; do
+					[ -n "$cr" ] || continue
+					nm=$(basename "$cr" 2>/dev/null); nm=${nm%.*}
+					confirm.elf "$nm
+
+Different here and on $SENDER.
+Which copy do you keep?" "TAKE THEIRS" "KEEP MINE"
+					[ "$?" = 0 ] && echo "$cr" >> "$TAKE"
+				done ;;
+			*) exit 0 ;;
+		esac
+		dbg "recv resolved take=$(grep -c . "$TAKE" 2>/dev/null)/$NCON"
+	fi
 
 	status "Copying from $SENDER..."
 	BK="$BK_ROOT/$(ts)"
@@ -112,16 +142,13 @@ Nothing was copied."; exit 0; fi
 	cat /tmp/dsync-pull.log >> "$LOGF" 2>/dev/null
 	echo "$BK" > "$LAST"; eng prune "$BK_ROOT" 5 >/dev/null 2>&1
 	printf '%s|%s' "$SENDER" "$(date +%s 2>/dev/null)" > "$SDCARD/.userdata/tg5040/devicesync/last-peer" 2>/dev/null
-	VERIFIED=$(grep -o 'pull: [0-9]*/[0-9]*' /tmp/dsync-pull.log | head -1 | sed 's/pull: //')
-	GOT=${VERIFIED%%/*}; TOT=${VERIFIED##*/}
-	dbg "recv $VERIFIED"
+	APPLIED=$(wc -l < "$BK/ops.log" 2>/dev/null | tr -d ' ')
+	dbg "recv applied=$APPLIED $(grep -o 'pull: [0-9]*/[0-9]*' /tmp/dsync-pull.log | head -1)"
 	status_off
-	if [ -n "$GOT" ] && [ "$GOT" = "$TOT" ]; then
-		printf 'Done!\n\nGot %s save(s) from\n%s.\n\nUndo from the Device Sync menu.' "$GOT" "$SENDER" > "$SMSG"
-	elif [ -n "$GOT" ]; then
-		printf 'Partly done.\n\nGot %s of %s from %s.\nRun Device Sync again to finish.' "$GOT" "$TOT" "$SENDER" > "$SMSG"
+	if grep -q 'gave up on' /tmp/dsync-pull.log 2>/dev/null; then
+		printf 'Partly done.\n\nGot %s save(s) from %s.\nRun Device Sync again to finish.' "${APPLIED:-0}" "$SENDER" > "$SMSG"
 	else
-		printf 'Sync finished.\n\nUndo from the Device Sync menu.' > "$SMSG"
+		printf 'Done!\n\nGot %s save(s) from\n%s.\n\nUndo from the Device Sync menu.' "${APPLIED:-0}" "$SENDER" > "$SMSG"
 	fi
 	status.elf "$SMSG" --timeout 5
 	exit 0
