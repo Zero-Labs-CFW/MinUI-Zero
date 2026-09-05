@@ -183,14 +183,17 @@ fi
 SCOPE=""; LABELS=""
 for k in $CHOICE; do case "$k" in
 	saves)       SCOPE="$SCOPE Saves"; LABELS="$LABELS, Saves"
-	             # save states live per-core under .userdata/shared/<tag>-<core>/ -- fold them into "Saves"
-	             for d in "$LOCAL"/.userdata/shared/*-*/; do [ -d "$d" ] || continue; r=${d#"$LOCAL"/}; SCOPE="$SCOPE ${r%/}"; done ;;
+	             # save states live per-core under .userdata/shared/<tag>-<core>/ -- fold them into "Saves".
+	             # Require an actual .st* file: skips empty core dirs and any hyphenated non-state dir. The
+	             # dot-glob rule already excludes .minui and the ._* / wifi.conf / *_host_key siblings.
+	             for d in "$LOCAL"/.userdata/shared/*-*/; do [ -d "$d" ] || continue; ls "$d"*.st* >/dev/null 2>&1 || continue; r=${d#"$LOCAL"/}; SCOPE="$SCOPE ${r%/}"; done ;;
 	games)       SCOPE="$SCOPE Roms"; LABELS="$LABELS, Games" ;;
 	recents)     SCOPE="$SCOPE .userdata/shared/.minui/recent.txt"; LABELS="$LABELS, Recently Played" ;;
 	configs)     LABELS="$LABELS, Settings"
-	             # per-game + per-core configs under .userdata/tg5040/<tag>-<core>/ (the *-* glob skips our
-	             # own .userdata/tg5040/devicesync backups, which have no hyphen)
-	             for d in "$LOCAL"/.userdata/tg5040/*-*/; do [ -d "$d" ] || continue; r=${d#"$LOCAL"/}; SCOPE="$SCOPE ${r%/}"; done ;;
+	             # per-game + per-core configs under .userdata/tg5040/<tag>-<core>/. Require an actual .cfg:
+	             # this is what distinguishes a real config dir from app state that also has a hyphen
+	             # (e.g. nextui-pak-store) and from our own no-hyphen devicesync backups.
+	             for d in "$LOCAL"/.userdata/tg5040/*-*/; do [ -d "$d" ] || continue; ls "$d"*.cfg >/dev/null 2>&1 || continue; r=${d#"$LOCAL"/}; SCOPE="$SCOPE ${r%/}"; done ;;
 	collections) SCOPE="$SCOPE Collections"; LABELS="$LABELS, Collections" ;;
 esac; done
 LABELS=${LABELS#, }
