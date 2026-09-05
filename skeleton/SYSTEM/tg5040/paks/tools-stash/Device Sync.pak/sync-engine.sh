@@ -32,7 +32,10 @@
 TAB=$(printf '\t')
 
 # ---- portable shims: busybox (device) and BSD (macOS dev) ----
-file_size()  { [ -e "$1" ] && wc -c < "$1" | tr -d ' ' || echo 0; }
+# Size via ls -ln (a stat), NEVER wc -c: busybox wc READS the whole file to count it, which on a card of
+# PS1 disc images meant reading gigabytes just to size them (caught on the Brick 2026-09-05, wc found
+# with a 600 MB .bin open). Field 5 of ls -ln is the byte size on busybox, GNU and BSD alike.
+file_size()  { [ -e "$1" ] && ls -ln "$1" 2>/dev/null | { read -r _p _l _u _g sz _rest; echo "${sz:-0}"; } || echo 0; }
 # Pick the mtime tool ONCE. Every miss is a fork, and busybox (the device) has no stat at all, so the old
 # try-each-in-turn shim cost three forks per file; date -r is what works there.
 if   stat -c %Y . >/dev/null 2>&1; then MT=gnu
@@ -83,15 +86,16 @@ rule_for() { case "$1" in rom) echo additive ;; *) echo newer ;; esac; }  # rom 
 manifest() {
 	( cd "$1" 2>/dev/null || exit 0
 	  t=$(tmpf)
-	  find -L . -type f -exec wc -c {} + 2>/dev/null > "$t.sz"
+	  # sizes: ls -ln is a stat (field 5 = bytes); wc -c would READ every file -- gigabytes of PS1 images
+	  find -L . -type f -exec ls -ln {} + 2>/dev/null > "$t.sz"
 	  find -L . -type f ! -path './Roms/*' -exec md5sum {} + 2>/dev/null > "$t.md5"
 	  find -L . -type f ! -path './Roms/*' 2>/dev/null | while IFS= read -r f; do
 		printf '%s\t%s\n' "$(file_mtime "$f")" "$f"; done > "$t.mt"
-	  sed 's/^ *[0-9]* //' "$t.sz" | while IFS= read -r f; do
-		[ "$f" = total ] && continue                 # wc's per-batch total line, never a real "./total"
+	  # the path is everything from the first " ./" (the fields before it are perms/counts/date)
+	  awk '{ i=index($0," ./"); if (i) print substr($0,i+1) }' "$t.sz" | while IFS= read -r f; do
 		_classify "${f#./}"; printf '%s\t%s\n' "$CLS" "$f"; done > "$t.cls"
 	  awk -F'\t' -v OFS='\t' '
-		FILENAME==ARGV[1] { s=$0; sub(/^ */,"",s); i=index(s," "); sz[substr(s,i+1)]=substr(s,1,i-1); next }
+		FILENAME==ARGV[1] { i=index($0," ./"); if (i) { split($0,a," "); sz[substr($0,i+1)]=a[5] } next }
 		FILENAME==ARGV[2] { h[substr($0,35)]=substr($0,1,32); next }
 		FILENAME==ARGV[3] { mt[$2]=$1; next }
 		FILENAME==ARGV[4] { f=$2; c=$1
