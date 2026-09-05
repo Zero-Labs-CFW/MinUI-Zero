@@ -237,7 +237,12 @@ teardown_send(){
 	net stop-serve >/dev/null 2>&1
 	if [ "$HAD_WIFI" = 1 ]; then net restore-wifi >/dev/null 2>&1; else net wifi-off >/dev/null 2>&1; fi
 	rm -rf "$SERVE"
+	rm -f /tmp/dsync-radio-busy                  # the keeper may resume watching the radio
 }
+# Dev cards run a net-keeper that bounces wlan0 whenever the gateway is unreachable for 60 s. Our join
+# removes the gateway ON PURPOSE, so the keeper tore down the join and then the restore and stranded the
+# Brick three times (2026-09-05). This flag tells it to stand down until teardown clears it.
+touch /tmp/dsync-radio-busy
 trap 'status_off; teardown_send' EXIT INT TERM HUP
 dbg "send name=$NAME had_wifi=$HAD_WIFI home=$HOMEIP"
 
