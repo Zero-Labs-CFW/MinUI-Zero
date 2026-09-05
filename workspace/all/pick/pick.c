@@ -109,12 +109,10 @@ int main(int argc, char* argv[]) {
 					SDL_FillRect(screen, &(SDL_Rect){ box_x,         box_y,         T, B }, ink);
 					SDL_FillRect(screen, &(SDL_Rect){ box_x + B - T, box_y,         T, B }, ink);
 					if (checked[j]) {
-						// multiply sign: two diagonals stamped as T x T squares, inset from the frame
-						int in = T * 2, n = B - 2 * in;
-						for (int k = 0; k < n; k++) {
-							SDL_FillRect(screen, &(SDL_Rect){ box_x + in + k, box_y + in + k,         T, T }, ink);
-							SDL_FillRect(screen, &(SDL_Rect){ box_x + in + k, box_y + B - in - T - k, T, T }, ink);
-						}
+						// ticked = a filled inner square with a clear gap to the frame (Dan picked this
+						// over a drawn x-mark, 2026-09-05: "B looks great")
+						int in = T * 2;
+						SDL_FillRect(screen, &(SDL_Rect){ box_x + in, box_y + in, B - 2 * in, B - 2 * in }, ink);
 					}
 				}
 				SDL_Surface* rt = TTF_RenderUTF8_Blended(font.large, trunc, text_color);

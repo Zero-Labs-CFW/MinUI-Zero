@@ -98,7 +98,9 @@ chose Send, then try again."; exit 0; fi
 	SCOPE_LABEL=$(wget -q -O - "http://$CLIENT_IP:$PORT/_dsync_scope" 2>/dev/null); [ -z "$SCOPE_LABEL" ] && SCOPE_LABEL="Saves"
 	# plan in "ask" mode: new saves = ADD (auto); same game + different save on both = CONFLICT (user decides)
 	PLAN=$(eng plan-net "$MF" "$LOCAL")
-	NADD=$(printf '%s\n' "$PLAN" | grep -c "^ADD$TAB")
+	# auto-applied items = new files AND plain updates (recents/settings/collections you picked). Counting
+	# only ADDs made a sync whose sole change was Recently Played report "Already in sync" and skip it.
+	NADD=$(printf '%s\n' "$PLAN" | grep -cE "^(ADD|UPDATE)$TAB")
 	CONFLICTS=$(printf '%s\n' "$PLAN" | grep "^CONFLICT$TAB" | cut -f2-)
 	NCON=$(printf '%s\n' "$CONFLICTS" | grep -c .)
 	dbg "recv sender=$SENDER add=$NADD conflicts=$NCON"
@@ -128,7 +130,7 @@ Nothing was copied."; exit 0
 	TAKE=/tmp/dsync-take; : > "$TAKE"; export DS_TAKE="$TAKE"
 	if [ "$NCON" -eq 0 ]; then
 		# nothing you already have is overwritten -> zero-tap cancelable countdown
-		printf 'Receiving %s\nfrom %s\n\n%s new item(s) will copy over.\nNothing you already have changes.' "$SCOPE_LABEL" "$SENDER" "$NADD" > "$SMSG"
+		printf 'Receiving %s\nfrom %s\n\n%s item(s) will copy over.\nYour saves are never overwritten.' "$SCOPE_LABEL" "$SENDER" "$NADD" > "$SMSG"
 		status.elf "$SMSG" --countdown 6 --cancel-b
 		[ "$?" = 0 ] || { say.elf "Cancelled.
 
