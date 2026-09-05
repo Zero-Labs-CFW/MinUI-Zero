@@ -108,47 +108,53 @@ manifest() {
 
 # ---- _plan_rich: compare a manifest against dst. Emits ACTION \t MTIME \t REL (internal form) ----
 # Actions: ADD UPDATE SKIP KEEP-LOCAL CONFLICT-ROM. dst-only files never appear (never deleted).
+# BATCHED like manifest(): the per-line shell version forked ~4 processes per manifest entry (size, class
+# rule, hash) -- 33 s for 1,134 files on the Brick Pro, run three times per sync (plan, pull, apply). Now:
+# ONE ls for every local file the manifest names, ONE md5sum for the non-ROM ones whose SIZE already
+# matches (a size mismatch is a difference, no hash needed), and every decision in awk. Same actions,
+# same order, same rules:
+#   unsafe rel (absolute / ..)            -> UNSAFE to stderr, skipped (guards writes, backups, downloads)
+#   not present locally                   -> ADD
+#   rom (additive): size equal / not      -> SKIP / CONFLICT-ROM
+#   size+hash equal                       -> SKIP (byte-identical, never re-copied)
+#   differs, DS_MODE=ask: save / other    -> CONFLICT (user decides; the Mario Golf guard) / UPDATE
+#   differs, DS_MODE=push                 -> UPDATE (sender wins, clock-independent)
+#   differs, merge (unset): newer mtime   -> UPDATE / KEEP-LOCAL (host dir-to-dir only; needs local mtime)
 _plan_rich() {
 	mfile="$1"; dst="$2"
-	while IFS="$TAB" read -r rel size mtime class hash; do
-		[ -n "$rel" ] || continue
-		# reject path traversal / absolute paths from a peer-supplied manifest: every consumer
-		# (delta / plan-net / apply-net / dir-to-dir) routes through here, so one guard covers writes,
-		# backups and downloads. An unsafe rel could escape dst and the undo/backup safety net.
-		case "$rel" in /*|..|../*|*/..|*/../*) printf 'UNSAFE\t%s\n' "$rel" >&2; continue ;; esac
-		rule=$(rule_for "$class")
-		if [ ! -e "$dst/$rel" ]; then
-			printf 'ADD\t%s\t%s\n' "$mtime" "$rel"
-		elif [ "$rule" = additive ]; then
-			if [ "$size" = "$(file_size "$dst/$rel")" ]; then printf 'SKIP\t%s\t%s\n' "$mtime" "$rel"
-			else printf 'CONFLICT-ROM\t%s\t%s\n' "$mtime" "$rel"; fi
-		else
-			if [ "$size" = "$(file_size "$dst/$rel")" ] && [ "$hash" = "$(file_hash "$dst/$rel")" ]; then
-				printf 'SKIP\t%s\t%s\n' "$mtime" "$rel"          # byte-identical: never re-copy
-			elif [ "$DS_MODE" = ask ]; then
-				# Conflict protection is for SAVES only. A save that differs on both devices could hold
-				# progress the tool cannot rank (mtime lies via bad RTCs; SRAM is fixed-size), so it is a
-				# CONFLICT: applied only if the user approves it (DS_TAKE, resolved in _apply_rich). This is
-				# what stops the "sync wiped my Mario Golf character" case in either direction.
-				if [ "$class" = save ]; then
-					printf 'CONFLICT\t%s\t%s\n' "$mtime" "$rel"
-				else
-					# configs / recents / collections / other: the user explicitly PICKED this category to
-					# copy over, so the sender wins (clock-independent). No prompt on settings and lists.
-					printf 'UPDATE\t%s\t%s\n' "$mtime" "$rel"
-				fi
-			elif [ "$DS_MODE" = push ]; then
-				# directional SEND: the sender's version wins on any content difference. Clock-independent
-				# (no mtime compare) -- the right semantics for "send my saves", and immune to bad RTCs.
-				printf 'UPDATE\t%s\t%s\n' "$mtime" "$rel"
-			else
-				# two-way MERGE (default): newer mtime wins, loser backed up.
-				dmtime=$(file_mtime "$dst/$rel")
-				if [ "${mtime:-0}" -gt "${dmtime:-0}" ]; then printf 'UPDATE\t%s\t%s\n' "$mtime" "$rel"
-				else printf 'KEEP-LOCAL\t%s\t%s\n' "$mtime" "$rel"; fi
-			fi
-		fi
-	done < "$mfile"
+	t=$(tmpf)
+	# rels to stat: everything the manifest names that is not a traversal attempt, as ./rel so the ls
+	# line has a known " ./" anchor in front of a name that may contain spaces
+	awk -F'\t' '$1 != "" && $1 !~ /^\// && $1 != ".." && $1 !~ /^\.\.\// && $1 !~ /\/\.\.$/ && $1 !~ /\/\.\.\// { print "./" $1 }' "$mfile" > "$t.rels"
+	( cd "$dst" 2>/dev/null && tr '\n' '\0' < "$t.rels" | xargs -0 ls -lnL 2>/dev/null ) > "$t.sz"
+	# hash candidates: non-ROM, present, size already equal
+	awk -F'\t' -v OFS='\t' '
+		FILENAME==ARGV[1] { i=index($0," ./"); if (i) { split($0,a," "); sz[substr($0,i+3)]=a[5] } next }
+		$4 != "rom" && ($1 in sz) && sz[$1] == $2 { print "./" $1 }
+	' "$t.sz" "$mfile" > "$t.cand"
+	( cd "$dst" 2>/dev/null && tr '\n' '\0' < "$t.cand" | xargs -0 md5sum 2>/dev/null ) > "$t.md5"
+	# merge mode (host tests) needs the local mtime of files that differ; on-device modes never do
+	: > "$t.mt"
+	if [ "$DS_MODE" != ask ] && [ "$DS_MODE" != push ]; then
+		while IFS= read -r r; do r=${r#./}; [ -e "$dst/$r" ] && printf '%s\t%s\n' "$(file_mtime "$dst/$r")" "$r"; done < "$t.rels" > "$t.mt"
+	fi
+	awk -F'\t' -v OFS='\t' -v mode="${DS_MODE:-merge}" '
+		FILENAME==ARGV[1] { i=index($0," ./"); if (i) { split($0,a," "); sz[substr($0,i+3)]=a[5] } next }
+		FILENAME==ARGV[2] { h[substr($0,37)]=substr($0,1,32); next }
+		FILENAME==ARGV[3] { mt[$2]=$1; next }
+		{
+			rel=$1; size=$2; mtime=$3; cls=$4; hash=$5
+			if (rel == "") next
+			if (rel ~ /^\// || rel == ".." || rel ~ /^\.\.\// || rel ~ /\/\.\.$/ || rel ~ /\/\.\.\//) { print "UNSAFE\t" rel > "/dev/stderr"; next }
+			if (!(rel in sz)) { print "ADD", mtime, rel; next }
+			if (cls == "rom") { print (sz[rel] == size ? "SKIP" : "CONFLICT-ROM"), mtime, rel; next }
+			if (sz[rel] == size && hash != "-" && (rel in h) && h[rel] == hash) { print "SKIP", mtime, rel; next }
+			if (mode == "ask")  { print (cls == "save" ? "CONFLICT" : "UPDATE"), mtime, rel; next }
+			if (mode == "push") { print "UPDATE", mtime, rel; next }
+			print ((mtime+0) > (mt[rel]+0) ? "UPDATE" : "KEEP-LOCAL"), mtime, rel
+		}
+	' "$t.sz" "$t.md5" "$t.mt" "$mfile"
+	rm -f "$t" "$t.rels" "$t.sz" "$t.cand" "$t.md5" "$t.mt"
 }
 
 # ---- _apply_rich: execute a manifest's plan, pulling bytes from a staging dir ----
