@@ -274,6 +274,14 @@ MANI6=$(cat "$SV6/_dsync_manifest" 2>/dev/null)
 has   ".userdata/shared/GB-gambatte/x.st0" "$MANI6"
 nohas "devicesync" "$MANI6"
 nohas "wifi.txt" "$MANI6"
+# recent.txt is exported as a symlink to a FILE (not a dir): the manifest must describe the target, never
+# the link. On 2026-09-05 ls -ln (no -L) emitted "recent.txt -> /card/..." with the link's own size, so
+# the receiver requested a URL that did not exist and that one file failed every time.
+nohas " -> " "$MANI6"
+RLINE=$(printf '%s\n' "$MANI6" | grep "^.userdata/shared/.minui/recent.txt${TAB}")
+check "symlinked file: exact rel present"       "$(printf '%s\n' "$RLINE" | grep -c .)" "1"
+check "symlinked file: size is the target's (1)" "$(printf '%s\n' "$RLINE" | cut -f2)" "1"
+check "symlinked file: real md5, not '-'"        "$(printf '%s\n' "$RLINE" | cut -f5 | grep -cE '^[0-9a-f]{32}$')" "1"
 
 ######################################################################
 echo "########## prune ##########"

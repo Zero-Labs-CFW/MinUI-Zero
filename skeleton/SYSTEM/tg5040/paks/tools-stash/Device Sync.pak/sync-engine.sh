@@ -35,7 +35,7 @@ TAB=$(printf '\t')
 # Size via ls -ln (a stat), NEVER wc -c: busybox wc READS the whole file to count it, which on a card of
 # PS1 disc images meant reading gigabytes just to size them (caught on the Brick 2026-09-05, wc found
 # with a 600 MB .bin open). Field 5 of ls -ln is the byte size on busybox, GNU and BSD alike.
-file_size()  { [ -e "$1" ] && ls -ln "$1" 2>/dev/null | { read -r _p _l _u _g sz _rest; echo "${sz:-0}"; } || echo 0; }
+file_size()  { [ -e "$1" ] && ls -lnL "$1" 2>/dev/null | { read -r _p _l _u _g sz _rest; echo "${sz:-0}"; } || echo 0; }
 # Pick the mtime tool ONCE. Every miss is a fork, and busybox (the device) has no stat at all, so the old
 # try-each-in-turn shim cost three forks per file; date -r is what works there.
 if   stat -c %Y . >/dev/null 2>&1; then MT=gnu
@@ -86,8 +86,10 @@ rule_for() { case "$1" in rom) echo additive ;; *) echo newer ;; esac; }  # rom 
 manifest() {
 	( cd "$1" 2>/dev/null || exit 0
 	  t=$(tmpf)
-	  # sizes: ls -ln is a stat (field 5 = bytes); wc -c would READ every file -- gigabytes of PS1 images
-	  find -L . -type f -exec ls -ln {} + 2>/dev/null > "$t.sz"
+	  # sizes: ls -lnL is a stat (field 5 = bytes; -L dereferences, or a symlinked FILE like recent.txt reports
+	  # the link -- "name -> target", 46 bytes -- which broke that one download on 2026-09-05). wc -c would
+	  # READ every file: gigabytes of PS1 images
+	  find -L . -type f -exec ls -lnL {} + 2>/dev/null > "$t.sz"
 	  find -L . -type f ! -path './Roms/*' -exec md5sum {} + 2>/dev/null > "$t.md5"
 	  find -L . -type f ! -path './Roms/*' 2>/dev/null | while IFS= read -r f; do
 		printf '%s\t%s\n' "$(file_mtime "$f")" "$f"; done > "$t.mt"
