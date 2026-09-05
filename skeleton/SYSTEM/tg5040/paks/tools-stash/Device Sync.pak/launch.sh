@@ -161,16 +161,24 @@ fi
 #    no-op. Default = Saves only (the common case stays two taps: SEND then START). pick.elf prints the
 #    KEY of each ticked row; the case below is the only thing that trusts those tokens, so stray stdout
 #    from GFX init cannot smuggle in a scope.
+# Collections is offered ONLY if the user actually has some, and it defaults ON then (Dan 2026-09-05:
+# "we can do Collections too if they exist"). No collections -> the row is omitted, not shown empty.
+COLL_ARG=""
+if [ -d "$LOCAL/Collections" ] && [ -n "$(ls -A "$LOCAL/Collections" 2>/dev/null)" ]; then
+	COLL_ARG="collections:Collections:1"
+fi
 if command -v pick.elf >/dev/null 2>&1; then
 	CHOICE=$(pick.elf "What to send?" \
 		"saves:Saves:1" \
 		"games:Games (ROMs):0" \
 		"recents:Recently Played:0" \
 		"configs:Settings:0" \
-		"collections:Collections:0")
+		$COLL_ARG)
 	[ "$?" = 0 ] || exit 0
 else
-	CHOICE=saves   # picker binary not deployed: fall back to the safe default rather than a silent no-op
+	# picker binary not deployed: fall back to the safe default rather than a silent no-op
+	CHOICE=saves; [ -n "$COLL_ARG" ] && CHOICE="saves
+collections"
 fi
 SCOPE=""; LABELS=""
 for k in $CHOICE; do case "$k" in
