@@ -1,10 +1,11 @@
 #!/bin/sh
 # Device Sync -- peer-to-peer save copy over a self-hosted SoftAP. No internet, no PC, no card swap.
 #
-# FLOW (Dan 2026-09-04): one tap to Send, one tap to Receive; the receiver CONFIRMS which named device
-# it is getting saves from before writing anything. The receiver hosts the hotspot (keeps its WiFi);
-# the sender drives (drops WiFi, joins by name, pushes, then restores). Push semantics: the sender's
-# saves win (clock-independent). Content only, never firmware.
+# FLOW (Dan 2026-09-04/05): Send picks WHAT to copy (Customize: Saves default; Games/Recents/Settings/
+# Collections optional) then finds the receiver; Receive names the sender + what is incoming, and auto-
+# proceeds unless a save differs on BOTH devices (a CONFLICT the user resolves). The receiver hosts the
+# hotspot (keeps its WiFi); the sender drives (drops WiFi, joins by name, pushes, then restores). Sender
+# wins on settings/recents/collections; SAVES that clash are never blindly overwritten. Content, never firmware.
 #
 # CLARITY: every wait shows a named status via status.elf -- a no-button screen (not say.elf, which
 # draws a dismiss button and reads as a decision), with a live progress bar during the copy. The only
@@ -92,6 +93,7 @@ Make sure the other device
 chose Send, then try again."; exit 0; fi
 
 	SENDER=$(wget -q -O - "http://$CLIENT_IP:$PORT/_dsync_name" 2>/dev/null); [ -z "$SENDER" ] && SENDER="the other device"
+	SCOPE_LABEL=$(wget -q -O - "http://$CLIENT_IP:$PORT/_dsync_scope" 2>/dev/null); [ -z "$SCOPE_LABEL" ] && SCOPE_LABEL="Saves"
 	# plan in "ask" mode: new saves = ADD (auto); same game + different save on both = CONFLICT (user decides)
 	PLAN=$(eng plan-net "$MF" "$LOCAL")
 	NADD=$(printf '%s\n' "$PLAN" | grep -c "^ADD$TAB")
@@ -107,7 +109,7 @@ Nothing new to copy."; exit 0; fi
 	TAKE=/tmp/dsync-take; : > "$TAKE"; export DS_TAKE="$TAKE"
 	if [ "$NCON" -eq 0 ]; then
 		# nothing you already have is overwritten -> zero-tap cancelable countdown
-		printf 'Receiving from\n%s\n\n%s new save(s) will copy over.\nNothing you already have changes.' "$SENDER" "$NADD" > "$SMSG"
+		printf 'Receiving %s\nfrom %s\n\n%s new item(s) will copy over.\nNothing you already have changes.' "$SCOPE_LABEL" "$SENDER" "$NADD" > "$SMSG"
 		status.elf "$SMSG" --countdown 6 --cancel-b
 		[ "$?" = 0 ] || { say.elf "Cancelled.
 
@@ -146,16 +148,50 @@ Which copy do you keep?" "TAKE THEIRS" "KEEP MINE"
 	dbg "recv applied=$APPLIED $(grep -o 'pull: [0-9]*/[0-9]*' /tmp/dsync-pull.log | head -1)"
 	status_off
 	if grep -q 'gave up on' /tmp/dsync-pull.log 2>/dev/null; then
-		printf 'Partly done.\n\nGot %s save(s) from %s.\nRun Device Sync again to finish.' "${APPLIED:-0}" "$SENDER" > "$SMSG"
+		printf 'Partly done.\n\nGot %s item(s) from %s.\nRun Device Sync again to finish.' "${APPLIED:-0}" "$SENDER" > "$SMSG"
 	else
-		printf 'Done!\n\nGot %s save(s) from\n%s.\n\nUndo from the Device Sync menu.' "${APPLIED:-0}" "$SENDER" > "$SMSG"
+		printf 'Done!\n\nGot %s item(s) from\n%s.\n\nUndo from the Device Sync menu.' "${APPLIED:-0}" "$SENDER" > "$SMSG"
 	fi
 	status.elf "$SMSG" --timeout 5
 	exit 0
 fi
 
-# ============================ SEND: publish name, join, serve ============================
-# capture whether we HAD a real WiFi connection, so we only "reconnect" if there was one to restore
+# ============================ SEND: pick scope, publish name, join, serve ============================
+# 1) the sender CHOOSES what to send (Customize). Runs before any radio change, so a cancel is a clean
+#    no-op. Default = Saves only (the common case stays two taps: SEND then START). pick.elf prints the
+#    KEY of each ticked row; the case below is the only thing that trusts those tokens, so stray stdout
+#    from GFX init cannot smuggle in a scope.
+if command -v pick.elf >/dev/null 2>&1; then
+	CHOICE=$(pick.elf "What to send?" \
+		"saves:Saves:1" \
+		"games:Games (ROMs):0" \
+		"recents:Recently Played:0" \
+		"configs:Settings:0" \
+		"collections:Collections:0")
+	[ "$?" = 0 ] || exit 0
+else
+	CHOICE=saves   # picker binary not deployed: fall back to the safe default rather than a silent no-op
+fi
+SCOPE=""; LABELS=""
+for k in $CHOICE; do case "$k" in
+	saves)       SCOPE="$SCOPE Saves"; LABELS="$LABELS, Saves"
+	             # save states live per-core under .userdata/shared/<tag>-<core>/ -- fold them into "Saves"
+	             for d in "$LOCAL"/.userdata/shared/*-*/; do [ -d "$d" ] || continue; r=${d#"$LOCAL"/}; SCOPE="$SCOPE ${r%/}"; done ;;
+	games)       SCOPE="$SCOPE Roms"; LABELS="$LABELS, Games" ;;
+	recents)     SCOPE="$SCOPE .userdata/shared/.minui/recent.txt"; LABELS="$LABELS, Recently Played" ;;
+	configs)     LABELS="$LABELS, Settings"
+	             # per-game + per-core configs under .userdata/tg5040/<tag>-<core>/ (the *-* glob skips our
+	             # own .userdata/tg5040/devicesync backups, which have no hyphen)
+	             for d in "$LOCAL"/.userdata/tg5040/*-*/; do [ -d "$d" ] || continue; r=${d#"$LOCAL"/}; SCOPE="$SCOPE ${r%/}"; done ;;
+	collections) SCOPE="$SCOPE Collections"; LABELS="$LABELS, Collections" ;;
+esac; done
+LABELS=${LABELS#, }
+if [ -z "$SCOPE" ]; then say.elf "Nothing selected to send.
+
+Choose at least one item."; exit 0; fi
+dbg "send scope: $SCOPE"
+
+# 2) now touch the radio. Capture whether we HAD real WiFi, so we only "reconnect" if there was one.
 HOMEIP=$(ip -4 addr show "$STA_IF" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)
 case "$HOMEIP" in 192.168.42.*|"") HAD_WIFI=0 ;; *) HAD_WIFI=1 ;; esac
 teardown_send(){
@@ -166,8 +202,9 @@ teardown_send(){
 trap 'status_off; teardown_send' EXIT INT TERM HUP
 dbg "send name=$NAME had_wifi=$HAD_WIFI home=$HOMEIP"
 
-net build-export "$LOCAL" "$SERVE" Saves Collections >/dev/null 2>&1
+net build-export "$LOCAL" "$SERVE" $SCOPE >/dev/null 2>&1
 echo "$NAME" > "$SERVE/_dsync_name"           # so the receiver can name us in its confirm
+printf '%s' "$LABELS" > "$SERVE/_dsync_scope" # so the receiver can name WHAT it is getting
 
 status "Looking for a device to
 send to.

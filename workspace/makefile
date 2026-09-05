@@ -29,6 +29,8 @@ endif
 	cd ./all/syncsettings/ && make
 	cd ./all/say/ && make
 	cd ./all/confirm/ && make
+	cd ./all/status/ && make
+	cd ./all/pick/ && make
 	# Tune Voltage harness binaries (undervolt calibration) — build inside the mount;
 	# the top makefile copies them into the pak host-side (build/ is outside the container).
 	# tg5040-only: the TCS4838 PMIC engine and its aarch64 compiler path don't exist elsewhere.
@@ -59,4 +61,6 @@ endif
 	cd ./all/syncsettings/ && make clean
 	cd ./all/say/ && make clean
 	cd ./all/confirm/ && make clean
+	cd ./all/status/ && make clean
+	cd ./all/pick/ && make clean
 	cd ./$(PLATFORM) && make clean

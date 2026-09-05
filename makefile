@@ -150,6 +150,7 @@ system:
 	cp ./workspace/all/say/build/$(PLATFORM)/say.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/confirm/build/$(PLATFORM)/confirm.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/status/build/$(PLATFORM)/status.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	cp ./workspace/all/pick/build/$(PLATFORM)/pick.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/EXTRAS/Tools/$(PLATFORM)/Clock.pak/
 	cp ./workspace/all/minput/build/$(PLATFORM)/minput.elf ./build/EXTRAS/Tools/$(PLATFORM)/Input.pak/
 	# The miyoomini libSDL2 is NOT stock: it carries SDL2's OSS backend so audio routes through the
