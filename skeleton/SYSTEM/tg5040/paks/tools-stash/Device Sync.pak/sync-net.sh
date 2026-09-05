@@ -189,7 +189,10 @@ restore_wifi() { # bring STA_IF back onto the saved home network
 	rm -f "$HOME_CONF_FLAG"
 	killall wpa_supplicant 2>/dev/null; sleep 1
 	wpa_supplicant -B -Dnl80211 -i"$STA_IF" -c "$c" 2>/dev/null
-	sleep 4; udhcpc -i "$STA_IF" -n -q 2>/dev/null
+	# wait for the association before asking for a lease: a fixed 4s then a single udhcpc -n was a
+	# race (no lease = associated but addressless = unreachable). Poll up to ~20s, then retry the lease.
+	i=0; while [ "$i" -lt 20 ]; do iw dev "$STA_IF" link 2>/dev/null | grep -q '^Connected' && break; sleep 1; i=$((i+1)); done
+	udhcpc -i "$STA_IF" -n -q 2>/dev/null || { sleep 3; udhcpc -i "$STA_IF" -n -q 2>/dev/null; }
 }
 wifi_off() { # take the radio down and leave it off (as it was) -- do NOT reconnect to anything
 	killall wpa_supplicant 2>/dev/null
