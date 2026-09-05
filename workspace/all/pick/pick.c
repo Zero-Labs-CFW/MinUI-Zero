@@ -79,25 +79,47 @@ int main(int argc, char* argv[]) {
 				SDL_FreeSurface(t);
 			}
 
-			// rows: items then the Start action
+			// rows: items then the Start action. Fixed geometry -- [box][gap][label] -- so every row
+			// lines up. The UI font is proportional and has no multiply glyph (checked 2026-09-05), so
+			// the box and its x-mark are DRAWN, not typed: identical pixels on every row, and the
+			// label column never drifts (Dan: "use a multiply sign, make everything the same").
+			int B     = SCALE1(PILL_SIZE) * 11 / 20;     // box side, ~55% of the row height
+			int T     = SCALE1(2);                       // stroke
+			int box_x = SCALE1(PADDING + BUTTON_PADDING);
+			int gap   = SCALE1(BUTTON_PADDING);
+			int lab_x = box_x + B + gap;
 			for (int j = 0; j < total; j++) {
-				char disp[160];
-				if (j == start_row) snprintf(disp, sizeof disp, "Start sync");
-				else snprintf(disp, sizeof disp, "%s %s", checked[j] ? "[x]" : "[ ]", labels[j]);
-
+				const char* lab = (j == start_row) ? "Start sync" : labels[j];
 				int row_y = y + j * SCALE1(ROW_PITCH);
+				int box_y = row_y + (SCALE1(PILL_SIZE) - B) / 2;
 				SDL_Color text_color = COLOR_WHITE;
+				char trunc[160];
+				int tw = GFX_truncateText(font.large, lab, trunc, screen->w - lab_x - SCALE1(PADDING), SCALE1(BUTTON_PADDING * 2));
 				if (j == selected) {
-					char trunc[160];
-					int tw = GFX_truncateText(font.large, disp, trunc, screen->w - SCALE1(PADDING * 2), SCALE1(BUTTON_PADDING * 2));
-					GFX_blitPill(ASSET_WHITE_PILL, screen, &(SDL_Rect){
-						SCALE1(PADDING), row_y, tw, SCALE1(PILL_SIZE) });
+					int pw = B + gap + tw, maxw = screen->w - SCALE1(PADDING * 2);
+					if (pw > maxw) pw = maxw;
+					GFX_blitPill(ASSET_WHITE_PILL, screen, &(SDL_Rect){ SCALE1(PADDING), row_y, pw, SCALE1(PILL_SIZE) });
 					text_color = COLOR_BLACK;
 				}
-				SDL_Surface* rt = TTF_RenderUTF8_Blended(font.large, disp, text_color);
+				uint32_t ink = SDL_MapRGB(screen->format, text_color.r, text_color.g, text_color.b);
+				if (j != start_row) {
+					// outline square
+					SDL_FillRect(screen, &(SDL_Rect){ box_x,         box_y,         B, T }, ink);
+					SDL_FillRect(screen, &(SDL_Rect){ box_x,         box_y + B - T, B, T }, ink);
+					SDL_FillRect(screen, &(SDL_Rect){ box_x,         box_y,         T, B }, ink);
+					SDL_FillRect(screen, &(SDL_Rect){ box_x + B - T, box_y,         T, B }, ink);
+					if (checked[j]) {
+						// multiply sign: two diagonals stamped as T x T squares, inset from the frame
+						int in = T * 2, n = B - 2 * in;
+						for (int k = 0; k < n; k++) {
+							SDL_FillRect(screen, &(SDL_Rect){ box_x + in + k, box_y + in + k,         T, T }, ink);
+							SDL_FillRect(screen, &(SDL_Rect){ box_x + in + k, box_y + B - in - T - k, T, T }, ink);
+						}
+					}
+				}
+				SDL_Surface* rt = TTF_RenderUTF8_Blended(font.large, trunc, text_color);
 				if (rt) {
-					SDL_BlitSurface(rt, NULL, screen, &(SDL_Rect){
-						SCALE1(PADDING + BUTTON_PADDING), row_y + SCALE1(4) });
+					SDL_BlitSurface(rt, NULL, screen, &(SDL_Rect){ lab_x, row_y + SCALE1(4) });
 					SDL_FreeSurface(rt);
 				}
 			}
