@@ -58,6 +58,9 @@ name:
 .PHONY: test-governor test-telemetry test-save-io test-ff-audio test-undervolt test-reproducibility test-wakeup test-gov-memory test-dupskip test-snd-pacing test-shellquote test-install-safety test-cfg-migrate check-parity check-threading-policy
 test-governor:
 	sh ./workspace/all/common/run-governor-tests.sh
+.PHONY: test-recents
+test-recents:
+	sh workspace/all/minui/run-recent-tests.sh
 test-shellquote:
 	sh ./workspace/all/common/run-shellquote-tests.sh
 # All three install-safety harnesses, not just the Miyoo one. The tg5040 installer and BOTH outer
