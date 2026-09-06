@@ -3773,6 +3773,12 @@ static void buffer_downsample(const void *data, unsigned width, unsigned height,
 
 static void selectScaler(int src_w, int src_h, int src_p) {
 	LOG_info("selectScaler\n");
+	int render_fit = fit;
+#if defined(GOV_PLATFORM_MIYOOMINI) || defined(GOV_PLATFORM_H700)
+	// Software effects need a final-resolution surface: stretching their already-drawn
+	// lines/grid through MI_GFX or the DE creates uneven bands. Native stays integer.
+	if (screen_effect != EFFECT_NONE) render_fit = 1;
+#endif
 	
 	if (downsample) buffer_realloc(src_w,src_h,src_p);
 	
@@ -3873,8 +3879,8 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 			dst_y = (DEVICE_HEIGHT - scaled_h) / 2; // should always be positive
 		}
 	}
-	else if (fit) {
-		// these both will use a generic nn scaler
+	else if (render_fit) {
+		// Final-size scaler: plain nearest on SWSCALER platforms, fused effects on MMP/H700.
 		if (scaling==SCALE_FULLSCREEN) {
 			sprintf(scaler_name, "full fit");
 			dst_w = DEVICE_WIDTH;
@@ -3889,6 +3895,16 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 			sprintf(scaler_name, "aspect fit");
 			dst_w = aspect_w * scale_f;
 			dst_h = aspect_h * scale_f;
+#if defined(GOV_PLATFORM_MIYOOMINI) || defined(GOV_PLATFORM_H700)
+			// Fit the reported aspect directly; rounding an intermediate aspect_w/h
+			// changes the game's rectangle when an effect is toggled (e.g. SNES 4:3).
+			dst_h = DEVICE_HEIGHT;
+			dst_w = dst_h * core.aspect_ratio;
+			if (dst_w > DEVICE_WIDTH) {
+				dst_w = DEVICE_WIDTH;
+				dst_h = dst_w / core.aspect_ratio;
+			}
+#endif
 			dst_p = DEVICE_PITCH;
 			dst_x = (DEVICE_WIDTH  - dst_w) / 2;
 			dst_y = (DEVICE_HEIGHT - dst_h) / 2;
@@ -4003,7 +4019,7 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 	// 	aspect_w,aspect_h
 	// );
 
-	if (fit) {
+	if (render_fit) {
 		dst_w = DEVICE_WIDTH;
 		dst_h = DEVICE_HEIGHT;
 	}
@@ -5700,7 +5716,19 @@ static void Menu_scale(SDL_Surface* src, SDL_Surface* dst) {
 		ry = (dh - rh) / 2;
 	}
 	
-	// The menu backdrop rect is computed EXACTLY as upstream computes it, on every platform.
+#if defined(GOV_PLATFORM_MIYOOMINI) || defined(GOV_PLATFORM_H700)
+	if (screen_effect != EFFECT_NONE &&
+	    (scaling == SCALE_ASPECT || scaling == SCALE_FULLSCREEN)) {
+		// The effect path already has a panel-space rectangle. Reuse it for the
+		// menu/thumbnail instead of snapping the width to a different multiple of 8.
+		rx = renderer.dst_x * dw / DEVICE_WIDTH;
+		ry = renderer.dst_y * dh / DEVICE_HEIGHT;
+		rw = renderer.dst_w * dw / DEVICE_WIDTH;
+		rh = renderer.dst_h * dh / DEVICE_HEIGHT;
+	}
+#endif
+	// The menu backdrop rect is computed as upstream does unless the effect path above
+	// already supplied a final-resolution rect.
 	// It must land on renderer.dst_x/dst_y at src*scale: the same pixels the live game occupies.
 	// That is what makes opening the menu geometrically a no-op: the game does not move or
 	// resize, it just dims and gains chrome. h700 briefly overrode this to fill the surface,

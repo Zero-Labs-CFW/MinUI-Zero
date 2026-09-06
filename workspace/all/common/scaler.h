@@ -199,4 +199,9 @@ void scale2x_grid25(void* __restrict src, void* __restrict dst, uint32_t sw, uin
 void scale3x_grid50(void* __restrict src, void* __restrict dst, uint32_t sw, uint32_t sh, uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp);
 void scale3x_grid25(void* __restrict src, void* __restrict dst, uint32_t sw, uint32_t sh, uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp);
 
+// scale=-1: scale into the final dw/dh rect and apply an output-pixel pattern.
+// scale=0..6: integer scalers (0 means cropped 1x). strength=0/1/2: full/half/quarter.
+// NULL means unsupported (including a native 1x LCD grid, which has no subpixels).
+scaler_t scaler_effect(int scale, int grid, unsigned strength);
+
 #endif

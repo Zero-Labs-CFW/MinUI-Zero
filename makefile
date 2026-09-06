@@ -61,6 +61,11 @@ test-governor:
 .PHONY: test-recents
 test-recents:
 	sh workspace/all/minui/run-recent-tests.sh
+.PHONY: test-scaler-effects test-scaler-effects-asan
+test-scaler-effects:
+	sh ./workspace/all/common/run-scaler-effect-tests.sh
+test-scaler-effects-asan:
+	sh ./workspace/all/common/run-scaler-effect-tests.sh asan
 test-shellquote:
 	sh ./workspace/all/common/run-shellquote-tests.sh
 # All three install-safety harnesses, not just the Miyoo one. The tg5040 installer and BOTH outer

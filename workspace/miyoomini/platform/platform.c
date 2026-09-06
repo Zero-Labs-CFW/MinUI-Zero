@@ -935,48 +935,16 @@ void PLAT_vsync(int remaining) {
 }
 
 scaler_t PLAT_getScaler(GFX_Renderer* renderer) {
-	if (effect_type==EFFECT_LINE) {
-		switch (renderer->scale) {
-			case 4:  return scale4x_line;
-			case 3:  return scale3x_line;
-			case 2:  return scale2x_line;
-			default: return scale1x_line;
-		}
+	scaler_t effect = NULL;
+	switch (next_effect) {
+		case EFFECT_LINE:   effect = scaler_effect(renderer->scale, 0, 0); break;
+		case EFFECT_LINE50: effect = scaler_effect(renderer->scale, 0, 1); break;
+		case EFFECT_LINE25: effect = scaler_effect(renderer->scale, 0, 2); break;
+		case EFFECT_GRID:   effect = scaler_effect(renderer->scale, 1, 0); break;
+		case EFFECT_GRID50: effect = scaler_effect(renderer->scale, 1, 1); break;
+		case EFFECT_GRID25: effect = scaler_effect(renderer->scale, 1, 2); break;
 	}
-	else if (effect_type==EFFECT_LINE50) {
-		switch (renderer->scale) {
-			case 4:  return scale4x_line50;
-			case 3:  return scale3x_line50;
-			case 2:  return scale2x_line50;
-			default: return scale1x_line50;
-		}
-	}
-	else if (effect_type==EFFECT_LINE25) {
-		switch (renderer->scale) {
-			case 4:  return scale4x_line25;
-			case 3:  return scale3x_line25;
-			case 2:  return scale2x_line25;
-			default: return scale1x_line25;
-		}
-	}
-	else if (effect_type==EFFECT_GRID) {
-		switch (renderer->scale) {
-			case 3:  return scale3x_grid;
-			case 2:  return scale2x_grid;
-		}
-	}
-	else if (effect_type==EFFECT_GRID50) {
-		switch (renderer->scale) {
-			case 3:  return scale3x_grid50;
-			case 2:  return scale2x_grid50;
-		}
-	}
-	else if (effect_type==EFFECT_GRID25) {
-		switch (renderer->scale) {
-			case 3:  return scale3x_grid25;
-			case 2:  return scale2x_grid25;
-		}
-	}
+	if (effect) return effect;
 	
 	switch (renderer->scale) {
 		case 6:  return scale6x6_n16;

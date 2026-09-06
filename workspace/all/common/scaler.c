@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "platform.h" // for HAS_NEON
+#include "scaler.h"
 
 //
 //	arm NEON / C integer scalers for ARMv7 devices
@@ -2892,6 +2893,137 @@ void scaler_c32(uint32_t xmul, uint32_t ymul, void* __restrict src, void* __rest
 }
 
 
+// A virtual integer prescale followed by linear sampling keeps fractional game pixels
+// crisp without an oversized intermediate image. The effect is applied AFTER sampling,
+// in destination pixels, so hardware must present this surface without further scaling.
+typedef struct {
+	uint32_t first;
+	unsigned mix;
+} EffectSample;
+
+static EffectSample effect_sample(uint32_t pos, uint32_t src, uint32_t dst, uint32_t prescale) {
+	int64_t v = (int64_t)(((uint64_t)pos * 2 + 1) * src * prescale * 256 / (2 * (uint64_t)dst)) - 128;
+	if (v < 0) v = 0;
+	uint64_t last = ((uint64_t)src * prescale - 1) * 256;
+	if ((uint64_t)v > last) v = (int64_t)last;
+	uint32_t pixel = (uint64_t)v >> 8;
+	EffectSample s = { pixel / prescale, 0 };
+	if (pixel % prescale == prescale - 1 && s.first + 1 < src) s.mix = v & 255;
+	return s;
+}
+
+static uint16_t effect_mix(uint16_t a, uint16_t b, unsigned mix) {
+	unsigned inv = 256 - mix;
+	// Separate red and blue by 16 bits: RGB565's six-bit gap cannot hold an
+	// eight-bit blend fraction without red leaking into the blue channel.
+	unsigned rb = (((((a & 0xf800) << 5) | (a & 31)) * inv +
+	                (((b & 0xf800) << 5) | (b & 31)) * mix) >> 8);
+	return ((rb >> 5) & 0xf800) | (rb & 31) |
+	       ((((a & 0x07e0) * inv + (b & 0x07e0) * mix) >> 8) & 0x07e0);
+}
+
+static uint16_t effect_dim(uint16_t pixel, unsigned keep) {
+	unsigned rb = (((((pixel & 0xf800) << 5) | (pixel & 31)) * keep) >> 8);
+	return ((rb >> 5) & 0xf800) | (rb & 31) |
+	       ((((pixel & 0x07e0) * keep) >> 8) & 0x07e0);
+}
+
+static void scale_effect_output(void* src, void* dst, uint32_t sw, uint32_t sh,
+		uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp,
+		unsigned integer_scale, int grid, unsigned strength) {
+	// Bound the stack map and all coordinate products even for malformed core geometry.
+	if (!src || !dst || !sw || !sh || !dw || !dh ||
+	    sw > 4096 || sh > 4096 || dw > 4096 || dh > 4096) return;
+	if (!sp) sp = sw * 2;
+	if (!dp) dp = dw * 2;
+	if ((sp | dp) & 1 || sp / 2 < sw || dp / 2 < dw) return;
+	if ((size_t)(sh - 1) > (SIZE_MAX - sw * 2) / sp ||
+	    (size_t)(dh - 1) > (SIZE_MAX - dw * 2) / dp) return;
+	if (integer_scale) {
+		uint32_t w = sw * integer_scale, h = sh * integer_scale;
+		dw = dw < w ? dw : w;
+		dh = dh < h ? dh : h;
+	}
+	uint32_t px = integer_scale ? integer_scale : (dw + sw - 1) / sw;
+	uint32_t py = integer_scale ? integer_scale : (dh + sh - 1) / sh;
+	uint32_t prescale = px > py ? px : py;
+	uint32_t period = px < py ? px : py;
+	if (period < 2) period = 2;
+	EffectSample xmap[dw];
+	for (uint32_t x = 0; x < dw; x++) {
+		if (integer_scale) xmap[x] = (EffectSample){x / integer_scale, 0};
+		else xmap[x] = effect_sample(x, sw, dw, prescale);
+	}
+	unsigned edge = 256 - (102 >> strength);
+	unsigned corner = 256 - (154 >> strength);
+	for (uint32_t y = 0; y < dh; y++) {
+		EffectSample sy = integer_scale ? (EffectSample){y / integer_scale, 0} :
+		                                      effect_sample(y, sh, dh, prescale);
+		const uint16_t* a = (const void*)((const uint8_t*)src + (size_t)sy.first * sp);
+		const uint16_t* b = sy.mix ? (const void*)((const uint8_t*)a + sp) : a;
+		uint16_t* d = (void*)((uint8_t*)dst + (size_t)y * dp);
+		int line = (y % period == period - 1);
+		uint32_t column = 0;
+		for (uint32_t x = 0; x < dw; x++) {
+			EffectSample sx = xmap[x];
+			uint16_t p = a[sx.first];
+			if (sx.mix) p = effect_mix(p, a[sx.first + 1], sx.mix);
+			if (sy.mix) {
+				uint16_t q = b[sx.first];
+				if (sx.mix) q = effect_mix(q, b[sx.first + 1], sx.mix);
+				p = effect_mix(p, q, sy.mix);
+			}
+			int vertical = grid && column == 0;
+			if (line || vertical) p = effect_dim(p, line && vertical ? corner : edge);
+			d[x] = p;
+			if (++column == period) column = 0;
+		}
+	}
+}
+
+#define EFFECT_SCALER(name, scale, grid, strength) \
+static void name(void* __restrict src, void* __restrict dst, uint32_t sw, uint32_t sh, \
+		uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp) { \
+	scale_effect_output(src, dst, sw, sh, sp, dw, dh, dp, scale, grid, strength); \
+}
+#define EFFECT_FAMILY(name, scale, grid) \
+EFFECT_SCALER(name, scale, grid, 0) \
+EFFECT_SCALER(name##50, scale, grid, 1) \
+EFFECT_SCALER(name##25, scale, grid, 2)
+EFFECT_FAMILY(scale_fit_line, 0, 0)
+EFFECT_FAMILY(scale_fit_grid, 0, 1)
+EFFECT_FAMILY(scale5x_line, 5, 0)
+EFFECT_FAMILY(scale6x_line, 6, 0)
+EFFECT_FAMILY(scale4x_grid, 4, 1)
+EFFECT_FAMILY(scale5x_grid, 5, 1)
+EFFECT_FAMILY(scale6x_grid, 6, 1)
+#undef EFFECT_FAMILY
+#undef EFFECT_SCALER
+
+scaler_t scaler_effect(int scale, int grid, unsigned strength) {
+	if (strength > 2 || scale < -1 || scale > 6) return NULL;
+	if (!scale) scale = 1;
+	static const scaler_t line[][3] = {
+		{scale_fit_line, scale_fit_line50, scale_fit_line25},
+		{scale1x_line, scale1x_line50, scale1x_line25},
+		{scale2x_line, scale2x_line50, scale2x_line25},
+		{scale3x_line, scale3x_line50, scale3x_line25},
+		{scale4x_line, scale4x_line50, scale4x_line25},
+		{scale5x_line, scale5x_line50, scale5x_line25},
+		{scale6x_line, scale6x_line50, scale6x_line25},
+	};
+	static const scaler_t lcd[][3] = {
+		{scale_fit_grid, scale_fit_grid50, scale_fit_grid25},
+		{NULL, NULL, NULL},
+		{scale2x_grid, scale2x_grid50, scale2x_grid25},
+		{scale3x_grid, scale3x_grid50, scale3x_grid25},
+		{scale4x_grid, scale4x_grid50, scale4x_grid25},
+		{scale5x_grid, scale5x_grid50, scale5x_grid25},
+		{scale6x_grid, scale6x_grid50, scale6x_grid25},
+	};
+	return (grid ? lcd : line)[scale < 0 ? 0 : scale][strength];
+}
+
 // from gambatte-dms
 //from RGB565
 #define cR(A) (((A) & 0xf800) >> 11)
@@ -2910,28 +3042,35 @@ void scaler_c32(uint32_t xmul, uint32_t ymul, void* __restrict src, void* __rest
 #define Weight17_3(A, B) (((((cR(A) * 17) + (cR(B) * 3)) / 20) & 0x1f) << 11 | ((((cG(A) * 17) + (cG(B) * 3)) / 20) & 0x3f) << 5 | ((((cB(A) * 17) + (cB(B) * 3)) / 20) & 0x1f))
 
 #define MIN(a, b) (a) < (b) ? (a) : (b)
-void scale1x_line(void* __restrict src, void* __restrict dst, uint32_t sw, uint32_t sh, uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp) {
-	// pitch of src image not src buffer!
-	// eg. gb has a 160 pixel wide image but 
-	// gambatte uses a 256 pixel wide buffer
-	// (only matters when using memcpy) 
-	int ip = sw * FIXED_BPP; 
-	int src_stride = 2 * sp / FIXED_BPP;
-	int dst_stride = 2 * dp / FIXED_BPP;
-	int cpy_pitch = MIN(ip, dp);
-	
-	uint16_t k = 0x0000;
-	uint16_t* restrict src_row = (uint16_t*)src;
-	uint16_t* restrict dst_row = (uint16_t*)dst;
-	for (int y=0; y<sh; y+=2) {
-		memcpy(dst_row, src_row, cpy_pitch);
-		dst_row += dst_stride;
-		src_row += src_stride;
-		for (unsigned x=0; x<sw; x++) {
-			uint16_t s = *(src_row + x);
-			*(dst_row + x) = Weight3_1(s, k);
+static void scale1x_line_strength(void* src, void* dst, uint32_t sw, uint32_t sh,
+		uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp, unsigned shift) {
+	if (!src || !dst || !sw || !sh || !dw || !dh || sw > UINT32_MAX / 2) return;
+	if (!sp) sp = sw * 2;
+	if (!dp) {
+		if (dw > UINT32_MAX / 2) return;
+		dp = dw * 2;
+	}
+	if ((sp | dp) & 1) return;
+	uint32_t w = MIN(sw, dw);
+	w = MIN(w, sp / 2);
+	w = MIN(w, dp / 2);
+	uint32_t h = MIN(sh, dh);
+	if (!w || !h || (size_t)(sh - 1) > (SIZE_MAX - sw * 2) / sp ||
+	    (size_t)(h - 1) > (SIZE_MAX - w * 2) / dp) return;
+	for (uint32_t y = 0; y < h; y++) {
+		const uint16_t* s = (const void*)((const uint8_t*)src + (size_t)y * sp);
+		uint16_t* d = (void*)((uint8_t*)dst + (size_t)y * dp);
+		if (!(y & 1)) memcpy(d, s, (size_t)w * 2);
+		else for (uint32_t x = 0; x < w; x++) {
+			unsigned r = cR(s[x]), g = cG(s[x]), b = cB(s[x]);
+			d[x] = (((r * ((1u << shift) - 1)) >> shift) << 11) |
+			       (((g * ((1u << shift) - 1)) >> shift) << 5) |
+			       ((b * ((1u << shift) - 1)) >> shift);
 		}
 	}
+}
+void scale1x_line(void* __restrict src, void* __restrict dst, uint32_t sw, uint32_t sh, uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp) {
+	scale1x_line_strength(src, dst, sw, sh, sp, dw, dh, dp, 2);
 }
 void scale2x_line(void* __restrict src, void* __restrict dst, uint32_t sw, uint32_t sh, uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp) {
 	dw = dp / 2;
@@ -3082,50 +3221,10 @@ void scale3x_grid(void* __restrict src, void* __restrict dst, uint32_t sw, uint3
 // Half/quarter-opacity Screen Effect variants: exact copies of the full-strength scalers above
 // with only the blend toward black lightened, so per-frame cost is identical (generated).
 void scale1x_line50(void* __restrict src, void* __restrict dst, uint32_t sw, uint32_t sh, uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp) {
-	// pitch of src image not src buffer!
-	// eg. gb has a 160 pixel wide image but 
-	// gambatte uses a 256 pixel wide buffer
-	// (only matters when using memcpy) 
-	int ip = sw * FIXED_BPP; 
-	int src_stride = 2 * sp / FIXED_BPP;
-	int dst_stride = 2 * dp / FIXED_BPP;
-	int cpy_pitch = MIN(ip, dp);
-	
-	uint16_t k = 0x0000;
-	uint16_t* restrict src_row = (uint16_t*)src;
-	uint16_t* restrict dst_row = (uint16_t*)dst;
-	for (int y=0; y<sh; y+=2) {
-		memcpy(dst_row, src_row, cpy_pitch);
-		dst_row += dst_stride;
-		src_row += src_stride;
-		for (unsigned x=0; x<sw; x++) {
-			uint16_t s = *(src_row + x);
-			*(dst_row + x) = Weight7_1(s, k);
-		}
-	}
+	scale1x_line_strength(src, dst, sw, sh, sp, dw, dh, dp, 3);
 }
 void scale1x_line25(void* __restrict src, void* __restrict dst, uint32_t sw, uint32_t sh, uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp) {
-	// pitch of src image not src buffer!
-	// eg. gb has a 160 pixel wide image but 
-	// gambatte uses a 256 pixel wide buffer
-	// (only matters when using memcpy) 
-	int ip = sw * FIXED_BPP; 
-	int src_stride = 2 * sp / FIXED_BPP;
-	int dst_stride = 2 * dp / FIXED_BPP;
-	int cpy_pitch = MIN(ip, dp);
-	
-	uint16_t k = 0x0000;
-	uint16_t* restrict src_row = (uint16_t*)src;
-	uint16_t* restrict dst_row = (uint16_t*)dst;
-	for (int y=0; y<sh; y+=2) {
-		memcpy(dst_row, src_row, cpy_pitch);
-		dst_row += dst_stride;
-		src_row += src_stride;
-		for (unsigned x=0; x<sw; x++) {
-			uint16_t s = *(src_row + x);
-			*(dst_row + x) = Weight15_1(s, k);
-		}
-	}
+	scale1x_line_strength(src, dst, sw, sh, sp, dw, dh, dp, 4);
 }
 void scale2x_line50(void* __restrict src, void* __restrict dst, uint32_t sw, uint32_t sh, uint32_t sp, uint32_t dw, uint32_t dh, uint32_t dp) {
 	dw = dp / 2;
