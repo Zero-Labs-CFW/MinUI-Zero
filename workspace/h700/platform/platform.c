@@ -415,7 +415,9 @@ static void disp_shape_rect(int cx, int cy, int cw, int ch) {
 	vid.lcfg.info.zorder = 20;             // above the (frozen) muOS fb
 	vid.lcfg.info.alpha_mode = 1;
 	vid.lcfg.info.alpha_value = 255;
-	disp_screen_win(cw, ch, &vid.lcfg.info.screen_win);
+	// minarch already padded this surface for the requested game aspect. Fit the
+	// canonical UI canvas, not the intermediate surface's pixel ratio a second time.
+	disp_screen_win(FIXED_WIDTH, FIXED_HEIGHT, &vid.lcfg.info.screen_win);
 	vid.lcfg.info.fb.size[0].width = vid.width;
 	vid.lcfg.info.fb.size[0].height = vid.height;
 	vid.lcfg.info.fb.format = DISP_FORMAT_RGB_565;
@@ -745,54 +747,16 @@ void PLAT_vsync(int remaining) {
 // the platform honors both. (v0 ignored them — the first game ran 1:1 in the corner.)
 scaler_t PLAT_getScaler(GFX_Renderer* renderer) {
 	// _c16 (portable C), never _n16: those are hand-written ARM 32-bit assembly and this is aarch64.
-	if (effect_type==EFFECT_LINE) {
-		switch (renderer->scale) {
-			case 4:  return scale4x_line;
-			case 3:  return scale3x_line;
-			case 2:  return scale2x_line;
-			case 1:  return scale1x_line;
-			default: break;   // no line variant at this factor: fall through to plain
-		}
+	scaler_t effect = NULL;
+	switch (next_effect) {
+		case EFFECT_LINE:   effect = scaler_effect(renderer->scale, 0, 0); break;
+		case EFFECT_LINE50: effect = scaler_effect(renderer->scale, 0, 1); break;
+		case EFFECT_LINE25: effect = scaler_effect(renderer->scale, 0, 2); break;
+		case EFFECT_GRID:   effect = scaler_effect(renderer->scale, 1, 0); break;
+		case EFFECT_GRID50: effect = scaler_effect(renderer->scale, 1, 1); break;
+		case EFFECT_GRID25: effect = scaler_effect(renderer->scale, 1, 2); break;
 	}
-	else if (effect_type==EFFECT_LINE50) {
-		switch (renderer->scale) {
-			case 4:  return scale4x_line50;
-			case 3:  return scale3x_line50;
-			case 2:  return scale2x_line50;
-			case 1:  return scale1x_line50;
-			default: break;
-		}
-	}
-	else if (effect_type==EFFECT_LINE25) {
-		switch (renderer->scale) {
-			case 4:  return scale4x_line25;
-			case 3:  return scale3x_line25;
-			case 2:  return scale2x_line25;
-			case 1:  return scale1x_line25;
-			default: break;
-		}
-	}
-	else if (effect_type==EFFECT_GRID) {
-		switch (renderer->scale) {
-			case 3:  return scale3x_grid;
-			case 2:  return scale2x_grid;
-			default: break;   // grid only exists at 2x/3x
-		}
-	}
-	else if (effect_type==EFFECT_GRID50) {
-		switch (renderer->scale) {
-			case 3:  return scale3x_grid50;
-			case 2:  return scale2x_grid50;
-			default: break;
-		}
-	}
-	else if (effect_type==EFFECT_GRID25) {
-		switch (renderer->scale) {
-			case 3:  return scale3x_grid25;
-			case 2:  return scale2x_grid25;
-			default: break;
-		}
-	}
+	if (effect) return effect;
 	switch (renderer->scale) {
 		case 6:  return scale6x6_c16;
 		case 5:  return scale5x5_c16;
@@ -1177,12 +1141,9 @@ int PLAT_pickSampleRate(int requested, int max) {
 }
 
 // minarch-only surface, v0 stubs
-// Screen effects (scanlines / grid). Implemented the way the MMP does it: NOT as a post-process
-// pass, but by swapping the SCALER so the effect is baked into the upscale that already happens
-// every frame. That is the only version that fits this fork: zero extra passes over the pixels,
-// zero extra memory, and the cost is identical to scaling without an effect.
-// The line/grid scalers only exist for some factors (line 1x-4x, grid 2x-3x); anything else falls
-// through to the plain scaler rather than pretending.
+// Effects share the MMP software scaler. Native uses integer patterns; Aspect/Fullscreen
+// combine sampling and a panel-pixel pattern in one output pass, without an intermediate
+// image. The fractional path's device cost must be measured, not assumed equal to plain scaling.
 void PLAT_setEffect(int effect) {
 	next_effect = effect;
 }
@@ -1278,12 +1239,13 @@ static void dbg_compose(void) {
 	dbg_blit_strip(dbg.bottom, cx + margin, cy + ch - dst_h - margin, dst_w, dst_h);
 }
 void PLAT_getGameRect(int* x, int* y, int* w, int* h) {
-	// The rect the PANEL actually shows, used for HUD alignment. The surface maps 1:1 to the panel
-	// (fixed full-surface window), so the answer is simply where the CPU scaler placed the game
-	// inside it. NOT vid.crop_*: that is the DE window, which is now permanently the whole screen,
-	// so reporting it would anchor the HUD to the panel edges instead of the game image.
-	if (vid.game_w > 0 && vid.game_h > 0) {
-		if (x) *x = vid.game_x; if (y) *y = vid.game_y; if (w) *w = vid.game_w; if (h) *h = vid.game_h;
+	// Return panel-space coordinates even when an effects-off Aspect frame uses
+	// an oversized intermediate surface. Native and final-size effects are 1:1.
+	if (vid.game_w > 0 && vid.game_h > 0 && vid.width > 0 && vid.height > 0) {
+		if (x) *x = vid.game_x * FIXED_WIDTH / vid.width;
+		if (y) *y = vid.game_y * FIXED_HEIGHT / vid.height;
+		if (w) *w = vid.game_w * FIXED_WIDTH / vid.width;
+		if (h) *h = vid.game_h * FIXED_HEIGHT / vid.height;
 		return;
 	}
 	if (x) *x = 0; if (y) *y = 0; if (w) *w = FIXED_WIDTH; if (h) *h = FIXED_HEIGHT;
