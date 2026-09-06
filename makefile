@@ -22,7 +22,7 @@ endif
 # stamps itself with the last clean SHA and claims to be a commit it is not — which makes every
 # "what exactly is on this card?" question unanswerable, and burned a review cycle.
 BUILD_HASH:=$(shell git rev-parse --short HEAD)$(shell test -n "$$(git status --porcelain)" && echo -dirty)
-ZERO_VERSION=v1.7.4
+ZERO_VERSION=v1.7.5
 RELEASE_TIME:=$(shell TZ=GMT date +%Y%m%d)
 RELEASE_BETA=
 # Device family for the release name: tg5040 -> trimui, miyoomini -> miyoo. Per-family zips keep
