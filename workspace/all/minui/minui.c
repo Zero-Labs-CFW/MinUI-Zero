@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #include <math.h>
 #include <time.h>
@@ -441,6 +442,27 @@ static int restore_end = 0;
 ///////////////////////////////////////
 
 #define MAX_RECENTS 24 // a multiple of all menu rows
+static int recentFooterCompact(int width) {
+	// Two two-button pills plus a gap. Keep the new shortcut visible on narrow panels.
+	return GFX_getButtonWidth("CLEAR", "Y") + GFX_getButtonWidth("RESUME", "X")
+		+ GFX_getButtonWidth("BACK", "B") + GFX_getButtonWidth("OPEN", "A")
+		+ SCALE1(BUTTON_MARGIN)*7 + SCALE1(PADDING)*2 > width;
+}
+
+static int clearRecents(void) {
+	if (!exactMatch(top->path, FAUX_RECENT_PATH)) return 0;
+	// Only forget history after the on-card operation succeeds. Never touch ROMs or saves.
+	if (unlink(RECENT_PATH) != 0 && errno != ENOENT) return 0;
+	while (recents->count) Recent_free(Array_pop(recents));
+	while (top->entries->count) Entry_free(Array_pop(top->entries));
+	top->alphas->count = 0;
+	top->selected = top->start = top->end = 0;
+	recent_alias = NULL;
+	can_resume = should_resume = 0;
+	restore_depth = restore_relative = -1;
+	return 1;
+}
+
 static void saveRecents(void) {
 	FILE* file = fopen(RECENT_PATH, "w");
 	if (file) {
@@ -1525,6 +1547,7 @@ int main (int argc, char *argv[]) {
 	PAD_reset();
 	int dirty = 1;
 	int show_version = 0;
+	int show_clear = 0; // 1=confirmation, 2=write error
 	int show_setting = 0; // 1=brightness,2=volume
 	int was_online = PLAT_isOnline();
 	
@@ -1586,6 +1609,22 @@ int main (int argc, char *argv[]) {
 				dirty = 1;
 				if (!HAS_POWER_BUTTON && !simple_mode) PWR_disableSleep();
 			}
+		}
+		else if (show_clear) {
+			if (PAD_justPressed(BTN_B) || PAD_tappedMenu(now)) {
+				show_clear = 0;
+				dirty = 1;
+			}
+			else if (PAD_justPressed(BTN_A)) {
+				show_clear = clearRecents() ? 0 : 2;
+				total = top->entries->count;
+				dirty = 1;
+			}
+		}
+		else if (total>0 && exactMatch(top->path, FAUX_RECENT_PATH)
+			&& PAD_justPressed(BTN_Y) && (!show_setting || GetHDMI())) {
+			show_clear = 1;
+			dirty = 1;
 		}
 		else {
 			if (PAD_tappedMenu(now)) {
@@ -1672,7 +1711,7 @@ int main (int argc, char *argv[]) {
 				}
 			}
 
-			if (PAD_justRepeated(BTN_L1) && !PAD_isPressed(BTN_R1) && !PWR_ignoreSettingInput(BTN_L1, show_setting)) { // previous alpha
+			if (total>0 && PAD_justRepeated(BTN_L1) && !PAD_isPressed(BTN_R1) && !PWR_ignoreSettingInput(BTN_L1, show_setting)) { // previous alpha
 				Entry* entry = top->entries->items[selected];
 				int i = entry->alpha-1;
 				if (i>=0) {
@@ -1685,7 +1724,7 @@ int main (int argc, char *argv[]) {
 					}
 				}
 			}
-			else if (PAD_justRepeated(BTN_R1) && !PAD_isPressed(BTN_L1) && !PWR_ignoreSettingInput(BTN_R1, show_setting)) { // next alpha
+			else if (total>0 && PAD_justRepeated(BTN_R1) && !PAD_isPressed(BTN_L1) && !PWR_ignoreSettingInput(BTN_R1, show_setting)) { // next alpha
 				Entry* entry = top->entries->items[selected];
 				int i = entry->alpha+1;
 				if (i<top->alphas->count) {
@@ -1736,7 +1775,7 @@ int main (int argc, char *argv[]) {
 			// simple thumbnail support a thumbnail for a file or folder named NAME.EXT needs a corresponding /.res/NAME.EXT.png 
 			// that is no bigger than platform FIXED_HEIGHT x FIXED_HEIGHT
 			int had_thumb = 0;
-			if (!show_version && total>0) {
+			if (!show_version && !show_clear && total>0) {
 				Entry* entry = top->entries->items[top->selected];
 				char res_path[MAX_PATH];
 				
@@ -1772,7 +1811,15 @@ int main (int argc, char *argv[]) {
 			
 			int ow = GFX_blitHardwareGroup(screen, show_setting);
 			
-			if (show_version) {
+			if (show_clear) {
+				char* message = show_clear==1 ? "Clear Recently Played?\nGames and saves will stay."
+					: "Couldn't clear history.\nPlease check your SD card.";
+				GFX_blitMessage(font.large, message, screen, &(SDL_Rect){
+					0,0,screen->w,screen->h-SCALE1(PADDING + PILL_SIZE + PADDING)});
+				GFX_blitButtonGroup((char*[]){ "B","CANCEL", NULL }, 0, screen, 0);
+				GFX_blitButtonGroup((char*[]){ "A",show_clear==1 ? "CLEAR" : "RETRY", NULL }, 0, screen, 1);
+			}
+			else if (show_version) {
 				if (!version) {
 					char release[256] = {0};
 					getFile(ROOT_SYSTEM_PATH "/version.txt", release, 256);
@@ -1909,11 +1956,15 @@ int main (int argc, char *argv[]) {
 				}
 				else {
 					// TODO: for some reason screen's dimensions end up being 0x0 in GFX_blitMessage...
-					GFX_blitMessage(font.large, "Empty folder", screen, &(SDL_Rect){0,0,screen->w,screen->h}); //, NULL);
+					GFX_blitMessage(font.large, exactMatch(top->path, FAUX_RECENT_PATH) ? "No recently played games" : "Empty folder", screen, &(SDL_Rect){0,0,screen->w,screen->h});
 				}
 			
 				// buttons
 				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
+				else if (total>0 && exactMatch(top->path, FAUX_RECENT_PATH)) {
+					if (can_resume) GFX_blitButtonGroup((char*[]){ "Y","CLEAR", "X","RESUME", NULL }, 0, screen, 0);
+					else GFX_blitButtonGroup((char*[]){ "Y","CLEAR", NULL }, 0, screen, 0);
+				}
 				else if (can_resume) GFX_blitButtonGroup((char*[]){ "X","RESUME",  NULL }, 0, screen, 0);
 				else GFX_blitButtonGroup((char*[]){ 
 					BTN_SLEEP==BTN_POWER?"POWER":"MENU",
@@ -1927,7 +1978,10 @@ int main (int argc, char *argv[]) {
 				}
 				else {
 					if (stack->count>1) {
-						GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OPEN", NULL }, 1, screen, 1);
+						if (can_resume && exactMatch(top->path, FAUX_RECENT_PATH)
+							&& recentFooterCompact(screen->w))
+							GFX_blitButtonGroup((char*[]){ "A","OPEN", NULL }, 0, screen, 1);
+						else GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OPEN", NULL }, 1, screen, 1);
 					}
 					else {
 						GFX_blitButtonGroup((char*[]){ "A","OPEN", NULL }, 0, screen, 1);
@@ -1953,9 +2007,9 @@ int main (int argc, char *argv[]) {
 		if (has_hdmi!=had_hdmi) {
 			had_hdmi = has_hdmi;
 
-			Entry* entry = top->entries->items[top->selected];
-			LOG_info("restarting after HDMI change... (%s)\n", entry->path);
-			saveLast(entry->path); // NOTE: doesn't work in Recents (by design)
+			char* path = total>0 ? ((Entry*)top->entries->items[top->selected])->path : top->path;
+			LOG_info("restarting after HDMI change... (%s)\n", path);
+			saveLast(path); // NOTE: doesn't work in Recents (by design)
 			sleep(4);
 			quit = 1;
 		}
