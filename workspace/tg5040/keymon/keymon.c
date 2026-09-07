@@ -163,8 +163,7 @@ int main (int argc, char *argv[]) {
 	uint32_t down_just_pressed = 0;
 	uint32_t down_repeat_at = 0;
 	
-	uint32_t then;
-	uint32_t now;
+	uint32_t now;   // `then` is gone: nothing reads a loop-cadence timestamp any more (see the note below)
 	uint32_t ev_ms;
 	struct timeval tod;
 
@@ -173,9 +172,6 @@ int main (int argc, char *argv[]) {
 		fds[i].fd = inputs[i];
 		fds[i].events = POLLIN;
 	}
-
-	gettimeofday(&tod, NULL);
-	then = tod.tv_sec * 1000 + tod.tv_usec / 1000; // essential SDL_GetTicks()
 
 	while (!quit) {
 		// block until input arrives; wake early only to drive key-repeat
@@ -193,19 +189,31 @@ int main (int argc, char *argv[]) {
 
 		gettimeofday(&tod, NULL);
 		now = tod.tv_sec * 1000 + tod.tv_usec / 1000;
-		if (now-then>1000) { // stopped for sleep: forget held keys (their release may have been missed)
-			menu_pressed = 0;
-			up_pressed = up_just_pressed = 0;
-			down_pressed = down_just_pressed = 0;
-			up_repeat_at = 0;
-			down_repeat_at = 0;
-		}
+		// NO idle-based "we must have slept" reset here. It used to clear the held keys whenever
+		// now-then>1000, which was safe only while this loop spun at 60fps (upstream/NextUI still do).
+		// Since b8f15298 made poll() BLOCK, sitting idle for minutes is normal and says nothing about
+		// sleeping -- so merely HOLDING the MENU/logo button for over a second cleared menu_pressed,
+		// and the volume press that followed adjusted volume instead of brightness. That is the
+		// "brightness bar shows but the volume keys do nothing" report (r/trimui, Brick Pro, v1.7.4;
+		// reproduced on device 2026-09-07: hold logo >1s then press volume = no brightness change,
+		// press immediately = works). A real sleep is detected below by STALE EVENTS instead, which
+		// is the actual signal the reset always wanted.
 
 		for (int i=0; i<INPUT_COUNT; i++) {
 			input = inputs[i];
 			while(read(input, &ev, sizeof(ev))==sizeof(ev)) {
 				ev_ms = ev.time.tv_sec * 1000 + ev.time.tv_usec / 1000;
-				if (now-ev_ms>1000) continue; // ignore input that arrived during sleep
+				if (now-ev_ms>1000) { // arrived before/during a sleep
+					// Its matching release may never come, so forget held keys HERE -- where we have
+					// evidence of the gap -- then drop the stale event. Fresh events later in this
+					// same batch still register normally against the cleared state.
+					menu_pressed = 0;
+					up_pressed = up_just_pressed = 0;
+					down_pressed = down_just_pressed = 0;
+					up_repeat_at = 0;
+					down_repeat_at = 0;
+					continue;
+				}
 				val = ev.value;
 				if (ev.type==EV_SW) {
 					printf("switch: %i\n", ev.code);
@@ -272,8 +280,6 @@ int main (int argc, char *argv[]) {
 			if (down_just_pressed) down_just_pressed = 0;
 			else down_repeat_at += 100;
 		}
-		
-		then = now;
 	}
 	
 	for (int i=0; i<INPUT_COUNT; i++) {
