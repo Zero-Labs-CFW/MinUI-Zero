@@ -23,6 +23,13 @@ static Array* recents;
 static Array* stack;
 static char* recent_alias;
 static int can_resume, should_resume, restore_depth, restore_relative;
+static int restore_selected, restore_start, restore_end;
+// clearRecents now drops the stack and re-opens the root, so the harness must model both. Declared
+// before the extracted code because that code calls openDirectory.
+static void Directory_free(Directory* self);
+static void DirectoryArray_pop(Array* self);
+static void openDirectory(char* path, int auto_launch);
+static int root_opens; // how many times clearRecents rebuilt the root
 #include "recent_clear.inc"
 
 enum { BTN_A=1, BTN_B=2, BTN_Y=4, BTN_RESUME=8, BTN_UP=16, BTN_DOWN=32,
@@ -42,7 +49,36 @@ static int flagExists(const char* p) { (void)p; return 0; }
 static int exists(const char* p) { return access(p, F_OK)==0; }
 static void readyResume(Entry* e) { assert(e); can_resume = 1; }
 static void Entry_open(Entry* e) { assert(e); opened++; }
-static void openDirectory(char* p, int a) { (void)p; (void)a; assert(0); }
+static void Directory_free(Directory* self) {
+	if (!self) return;
+	while (self->entries->count) Entry_free(Array_pop(self->entries));
+	Array_free(self->entries);
+	free(self->alphas);
+	free(self->path);
+	free(self);
+}
+static void DirectoryArray_pop(Array* self) { Directory_free(Array_pop(self)); }
+// Stands in for the real openDirectory: builds a root whose contents come from getRoot(), which omits
+// Recently Played once the history file is gone. One plain entry stands for the Roms folders.
+static void openDirectory(char* path, int auto_launch) {
+	(void)auto_launch;
+	root_opens++;
+	top = calloc(1, sizeof(*top));
+	top->path = strdup(path);
+	top->entries = Array_new();
+	top->alphas = calloc(1, sizeof(*top->alphas));
+	if (exists(RECENT_PATH)) { // hasRecents(): the faux folder is listed only while history exists
+		Entry* e = calloc(1, sizeof(*e));
+		e->path = strdup(FAUX_RECENT_PATH); e->name = strdup("Recently Played");
+		Array_push(top->entries, e);
+	}
+	Entry* g = calloc(1, sizeof(*g));
+	g->path = strdup("/sdcard/Roms"); g->name = strdup("Game Boy");
+	Array_push(top->entries, g);
+	top->selected = top->start = 0;
+	top->end = top->entries->count<MAIN_ROW_COUNT ? top->entries->count : MAIN_ROW_COUNT;
+	Array_push(stack, top);
+}
 static void closeDirectory(void) { free(top->path); top->path = strdup(SDCARD_PATH); }
 
 static void input(int down, int up) {
@@ -113,16 +149,25 @@ int main(void) {
 		assert(show_clear==0 && recents->count==count && exists(RECENT_PATH));
 		input(BTN_Y, 0); input(BTN_MENU, 0);
 		assert(show_clear==0 && recents->count==count);
+		root_opens = 0;
 		input(BTN_Y, 0); input(BTN_A, 0);
 		assert(show_clear==0 && !exists(RECENT_PATH));
-		assert(!recents->count && !top->entries->count && !top->alphas->count);
-		assert(!top->selected && !top->start && !top->end && !recent_alias);
+		assert(!recents->count && !recent_alias);
+		// Clearing returns to a REBUILT main menu, not an empty history list (Dan, 2026-09-07):
+		// the stack is back to just the root, and Recently Played is no longer listed there.
+		assert(root_opens==1 && stack->count==1 && exactMatch(top->path, SDCARD_PATH));
+		for (int i=0; i<top->entries->count; i++)
+			assert(!exactMatch(((Entry*)top->entries->items[i])->path, FAUX_RECENT_PATH));
+		assert(top->entries->count && !top->selected && !top->start); // a usable root, selection reset
 		assert(!can_resume && !should_resume && restore_depth==-1 && restore_relative==-1);
-		input(BTN_L1, 0); input(BTN_R1, 0); input(BTN_A | BTN_Y, BTN_RESUME);
+		assert(!restore_selected && !restore_start && !restore_end);
+		// at the root the history shortcut is inert and nothing auto-launches. RESUME is deliberately
+		// NOT exercised here: the root list is non-empty, so resuming from it is correct behavior.
+		input(BTN_L1, 0); input(BTN_R1, 0); input(BTN_Y, 0);
 		assert(!opened && !show_clear);
-		assert(clearRecents()); // already-absent file succeeds
-		input(BTN_B, 0);
-		assert(exactMatch(top->path, SDCARD_PATH));
+		assert(!clearRecents()); // guarded: only ever clears from inside the history list
+		input(BTN_B, 0); // already at the root, so this cannot pop past it
+		assert(exactMatch(top->path, SDCARD_PATH) && stack->count==1);
 		cleanup();
 	}
 	setup(2);
