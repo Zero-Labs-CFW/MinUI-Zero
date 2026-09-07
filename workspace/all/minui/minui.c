@@ -449,17 +449,24 @@ static int recentFooterCompact(int width) {
 		+ SCALE1(BUTTON_MARGIN)*7 + SCALE1(PADDING)*2 > width;
 }
 
+static void openDirectory(char* path, int auto_launch); // defined below; clearRecents rebuilds the root
 static int clearRecents(void) {
 	if (!exactMatch(top->path, FAUX_RECENT_PATH)) return 0;
 	// Only forget history after the on-card operation succeeds. Never touch ROMs or saves.
 	if (unlink(RECENT_PATH) != 0 && errno != ENOENT) return 0;
 	while (recents->count) Recent_free(Array_pop(recents));
-	while (top->entries->count) Entry_free(Array_pop(top->entries));
-	top->alphas->count = 0;
-	top->selected = top->start = top->end = 0;
 	recent_alias = NULL;
 	can_resume = should_resume = 0;
 	restore_depth = restore_relative = -1;
+	restore_selected = restore_start = restore_end = 0;
+	// Return to a FRESHLY BUILT main menu rather than sitting in an empty history list: getRoot()
+	// omits Recently Played now that hasRecents() is false, so the row disappears immediately
+	// instead of lingering until the next ordinary root rebuild (Dan, 2026-09-07).
+	// Drop the whole stack (DirectoryArray_pop frees each Directory) and re-open the root; top is
+	// cleared first because openDirectory reads it when deciding whether to restore a selection.
+	while (stack->count>0) DirectoryArray_pop(stack);
+	top = NULL;
+	openDirectory(SDCARD_PATH, 0);
 	return 1;
 }
 
