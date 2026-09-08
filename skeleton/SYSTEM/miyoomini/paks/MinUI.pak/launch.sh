@@ -173,57 +173,47 @@ if [ -f "$SDCARD_PATH/devmode.txt" ] && [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	# 2025 trace look like ours and cost real time to untangle. A distinct name keeps them apart.
 	SSH_LOG="$LOGS_PATH/ssh-boot.txt"
 	mkdir -p "$SSH_DIR" "$LOGS_PATH" 2>/dev/null
+	HK="$SSH_DIR/dropbear_ed25519_host_key"
 	{
 	echo "== devmode ssh $(date 2>/dev/null)"
-	# key auth: drop authorized_keys at the card root (or in the SSH dir) and it is installed here.
+	# THE ROOT CAUSE (found on-device 2026-09-08): dropbear needs libutil.so.1, which this firmware's
+	# stripped glibc 2.28 does not ship anywhere. We now bundle the ABI-matched armhf lib in
+	# .system/miyoomini/lib and point the loader at it. Without this every dropbear died instantly
+	# with "libutil.so.1: cannot open shared object file" — and this block swallowed it silently.
+	export LD_LIBRARY_PATH="$SYSTEM_PATH/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+	# KEY AUTH on a read-only rootfs: /home is squashfs and /home/root does not exist, and root has a
+	# real password so blank login does not work. tmpfs over /home lets us place authorized_keys.
 	for AK in "$SDCARD_PATH/authorized_keys" "$SSH_DIR/authorized_keys"; do
 		[ -f "$AK" ] || continue
-		mkdir -p /root/.ssh 2>/dev/null
-		cp "$AK" /root/.ssh/authorized_keys 2>/dev/null \
-			&& { chmod 700 /root/.ssh 2>/dev/null; chmod 600 /root/.ssh/authorized_keys 2>/dev/null; echo "authorized_keys installed from $AK"; } \
-			|| echo "authorized_keys FAILED to install from $AK (is /root writable?)"
+		if ! { [ -d /home/root/.ssh ] && touch /home/root/.ssh/.wt 2>/dev/null && rm -f /home/root/.ssh/.wt; }; then
+			mount -t tmpfs tmpfs /home 2>/dev/null
+		fi
+		mkdir -p /home/root/.ssh 2>/dev/null
+		cp "$AK" /home/root/.ssh/authorized_keys 2>/dev/null \
+			&& { chmod 700 /home/root/.ssh; chmod 600 /home/root/.ssh/authorized_keys; echo "key auth ready from $AK"; } \
+			|| echo "authorized_keys FAILED to install from $AK"
 		break
 	done
-	HK="$SSH_DIR/dropbear_ed25519_host_key"
-	STARTED=0
-	# stock busybox 1.20.2 may or may not carry pgrep (Onion's does, but Onion ships its own), and a
-	# missing pgrep here read as "no daemon started" while one was listening. Fall back to ps.
-	_db_up() { pgrep dropbear >/dev/null 2>&1 || ps 2>/dev/null | grep -v grep | grep -q dropbear; }
-	# -B on every invocation (review, 2026-09-08): root has no password on this firmware, and without
-	# -B dropbear refuses blank-password logins — so the only way in was authorized_keys, and if
-	# /root is not writable (the failure logged just above) there was NO way in at all. Onion runs
-	# with -B too. Dev cards only; a user card never reaches this block.
-	# 1) the console's own dropbear, if this firmware has one. -R lets it make its own host key when
-	#    ours is absent; we pass -r first so the identity stays stable across updates.
-	for DB in /customer/app/dropbear /usr/sbin/dropbear /usr/bin/dropbear /bin/dropbear /mnt/SDCARD/miyoo/app/dropbear; do
-		[ -x "$DB" ] || continue
-		# stderr is NOT suppressed: a missing shared library is the likeliest failure and only
-		# dropbear's own message names it.
-		if [ -f "$HK" ]; then "$DB" -B -r "$HK" -p 22; else "$DB" -B -R -p 22; fi
+	_db_up() { awk 'NR>1{split($2,a,":"); if (a[2]=="0016" && $4=="0A") f=1} END{exit !f}' /proc/net/tcp 2>/dev/null || pgrep dropbear >/dev/null 2>&1; }
+	# our shipped binary, host key on the CARD so identity is stable across updates. Detached so a
+	# dying daemon never holds the console.
+	DBM="$SYSTEM_PATH/bin/dropbearmulti"
+	if [ -x "$DBM" ] && ! _db_up; then
+		[ -f "$HK" ] || "$DBM" dropbearkey -t ed25519 -f "$HK" 2>&1
+		setsid "$DBM" dropbear -B -r "$HK" -p 22 </dev/null >>"$SSH_LOG" 2>&1 &
 		sleep 1
-		_db_up && { echo "started $DB on :22"; STARTED=1; break; }
-	done
-	# 2) a dropbearmulti we ship for THIS architecture, if one is ever added. The tg5040 binary in
-	#    .system/tg5040/bin is aarch64 and cannot run here, so only the miyoomini path is tried.
-	if [ "$STARTED" != 1 ]; then
-		DBM="$SYSTEM_PATH/bin/dropbearmulti"
-		if [ -x "$DBM" ]; then
-			[ -f "$HK" ] || "$DBM" dropbearkey -t ed25519 -f "$HK"
-			"$DBM" dropbear -B -r "$HK" -p 22
-			sleep 1
-			_db_up && { echo "started shipped dropbearmulti on :22"; STARTED=1; }
-		fi
 	fi
-	# 3) no daemon anywhere: say so loudly and record what this console actually has, so the next
-	#    boot answers the question instead of another evening of port scans (same probe pattern as
-	#    the 8188fu module hunt above).
-	if [ "$STARTED" != 1 ]; then
-		echo "NO SSH DAEMON STARTED — nothing will be listening."
-		echo "PROBE: dropbear/ssh binaries present on this console:"
-		find /customer /usr /bin /sbin /mnt/SDCARD/miyoo -name '*dropbear*' -o -name 'sshd' 2>/dev/null | head -20
-		echo "PROBE: end. If this list is empty we must ship an armhf dropbearmulti."
+	# console's own dropbear as a fallback, at the paths stock firmwares use.
+	if ! _db_up; then
+		for DB in /customer/app/dropbear /usr/sbin/dropbear /usr/bin/dropbear /bin/dropbear; do
+			[ -x "$DB" ] || continue
+			if [ -f "$HK" ]; then setsid "$DB" -B -r "$HK" -p 22 </dev/null >>"$SSH_LOG" 2>&1 &
+			else setsid "$DB" -B -R -p 22 </dev/null >>"$SSH_LOG" 2>&1 & fi
+			sleep 1; _db_up && break
+		done
 	fi
-	echo "ip: $(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)"
+	_db_up && echo "RUNNING on $(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1):22" \
+	       || echo "NO SSH DAEMON STARTED — see the error above"
 	} >> "$SSH_LOG" 2>&1 &
 fi
 
