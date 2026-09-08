@@ -1,241 +1,127 @@
 # MinUI Zero
 
-## Same simple MinUI. Tuned end to end.
+**Same simple MinUI. Tuned end to end.**
 
 **MinUI Zero** is a refined [MinUI](https://github.com/shauninman/MinUI) fork that keeps what makes
-MinUI great: fast, simple, distraction-free gaming with almost nothing to configure. Underneath, Zero
-runs cooler and lasts longer, with smoother frame pacing, cleaner audio, lower input lag, and more
-dependable sleep and saves. No bloat, no menus to wrangle, just the power each game actually needs.
+MinUI great (fast, simple, distraction-free gaming with almost nothing to configure) and tunes the
+machine underneath so it runs cooler and lasts longer, with smoother frame pacing, cleaner audio,
+lower input lag, and more dependable sleep and saves.
 
-**Full speed. Zero tinkering.**
+**Full speed. Zero tinkering.** Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**,
+**Anbernic RG35XX Plus / H**, and the **Miyoo Mini family**.
 
-Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**, **Anbernic RG35XX Plus / H**, and the
-**Miyoo Mini family**.
+## Why Zero
 
-## Why MinUI Zero?
+- **Longer battery**: ~7.5 hours on Game Boy, ~7 on PlayStation
+- **Cooler**: 2-5°C below stock without dropping frame rate
+- **No CPU settings**: every game is tuned automatically, with opt-in per-chip undervolting
+- **Deep sleep by default**: near-zero draw, instant resume
+- **Fast boot**: power-on to a browsable menu in seconds
+- **Hard to break**: bad ROMs exit cleanly and saves are crash-safe
+- **Still MinUI**: no box art, stores, accounts, or themes
 
-- **Longer battery life**: ~7.5 hours on Game Boy, ~7 on PlayStation
-- **Cooler gameplay**: 2-5°C below stock, without dropping frame rate
-- **No CPU settings to manage**: every game is tuned automatically and continuously, with opt-in
-  per-chip undervolting
-- **Deep sleep by default**: near-zero draw, instant resume, never running hot in your bag
-- **Fast boot**: power-on to a browsable menu in seconds (as quick as 3s), and instant wake from sleep
-- **Hard to break**: bad ROMs exit cleanly and saves are written crash-safe, so a crash never loses
-  your progress
-- **The simplicity of MinUI**: no box art, stores, accounts, or themes
+## Measured (TrimUI, vs stock MinUI on the same device)
 
-For people who want to turn on a handheld and play games, not spend their time configuring one.
+- **2-3°C cooler** than stock's default clock, **4-5°C cooler** than its 2.0GHz Performance mode
+- **~7.5 hours** Game Boy battery (up from ~6 before tuning), **~6.5-7 hours** on PlayStation
+- Bloody Roar II holds a **locked 60fps at stock clocks** (other firmwares reach 60 via a 2.0GHz
+  overclock); Tony Hawk's Pro Skater 2 runs **60fps at 1008 MHz**, half the stock clock
+- Menu idle **~26°C** with the GPU powered down
 
-## Measured results
-
-On real TrimUI hardware, against stock MinUI on the same device.
-
-| Test | Result |
-|---|---|
-| Gameplay vs stock MinUI's default clock | **2-3°C cooler** |
-| Gameplay vs MinUI's 2.0GHz Performance mode | **4-5°C cooler** |
-| Game Boy battery life, TrimUI Brick | **~7.5 hours**, up from ~6 before tuning |
-| PlayStation battery life | **~6.5-7 hours** |
-| Bloody Roar II fights, ~51fps on the serial path | **Locked 60fps at stock clocks** (other firmwares reach 60 via the 2.0GHz overclock) |
-| Tony Hawk's Pro Skater 2, in-level | **60fps at 1008 MHz**, half the stock clock |
-| Menu idle, TrimUI Brick | **~26°C** with the GPU powered down |
-
-Your games, silicon, and settings will vary. Raw data and the reasoning behind every claim live in
+Your games, silicon, and settings vary. Raw data and reasoning:
 [`docs/bench/`](docs/bench/) and [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
-## On TrimUI: Zero or NextUI?
+## Zero or NextUI?
 
-[NextUI](https://github.com/LoveRetro/NextUI) is the other major MinUI fork for these devices,
-full-featured and polished where Zero is deliberately minimal. Both are good firmware; pick by
-philosophy.
-
-| | **MinUI Zero** | **NextUI** |
-|---|---|---|
-| Philosophy | Lowest power that holds full speed | Full-featured |
-| Firmware source code | ~21,500 lines | ~51,200 lines |
-| Base install download | 7 MB | 82 MB |
-| Rendering | Lean pipeline; the GPU only displays the finished frame in-game, and powers down at the menu | Fully OpenGL/GPU-based, with shaders and overlays |
-| CPU | Frame-aware closed loop plus a pipelined PS1 frontend; holds full speed at stock clocks, never overclocks | Dynamic scaling; performance mode is a 2.0 GHz overclock |
-| Undervolting | Self-calibrating per-chip tool, finds each chip's lowest safe voltage (opt-in) | None |
-| Features | Minimal by design: no box art, store, themes, or accounts | Box art, WiFi, Bluetooth audio, cheats, game switcher, Pak Store, LED effects, themes |
-| Background services in-game | keymon only, rewritten for zero idle wakeups | keymon, battery monitor, audio monitor, plus WiFi and Bluetooth stacks when enabled |
-| Deep sleep | Yes | Yes |
-| Devices | Brick, Brick Pro, Smart Pro (+ Anbernic RG35XX Plus / H and Miyoo Mini family) | Brick, Brick Pro, Smart Pro, Smart Pro S |
-
-Measured at MinUI Zero v1.5 and NextUI v6.14.0. Source lines count each firmware's own `.c`/`.h` and
-exclude the emulator cores both ship; download sizes are each project's base release zip. The NextUI
-column comes from its README and its own boot and launch scripts, and the governor difference is
-researched in [`docs/nextui-comparison.md`](docs/nextui-comparison.md). Code flows both ways between
-these projects: deep sleep shares a lineage, and NextUI is credited in this codebase.
+[NextUI](https://github.com/LoveRetro/NextUI) is the other major TrimUI MinUI fork: full-featured
+and polished where Zero is deliberately minimal. Both are good firmware; pick by philosophy. Zero is
+~21,500 lines / 7 MB with a lean render path that powers the GPU down at the menu and never
+overclocks. NextUI is ~51,200 lines / 82 MB, fully GPU-based, with box art, WiFi, Bluetooth audio,
+cheats, a Pak Store, and themes. Full comparison: [`docs/nextui-comparison.md`](docs/nextui-comparison.md).
 
 ## How it works
 
-There is no CPU Speed setting because the machine answers that question itself. Each system ships
-with a clock bracket measured on real hardware. Where a bracket has room, the frontend watches
-whether the game is holding its target frame rate and moves the CPU ceiling to the lowest clock that
-still does, so Bloody Roar II pays 1800 only in the scenes that need it. The lightest systems
-(Game Boy, GBC, NES, Master System, Game Gear, TurboGrafx-16) are simply pinned at a flat 1008 MHz,
-because measurement showed the loop had nothing left to find below it. **Deep sleep** suspends to RAM rather than idling behind a dark
-screen, and on TrimUI, **Optimize CPU** measures your specific chip's lowest safe voltage for about
-20% less CPU power at identical clocks.
+There is no CPU Speed setting because the machine answers that itself. Each system ships a clock
+bracket measured on real hardware, and where a bracket has room the frontend holds the lowest clock
+that still keeps frame rate (so Bloody Roar II pays 1800 only in the scenes that need it). The
+lightest systems are pinned flat at 1008 MHz, where measurement showed nothing left to find below.
+**Deep sleep** suspends to RAM, and on TrimUI **Optimize CPU** measures your chip's lowest safe
+voltage for about 20% less CPU power at the same clocks. Full detail:
+[**docs/how-it-works.md**](docs/how-it-works.md).
 
-Full explanation of each, and the design docs behind them: [**docs/how-it-works.md**](docs/how-it-works.md).
-
-## Quality of life
-
-- **Stock bugs fixed**: hot-running NES settings, crackling audio, hanging quit menus, LEDs turning
-  themselves back on
-- **Safer failure handling**: bad ROMs exit cleanly, mid-game resolution changes are handled, and
-  saves are written atomically, so a crash or a full card leaves the previous good save intact
-- **Efficiency-tuned cores**, including NEON-accelerated PlayStation video decoding
-- **Fast boot**: power to menu in ~10 seconds, and waking from sleep is instant
-- **Menu clock** (opt-in) via Tools → Clock
+Also: stock bugs fixed (hot-running NES settings, crackling audio, hanging quit menus, LEDs
+relighting themselves), NEON-accelerated PlayStation video, atomic crash-safe saves, and an opt-in
+menu clock (Tools > Clock).
 
 ## Consoles
 
-**Ready to play:** Game Boy Color · Game Boy Advance · NES · SNES · Sega Genesis · PlayStation
+**Ready to play:** Game Boy Color, Game Boy Advance, NES, SNES, Sega Genesis, PlayStation.
 
 **Also aboard, dormant:** Game Boy, mGBA, Super Game Boy, Game Gear, Master System, TurboGrafx-16,
-Virtual Boy, PICO-8. Create the matching Roms folder (eg. "Virtual Boy (VB)") and the system appears,
-tuned core already installed.
-
-## Which download?
-
-[The latest release](https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/latest) carries four
-artifacts, and they are not interchangeable.
-
-| Device | Download | Install method |
-|---|---|---|
-| TrimUI Brick / Brick Pro / Smart Pro | `MinUI-Zero-trimui-*.zip` | Copy onto a card |
-| Miyoo Mini / Plus / Flip | `MinUI-Zero-miyoo-*.zip` | Copy onto a card |
-| Anbernic RG35XX Plus | `MinUI-Zero-h700-*-rg35xx-plus.img.xz` | Flash the card |
-| Anbernic RG35XX H | `MinUI-Zero-h700-*-rg35xx-h.img.xz` | Flash the card |
-
-## Boot times, measured
-
-Every device stamps its own boot receipt on every startup (kernel to browsable menu; the vendor
-bootloader adds a moment before the kernel on all of them). From the receipts, v1.7.x builds:
-
-| Device | Kernel to menu |
-|---|---|
-| Miyoo Mini Plus | **3.0s** |
-| Anbernic RG35XX Plus | **3.0s** |
-| Anbernic RG35XX H | **3.9s** |
-| TrimUI Smart Pro | **6.9s** |
-| TrimUI Brick | **7.1s** |
-| TrimUI Brick Pro | **7.6s** |
-
-The Anbernic numbers are the whole operating system booting — ours. The TrimUI gap is the vendor's
-boot chain running before MinUI Zero gets control.
+Virtual Boy, PICO-8. Create the matching Roms folder (e.g. "Virtual Boy (VB)") and the system
+appears, tuned core already installed.
 
 ## Install
 
-The two installs are genuinely different: one copies files, the other replaces the whole card.
+[The latest release](https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/latest) carries four
+artifacts. They are not interchangeable, and a card serves the one device you installed it for.
 
-**TrimUI and Miyoo: copy files.** MinUI Zero rides along with the firmware already on the device and
-nothing is erased.
+| Device | Download | Install |
+|---|---|---|
+| TrimUI Brick / Brick Pro / Smart Pro | `MinUI-Zero-trimui-*.zip` | copy onto the card |
+| Miyoo Mini / Plus / Flip | `MinUI-Zero-miyoo-*.zip` | copy onto the card |
+| Anbernic RG35XX Plus / H | the matching `.img.xz` | flash the card |
 
-- **Fresh:** unzip the base zip onto a blank FAT32 SD card.
-- **Update:** drop `MinUI.zip` on the card root and reboot.
+**TrimUI and Miyoo** ride along with the stock firmware, nothing is erased: unzip the base zip onto
+a blank FAT32 card, or drop `MinUI.zip` on the card root to update.
 
-**Anbernic: flash an image.** Here MinUI Zero *is* the operating system. Decompress the `.img.xz`
-for your device and write it with [Raspberry Pi Imager](https://www.raspberrypi.com/software/),
-[balenaEtcher](https://etcher.balena.io/), or `dd`.
+**Anbernic** *is* the operating system: write the `.img.xz` for your exact device with
+[Raspberry Pi Imager](https://www.raspberrypi.com/software/), [balenaEtcher](https://etcher.balena.io/),
+or `dd`. **Flashing erases the card**, and the Plus and H images are not interchangeable (each carries
+its own boot chain, device tree, and kernel).
 
-> **Flashing erases the card.** Back up saves and roms first. The Plus and H images are not
-> interchangeable: each carries its own boot chain, device tree and kernel.
-
-Nothing is written to the device itself, so flash a spare card and swap cards to switch systems.
-First boot expands the ROMS partition to fill the card, and that partition mounts on any PC or Mac.
-Wi-Fi and SSH stay off until you ask for them: rename `wifi.txt.example` to `wifi.txt` at the card
-root and put your network in it as `SSID:password`. Same file on every device. An idle radio is
-battery you did not agree to spend, and nothing here needs the network. Once the file exists, a
-**WiFi Toggle** tool appears in Tools showing the live connection (network name and IP) with
-one-press on/off; cards without the file keep a clean Tools menu.
-**A more minimal menu.** Zero's menu is already sparse, but a few empty files at the card root
-strip it down further. Each works with or without a `.txt` extension, so it does not matter if your
-computer adds one, and deleting the file restores the default.
-
-- **`no-recents`** hides the Recently Played row and stops recording plays.
-- **`hide-tools`** hides the Tools folder. Unlike simple mode it keeps an escape hatch: hold
-  `L1 + R1` and press `SELECT` at the main menu to open Tools anyway.
-
-For a full lockdown instead of a declutter (handing the device to kids, say), use simple mode: an
-empty `enable-simple-mode` file in `/.userdata/shared/` hides Tools with no escape and swaps the
-in-game Options for Reset.
-
-**One card per device.** Upstream MinUI ships every platform in a single zip, so one card boots
-anything it supports. Zero builds and ships each platform separately, so **a card serves the device
-you installed it for**. Merging two platform downloads onto one card does not work: each install
-places its own boot dispatch, and a card set up for one device has no bootstrap for the other, so the
-second device stops after its firmware's loading screen. Use a card per device, and copy `Roms` and
-`Saves` across if you want the same library on both. Note that battery saves move between devices but
-save *states* may not, since they are tied to the emulator core's architecture.
+**WiFi and SSH stay off** until you ask: rename `wifi.txt.example` to `wifi.txt` at the card root with
+your network as `SSID:password`, and a **WiFi Toggle** tool appears in Tools. **Minimal menu**: empty
+`no-recents` and `hide-tools` files at the card root strip it further (with `hide-tools`, hold
+`L1 + R1` and press `SELECT` to reach Tools anyway).
 
 ## Anbernic RG35XX Plus / H
 
-Same launcher, same closed-loop governor, same cores, but newer than the TrimUI builds and less
-proven. **Each device has its own image**, carrying that board's boot chain, device tree and kernel;
-the H image is what makes its analog sticks work. Other H700 handhelds are untested and need their
-own image.
-
-Owning the whole OS is what lets the device boot straight into the launcher, poll input every 5ms,
-and idle with nothing else running. Measured on the Plus: **95% to 6% battery over 10.1 hours of
-continuous Game Boy Color**, at the lowest clock the silicon offers, at ~36°C.
-
-Rough edges to expect: **updates are a reflash** (no in-place updater yet, and saves live on the
-ROMS partition), six of the fifteen systems are verified by launch test, L3 and R3 are unmapped, and
-no third-party pak has been run end to end.
+Same launcher, governor, and cores, but newer and less proven than the TrimUI builds. Owning the
+whole OS lets it boot straight to the launcher, poll input every 5ms, and idle with nothing else
+running: measured **95% to 6% battery over 10.1 hours of continuous Game Boy Color** on the Plus, at
+~36°C. Each device needs its own image (the H's is what makes its analog sticks work). Rough edges:
+updates are a reflash (saves live on the ROMS partition), six of the fifteen systems are launch-tested,
+and L3/R3 are unmapped.
 
 ## Miyoo Mini family
 
-A real port for the SigmaStar SSD202D: same launcher, same governor, the same eleven cores rebuilt
-for ARMv7/NEON. One card serves all three models and the firmware detects which it woke up on. The
-**Plus** is the model this is developed and verified on; the **Mini** and **Flip** are code-complete
-but **never tested on real hardware**.
+A real port for the SigmaStar SSD202D: same launcher and governor, eleven cores rebuilt for
+ARMv7/NEON, one card for all three models (detected at boot). The **Plus** is developed and verified;
+the **Mini** and **Flip** are code-complete but **never tested on real hardware**. Two caveats: none
+of the measured figures above were taken on a Miyoo (the CPU is a smaller share of total power on this
+SoC, so they likely do not transfer), and **deep sleep is impossible** here (the vendor kernel ships
+without suspend support, so POWER blanks and idles, then quicksaves and powers off after two minutes).
 
-| | TrimUI Brick / Brick Pro / Smart Pro | Miyoo Mini Plus |
-|---|---|---|
-| Closed-loop governor | Yes | Yes |
-| Emulator cores | 11 | 11 (same pinned versions) |
-| **Deep sleep** | **Yes** | **Not possible**, see below |
-| **Optimize CPU (undervolt)** | **Yes** | **No** |
-| Tear-free, panel-accurate presentation | Yes | Yes |
-| Measured battery/thermal figures | Yes, see above | **None yet** |
+## Left out
 
-**None of the measured results above were taken on a Miyoo**, and an early port investigation found
-the CPU is a much smaller share of total power on this SoC, so do not assume the battery numbers
-transfer. They probably do not. PlayStation also leans on a 128 MB swapfile because the device has
-~100 MB of usable RAM: games run at full speed, but the heaviest scenes push it to its limit. A
-pin-verified 24% overclock changed that by 0%, so more clock cannot buy it.
-
-**Why there's no deep sleep here.** This is a hardware limit, not a missing feature. The vendor
-kernel is built without suspend support at all, so `/sys/power/state` is empty and there is no
-suspend mode for any firmware to ask for. Every other Miyoo custom firmware works around it the same
-way we do. Closing it for real would mean rebuilding the vendor kernel and reflashing SPI NOR, since
-the kernel does not live on the SD card, which is a brick risk we will not take for a sleep mode.
-Instead POWER blanks and idles, and after two minutes the device quicksaves and powers off.
-
-## What's left out
-
-No box art, Wi-Fi UI, store, achievements, LED effects, shaders, or themes. Anything that adds heat or
+No box art, WiFi UI, store, achievements, LED effects, shaders, or themes. Anything that adds heat or
 drain without earning it doesn't ship, and several flashy features were built, measured as
 break-even, and cut. `docs/DECISIONS.md` records every verdict.
 
 ## Disclaimer
 
-MinUI Zero is unofficial personal firmware, provided as-is, without warranty of any kind. Use it at
-your own risk: custom firmware can cause data loss, failed boots, or other device issues, and the
-author is not responsible for any of them. Back up your SD card before installing.
+MinUI Zero is unofficial personal firmware, provided as-is without warranty of any kind. Custom
+firmware can cause data loss, failed boots, or other device issues; back up your SD card before
+installing. Use at your own risk.
 
 ## Credits
 
 Built on [MinUI](https://github.com/shauninman/MinUI) by Shaun Inman. Deep sleep from
-[zhaofengli](https://github.com/zhaofengli/MinUI); techniques borrowed from
+[zhaofengli](https://github.com/zhaofengli/MinUI); techniques from
 [MyMinUI](https://github.com/Turro75/MyMinUI) and [NextUI](https://github.com/LoveRetro/NextUI); the
 dynamic rate control idea from [RetroArch](https://github.com/libretro/RetroArch); the power-off
-haptic cue idea from [SpruceOS](https://github.com/spruceUI/spruceOS). The Anbernic build uses the
-hardware-enablement layer from [muOS](https://muos.dev). An independent personal fork, not
-affiliated with, endorsed by, or supported by any of them. See [`LICENSE.md`](LICENSE.md) for
-license and provenance, and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for detailed
-attribution.
+haptic cue from [SpruceOS](https://github.com/spruceUI/spruceOS); the Anbernic hardware-enablement
+layer from [muOS](https://muos.dev). An independent personal fork, not affiliated with, endorsed by,
+or supported by any of them. See [`LICENSE.md`](LICENSE.md) and
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for license, provenance, and attribution.
