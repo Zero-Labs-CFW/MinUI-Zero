@@ -11,12 +11,12 @@ lower input lag, and more dependable sleep and saves.
 **Anbernic RG35XX Plus / H**, and the **Miyoo Mini family**.
 
 <p>
-  <br>
   <img src="docs/img/brickpro-menu.png" width="275" alt="Main menu" />
   <img src="docs/img/brickpro-optimize-cpu.png" width="275" alt="Optimize CPU: per-chip undervolting" />
   <img src="docs/img/brickpro-ingame-menu.png" width="275" alt="In-game menu" />
   <br>
   <em>Screenshots from TrimUI Brick Pro.<em>
+  <br>
   <br>
 </p>
 
