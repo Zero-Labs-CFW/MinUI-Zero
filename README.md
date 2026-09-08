@@ -7,7 +7,8 @@ MinUI great (fast, simple, distraction-free gaming with almost nothing to config
 machine underneath so it runs cooler and lasts longer, with smoother frame pacing, cleaner audio,
 lower input lag, and more dependable sleep and saves.
 
-**Full speed. Zero tinkering.** Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**,
+**Full speed. Zero tinkering.**  
+Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**,
 **Anbernic RG35XX Plus / H**, and the **Miyoo Mini family**.
 
 <p>
