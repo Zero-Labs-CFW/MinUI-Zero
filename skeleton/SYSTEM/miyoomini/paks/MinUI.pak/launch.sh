@@ -186,15 +186,22 @@ if [ -f "$SDCARD_PATH/devmode.txt" ] && [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	done
 	HK="$SSH_DIR/dropbear_ed25519_host_key"
 	STARTED=0
+	# stock busybox 1.20.2 may or may not carry pgrep (Onion's does, but Onion ships its own), and a
+	# missing pgrep here read as "no daemon started" while one was listening. Fall back to ps.
+	_db_up() { pgrep dropbear >/dev/null 2>&1 || ps 2>/dev/null | grep -v grep | grep -q dropbear; }
+	# -B on every invocation (review, 2026-09-08): root has no password on this firmware, and without
+	# -B dropbear refuses blank-password logins — so the only way in was authorized_keys, and if
+	# /root is not writable (the failure logged just above) there was NO way in at all. Onion runs
+	# with -B too. Dev cards only; a user card never reaches this block.
 	# 1) the console's own dropbear, if this firmware has one. -R lets it make its own host key when
 	#    ours is absent; we pass -r first so the identity stays stable across updates.
 	for DB in /customer/app/dropbear /usr/sbin/dropbear /usr/bin/dropbear /bin/dropbear /mnt/SDCARD/miyoo/app/dropbear; do
 		[ -x "$DB" ] || continue
 		# stderr is NOT suppressed: a missing shared library is the likeliest failure and only
 		# dropbear's own message names it.
-		if [ -f "$HK" ]; then "$DB" -r "$HK" -p 22; else "$DB" -R -p 22; fi
+		if [ -f "$HK" ]; then "$DB" -B -r "$HK" -p 22; else "$DB" -B -R -p 22; fi
 		sleep 1
-		pgrep dropbear >/dev/null 2>&1 && { echo "started $DB on :22"; STARTED=1; break; }
+		_db_up && { echo "started $DB on :22"; STARTED=1; break; }
 	done
 	# 2) a dropbearmulti we ship for THIS architecture, if one is ever added. The tg5040 binary in
 	#    .system/tg5040/bin is aarch64 and cannot run here, so only the miyoomini path is tried.
@@ -202,9 +209,9 @@ if [ -f "$SDCARD_PATH/devmode.txt" ] && [ -f "$SDCARD_PATH/wifi.txt" ]; then
 		DBM="$SYSTEM_PATH/bin/dropbearmulti"
 		if [ -x "$DBM" ]; then
 			[ -f "$HK" ] || "$DBM" dropbearkey -t ed25519 -f "$HK"
-			"$DBM" dropbear -r "$HK" -p 22
+			"$DBM" dropbear -B -r "$HK" -p 22
 			sleep 1
-			pgrep dropbear >/dev/null 2>&1 && { echo "started shipped dropbearmulti on :22"; STARTED=1; }
+			_db_up && { echo "started shipped dropbearmulti on :22"; STARTED=1; }
 		fi
 	fi
 	# 3) no daemon anywhere: say so loudly and record what this console actually has, so the next
@@ -242,7 +249,10 @@ SSH_PAK_SRC="$SYSTEM_PATH/paks/tools-stash/SSH.pak"
 SSH_PAK_DST="$SDCARD_PATH/Tools/miyoomini/SSH.pak"
 if [ -f "$SDCARD_PATH/devmode.txt" ]; then
 	[ -d "$SSH_PAK_DST" ] || cp -r "$SSH_PAK_SRC" "$SSH_PAK_DST" 2>/dev/null
-else
+elif [ -f "$SSH_PAK_DST/launch.sh" ] && grep -q 'DEV CARDS ONLY' "$SSH_PAK_DST/launch.sh" 2>/dev/null; then
+	# Remove only OUR copy. "SSH.pak" is exactly the name of the community pak that used to give
+	# this device its ssh (review, 2026-09-08): an unconditional rm here would silently delete a
+	# user's own tool on their first boot without devmode.txt. The marker string is ours alone.
 	rm -rf "$SSH_PAK_DST" 2>/dev/null
 fi
 

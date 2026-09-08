@@ -85,7 +85,9 @@ if ! running; then
 	for DB in /customer/app/dropbear /usr/sbin/dropbear /usr/bin/dropbear /bin/dropbear; do
 		[ -x "$DB" ] || continue
 		echo "-- $DB"
-		"$DB" -B -r "$HK" -p 22
+		# -R when there is no card key yet: this branch is reached only if our own binary was absent,
+		# so nothing has generated one, and -r on a missing file is a guaranteed "Failed loading keys".
+		if [ -f "$HK" ]; then "$DB" -B -r "$HK" -p 22; else "$DB" -B -R -p 22; fi
 		sleep 1
 		running && break
 	done
