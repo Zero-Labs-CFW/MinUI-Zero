@@ -911,9 +911,12 @@ void PLAT_setNearestNeighbor(int enabled) {
 static int next_effect = EFFECT_NONE;
 static int effect_type = EFFECT_NONE;
 void PLAT_setSharpness(int sharpness) {
-	// force effect to reload
-	// on scaling change
-	if (effect_type>=EFFECT_NONE) next_effect = effect_type;
+	// Force the scaler to reload at the new geometry on a scaling change: invalidating effect_type
+	// makes the next PLAT_blitRenderer rebuild via PLAT_getScaler. next_effect is left ALONE — it is
+	// the authoritative current effect (PLAT_setEffect owns it), and the in-game menu deliberately
+	// sets it to NONE while open. The old code also did `next_effect = effect_type` here, which
+	// restored the gameplay effect from the stale saved value and re-armed the hardware overlay
+	// over the menu whenever the user changed Screen Scaling with the menu open (Dan, 2026-09-08).
 	effect_type = -1;
 }
 
