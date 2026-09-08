@@ -453,16 +453,22 @@ FALLBACK_IMPLEMENTATION SDL_Surface* PLAT_captureRendererToSurface(void) { retur
 // Reads the live SDL renderer (PLAT_captureRendererToSurface) and writes a PNG to Screenshots/.
 // flagExists is read once and cached, so a user card pays a single check and then nothing.
 void GFX_maybeScreenshot(void) {
-	// Devmode-gated, file-triggered ONLY: `touch /tmp/take_screenshot` (over SSH) captures whatever
-	// is on the panel. No button chord — MENU mutates the screen (raises the dimmer bar) and the old
-	// MENU+SELECT could not reach the Tools, which are separate binaries (say/confirm). Called from
-	// both GFX_flip AND GFX_sync so a STATIC dialog that only flips when dirty (say.elf, confirm.elf,
-	// Optimize CPU) is still reachable while it idles on GFX_sync. Dan, on-device 2026-09-08.
+	// Devmode-gated. TWO triggers, both handled here (called from GFX_flip AND GFX_sync, so a static
+	// dialog that only flips when dirty, like say.elf / confirm.elf / Optimize CPU, is still reachable
+	// while it idles on GFX_sync):
+	//   1. L2+R2 held + SELECT tapped: the offline physical trigger. Works with WiFi OFF, so the shot
+	//      carries no network icon. L2+R2+SELECT is unbound everywhere and avoids MENU, whose hold
+	//      raises the dimmer bar and mutates the very frame you are capturing. (MENU+SELECT was the
+	//      first try and was wrong for exactly that reason; a per-binary chord also could not reach
+	//      the Tools.) Dan, on-device 2026-09-08.
+	//   2. touch /tmp/take_screenshot: the remote/SSH trigger, for scripted capture.
 	static int dev = -1;
 	if (dev<0) dev = flagExists(DEVMODE_PATH);
 	if (!dev) return;
-	if (!exists(SCREENSHOT_TRIGGER_PATH)) return;
-	unlink(SCREENSHOT_TRIGGER_PATH);
+	int triggered = exists(SCREENSHOT_TRIGGER_PATH);
+	int combo = PAD_isPressed(BTN_L2) && PAD_isPressed(BTN_R2) && PAD_justPressed(BTN_SELECT);
+	if (!triggered && !combo) return;
+	if (triggered) unlink(SCREENSHOT_TRIGGER_PATH);
 	SDL_Surface* shot = PLAT_captureRendererToSurface();
 	if (!shot) { LOG_info("screenshot: this platform has no readable renderer\n"); return; }
 	mkdir(SCREENSHOTS_PATH, 0777);
