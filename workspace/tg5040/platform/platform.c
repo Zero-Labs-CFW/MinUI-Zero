@@ -595,6 +595,29 @@ static void drawDebugOverlay(void) {
 	SDL_RenderCopy(vid.renderer, dbg.tex_bottom, NULL, &(SDL_Rect){gx, by, dbg.w * S, dbg.h * S});
 }
 
+// DEVMODE SCREENSHOT: read the live SDL renderer into an opaque ARGB8888 surface (adapted from
+// NextUI). This captures what the panel actually shows on the Brick Pro / Smart Pro, whose display
+// is the GLES layer, not /dev/fb0 (a raw fb0 grab there is blank). Called only from the
+// devmode-gated GFX_maybeScreenshot path.
+SDL_Surface* PLAT_captureRendererToSurface(void) {
+	if (!vid.renderer) return NULL;
+	int w, h;
+	SDL_GetRendererOutputSize(vid.renderer, &w, &h);
+	SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!surface) return NULL;
+	if (SDL_RenderReadPixels(vid.renderer, NULL, SDL_PIXELFORMAT_ARGB8888, surface->pixels, surface->pitch)!=0) {
+		SDL_FreeSurface(surface);
+		return NULL;
+	}
+	// force alpha opaque so the PNG is not saved as transparent
+	Uint32* px = (Uint32*)surface->pixels;
+	int n = (surface->pitch/4) * surface->h;
+	Uint32 amask = surface->format->Amask;
+	for (int i=0;i<n;i++) px[i] |= amask;
+	SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_NONE);
+	return surface;
+}
+
 void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	PLAT_uvReassert(); // voltage authority: out-persist the kernel (no-op unless armed)
 	

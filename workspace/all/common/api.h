@@ -166,6 +166,8 @@ void GFX_startFrame(void);
 void GFX_flip(SDL_Surface* screen); // menu/UI/single-shot presents: never skippable (invisible-menu fix 2026-07-13)
 void GFX_flipGame(SDL_Surface* screen); // game run loop ONLY: presentation-drop catch-up may skip this present
 void GFX_setPresentationDrop(int enabled); // measured PS1 audio protection; disabled for other systems
+SDL_Surface* PLAT_captureRendererToSurface(void); // devmode screenshot: read the live renderer to a surface (weak fallback: NULL)
+void GFX_maybeScreenshot(int hotkey); // devmode-gated: on `hotkey` (MENU+SELECT) or the /tmp trigger file, save a PNG to Screenshots/
 #define GFX_supportsOverscan PLAT_supportsOverscan // (void)
 void GFX_sync(void); // call this to maintain 60fps when not calling GFX_flip() this frame
 void GFX_setPacePeriodUs(uint32_t us); // dynamic rate control: pace GFX_sync above the panel (0 = stock)

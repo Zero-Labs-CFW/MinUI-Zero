@@ -1564,7 +1564,10 @@ int main (int argc, char *argv[]) {
 		unsigned long now = SDL_GetTicks();
 		
 		PAD_poll();
-			
+
+		// devmode screenshot: MENU+SELECT chord (or the /tmp trigger). No-op without a devmode flag.
+		GFX_maybeScreenshot(PAD_isPressed(BTN_MENU) && PAD_justPressed(BTN_SELECT));
+
 		int selected = top->selected;
 		int total = top->entries->count;
 		

@@ -7,6 +7,7 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h> // mkdir for the devmode screenshot dir
 #include <pthread.h>
 
 #include <errno.h>
@@ -440,6 +441,31 @@ void GFX_sync(void) {
 		return;
 	}
 	if (offset < 0) PLAT_vsync((int)((-offset) / 1000)); // sleep the remaining whole ms to the scheduled time
+}
+
+FALLBACK_IMPLEMENTATION SDL_Surface* PLAT_captureRendererToSurface(void) { return NULL; } // no live renderer to read on this platform
+
+// DEVMODE SCREENSHOT (dev tool only; never runs on a user card). Two triggers, both gated on
+// devmode: the MENU+SELECT chord (passed in as `hotkey`) and an SSH-friendly trigger file
+// (`touch /tmp/take_screenshot`), so a dev can grab a frame remotely without touching the pad.
+// Reads the live SDL renderer (PLAT_captureRendererToSurface) and writes a PNG to Screenshots/.
+// flagExists is read once and cached, so a user card pays a single check and then nothing.
+void GFX_maybeScreenshot(int hotkey) {
+	static int dev = -1;
+	if (dev<0) dev = flagExists(DEVMODE_PATH);
+	if (!dev) return;
+	int triggered = exists(SCREENSHOT_TRIGGER_PATH);
+	if (!hotkey && !triggered) return;
+	if (triggered) unlink(SCREENSHOT_TRIGGER_PATH);
+	SDL_Surface* shot = PLAT_captureRendererToSurface();
+	if (!shot) { LOG_info("screenshot: this platform has no readable renderer\n"); return; }
+	mkdir(SCREENSHOTS_PATH, 0777);
+	// name by uptime ticks: unique and sortable without depending on the (possibly wrong) RTC
+	char path[512];
+	snprintf(path, sizeof(path), "%s/screenshot-%010u.png", SCREENSHOTS_PATH, (unsigned)SDL_GetTicks());
+	if (IMG_SavePNG(shot, path)==0) LOG_info("screenshot saved: %s (%dx%d)\n", path, shot->w, shot->h);
+	else LOG_error("screenshot save failed: %s\n", IMG_GetError());
+	SDL_FreeSurface(shot);
 }
 
 FALLBACK_IMPLEMENTATION int PLAT_supportsOverscan(void) { return 0; }
