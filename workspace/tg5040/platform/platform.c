@@ -599,7 +599,25 @@ static void drawDebugOverlay(void) {
 // NextUI). This captures what the panel actually shows on the Brick Pro / Smart Pro, whose display
 // is the GLES layer, not /dev/fb0 (a raw fb0 grab there is blank). Called only from the
 // devmode-gated GFX_maybeScreenshot path.
+static void forceOpaque(SDL_Surface* s) { // stop the PNG saving as transparent
+	Uint32* px = (Uint32*)s->pixels;
+	int n = (s->pitch/4) * s->h;
+	Uint32 amask = s->format->Amask;
+	for (int i=0;i<n;i++) px[i] |= amask;
+	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_NONE);
+}
 SDL_Surface* PLAT_captureRendererToSurface(void) {
+	// UI capture (menu + Tools): read the software surface vid.screen, which deterministically holds
+	// the last-drawn frame. SDL_RenderReadPixels on the GLES backbuffer returns BLACK for a static
+	// dialog (say.elf / confirm.elf / Optimize CPU render once via GFX_flip, then idle on GFX_sync)
+	// because the backbuffer is undefined after SDL_RenderPresent; the menu only escaped it by
+	// redrawing periodically (clock, wifi poll). During a GAME (vid.blit set) the renderer presents
+	// every frame, so its backbuffer stays fresh AND carries the scale + effects: read that instead.
+	// (Dan: black Optimize CPU shot, 2026-09-08.)
+	if (!vid.blit && vid.screen) {
+		SDL_Surface* out = SDL_ConvertSurfaceFormat(vid.screen, SDL_PIXELFORMAT_ARGB8888, 0);
+		if (out) { forceOpaque(out); return out; }
+	}
 	if (!vid.renderer) return NULL;
 	int w, h;
 	SDL_GetRendererOutputSize(vid.renderer, &w, &h);
@@ -609,12 +627,7 @@ SDL_Surface* PLAT_captureRendererToSurface(void) {
 		SDL_FreeSurface(surface);
 		return NULL;
 	}
-	// force alpha opaque so the PNG is not saved as transparent
-	Uint32* px = (Uint32*)surface->pixels;
-	int n = (surface->pitch/4) * surface->h;
-	Uint32 amask = surface->format->Amask;
-	for (int i=0;i<n;i++) px[i] |= amask;
-	SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_NONE);
+	forceOpaque(surface);
 	return surface;
 }
 
