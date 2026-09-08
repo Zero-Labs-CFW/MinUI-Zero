@@ -184,8 +184,14 @@ while : ; do
   if [ -x "$DBM" ] && [ -s /root/.ssh/authorized_keys ] && ! pgrep dropbearmulti >/dev/null 2>&1; then
 	[ -f "$DBKEY" ] || "$DBM" dropbearkey -t ed25519 -f "$DBKEY" 2>/dev/null
 	"$DBM" dropbear -r "$DBKEY" -p 22 2>/dev/null
+	# STAY AWAKE while SSH is up (Dan, 2026-09-08). The h700 has no deep sleep, so MinUI's idle
+	# escalation POWERS IT OFF after ~2 min, which killed every remote debug session. STAY_AWAKE_PATH
+	# is honored by PWR_preventAutosleep (shared api.c), and blocking autosleep also blocks that
+	# power-off. Only reached when a key is present, i.e. the user opted into SSH; a release image
+	# ships no key and never touches this.
+	touch /tmp/stay_awake 2>/dev/null
   fi
-  echo "net: $(ifconfig wlan0 2>/dev/null | sed -n 's/.*inet addr:\([0-9.]*\).*/\1/p') ssh=$(pgrep dropbearmulti >/dev/null && echo up || echo down)" >> "$LOG"
+  echo "net: $(ifconfig wlan0 2>/dev/null | sed -n 's/.*inet addr:\([0-9.]*\).*/\1/p') ssh=$(pgrep dropbearmulti >/dev/null && echo up || echo down) awake=$([ -f /tmp/stay_awake ] && echo y || echo n)" >> "$LOG"
 ) &
 
 # --- boot-time readahead ----------------------------------------------------------------------

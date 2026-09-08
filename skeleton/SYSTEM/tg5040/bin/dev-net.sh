@@ -13,6 +13,17 @@ LOG="$SHARED/ssh-ip.txt"
 {
   echo "=== dev-net $(date 2>/dev/null) ==="
 
+  # 0) STAY AWAKE while dev SSH is enabled (Dan, 2026-09-08: "fix our SSH problem with ALL devices").
+  #    This is the whole fix for the reconnect rodeo. dev-net runs only when enable-ssh exists, but
+  #    the C stay-awake in PWR_init arms on a DIFFERENT flag (devmode.txt), so a card with SSH on
+  #    but no devmode.txt would keep deep-sleeping after ~2 min idle and drop SSH -- and on the
+  #    Brick the sleep/wake cycle made dropbear's key auth flap. STAY_AWAKE_PATH (/tmp/stay_awake)
+  #    is honored by PWR_preventAutosleep in api.c, so touching it blocks autosleep for this boot.
+  #    /tmp clears on reboot and dev-net re-touches it every boot, so a dev session survives reboots.
+  #    Enabling SSH IS asking to keep the device reachable, so tying the two together is correct;
+  #    it is dev-gated (enable-ssh), never on a user card.
+  touch /tmp/stay_awake 2>/dev/null && echo "stay-awake: armed (no autosleep while SSH is on)"
+
   # 1) radios on
   rfkill unblock all 2>/dev/null || true
   ifconfig wlan0 up 2>/dev/null || true
