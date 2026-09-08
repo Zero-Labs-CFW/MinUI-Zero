@@ -179,7 +179,9 @@ if [ -f "$SDCARD_PATH/devmode.txt" ] && [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	#    ours is absent; we pass -r first so the identity stays stable across updates.
 	for DB in /customer/app/dropbear /usr/sbin/dropbear /usr/bin/dropbear /bin/dropbear /mnt/SDCARD/miyoo/app/dropbear; do
 		[ -x "$DB" ] || continue
-		if [ -f "$HK" ]; then "$DB" -r "$HK" -p 22 2>/dev/null; else "$DB" -R -p 22 2>/dev/null; fi
+		# stderr is NOT suppressed: a missing shared library is the likeliest failure and only
+		# dropbear's own message names it.
+		if [ -f "$HK" ]; then "$DB" -r "$HK" -p 22; else "$DB" -R -p 22; fi
 		sleep 1
 		pgrep dropbear >/dev/null 2>&1 && { echo "started $DB on :22"; STARTED=1; break; }
 	done
@@ -188,8 +190,8 @@ if [ -f "$SDCARD_PATH/devmode.txt" ] && [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	if [ "$STARTED" != 1 ]; then
 		DBM="$SYSTEM_PATH/bin/dropbearmulti"
 		if [ -x "$DBM" ]; then
-			[ -f "$HK" ] || "$DBM" dropbearkey -t ed25519 -f "$HK" 2>/dev/null
-			"$DBM" dropbear -r "$HK" -p 22 2>/dev/null
+			[ -f "$HK" ] || "$DBM" dropbearkey -t ed25519 -f "$HK"
+			"$DBM" dropbear -r "$HK" -p 22
 			sleep 1
 			pgrep dropbear >/dev/null 2>&1 && { echo "started shipped dropbearmulti on :22"; STARTED=1; }
 		fi

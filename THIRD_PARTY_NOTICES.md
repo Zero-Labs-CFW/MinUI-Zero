@@ -53,6 +53,15 @@ The base release zip ships three prebuilt third-party programs alongside the emu
   linked multi-call binary (static builds segfault on this BSP — see docs/DECISIONS.md).
   Dropbear is MIT-licensed (per-file notices in its LICENSE); only spawned when the
   `enable-ssh` dev flag exists.
+- **Dropbear 2022.83** (`.system/miyoomini/bin/dropbearmulti`) — the same thing for the Miyoo, which
+  has no sshd of its own either. Built 2026-09-08 from the same upstream release tarball
+  (sha256 `bc5a121ffbc94b5171ad5ebe01be42746d50aa797c9549a4639894a16749443b`) in the
+  `miyoomini-toolchain-sdl2` image: `./configure --host=arm-linux-gnueabihf --disable-zlib
+  --disable-lastlog --disable-utmp --disable-utmpx --disable-wtmp` then
+  `make PROGRAMS="dropbear dropbearkey" MULTI=1`, armhf and DYNAMICALLY linked for the same reason
+  as the tg5040 build. NOTE: that image exports `LIBNAME=libSDL2-2.0.so.0`, which silently defeats
+  libtommath's `ifndef LIBNAME` and makes its default target a no-op — `unset LIBNAME` before
+  building. Only spawned when the `devmode.txt` dev flag exists, never on a user card.
 - **DinguxCommander** (`Tools/tg5040/Files.pak/DinguxCommander`) — the Files tool, built from
   `shauninman/DinguxCommander-sdl2` @ `8eaa0ef` (cloned, hash-pin-verified, and built by
   `workspace/tg5040/makefile`). Inherited from upstream MinUI, which ships the same program. The source tree
