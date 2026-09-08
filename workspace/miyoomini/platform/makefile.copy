@@ -17,7 +17,13 @@ $(PLATFORM):
 	cp ./workspace/$@/install/boot.sh ./build/BOOT/common/$@.sh
 	cp ./workspace/$@/install/*.png ./build/BOOT/common/$@/
 	cp ./workspace/$@/show/show.elf ./build/BOOT/common/$@/
-	# extras — this fork ships Clock and Input only (their .elf are copied by the top makefile's
-	# `system:` target). Upstream's Files.pak (DinguxCommander) and Bootlogo.pak are deliberately
-	# NOT shipped: a file manager and a boot-logo editor are user-facing weight this fork doesn't
-	# take on, and both are the kind of legacy extra the card was being cleaned of.
+	# extras — Clock, Input and Files (their .elf are copied by the top makefile's `system:` target).
+	# Files.pak (DinguxCommander) WAS deliberately dropped here as "user-facing weight", but tg5040
+	# shipped it the whole time, so the rule was applied to only one platform. Dan asked for it on the
+	# Miyoo for v1.7.5 (2026-09-07), which settles the inconsistency in favour of parity: same tool set
+	# on both, minus only the divergences hardware earns. The binary is already built by this
+	# platform's `early:` target, so this is a copy, not a new dependency.
+	# Bootlogo.pak stays OUT: a boot-logo editor is legacy weight neither platform ships.
+	mkdir -p ./build/EXTRAS/Tools/$@/Files.pak
+	cp ./workspace/$@/other/DinguxCommander/output/DinguxCommander ./build/EXTRAS/Tools/$@/Files.pak/
+	cp -r ./workspace/$@/other/DinguxCommander/res ./build/EXTRAS/Tools/$@/Files.pak/
