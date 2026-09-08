@@ -35,6 +35,7 @@
 // accepts a "<name>.txt" form, so both "no-recents" and "no-recents.txt" work.
 #define NO_RECENTS_PATH SDCARD_PATH "/no-recents" // opt-out: hides Recently Played AND stops recording plays (r/trimui request, 2026-09-02)
 #define HIDE_TOOLS_PATH SDCARD_PATH "/hide-tools" // opt-out: hides Tools from the menu; unlike simple mode, a combo (L1+R1+SELECT at root) still opens it (2026-09-03)
+#define DEVMODE_PATH SDCARD_PATH "/devmode" // dev opt-in: stay-awake + SSH (read with flagExists, so "devmode" and "devmode.txt" both work, like every other card-root flag)
 #define COLLECTIONS_PATH SDCARD_PATH "/Collections"
 
 #define LAST_PATH "/tmp/last.txt" // transient

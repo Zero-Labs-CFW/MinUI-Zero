@@ -5,6 +5,11 @@
 
 export PLATFORM="tg5040"
 export SDCARD_PATH="/mnt/SDCARD"
+
+# devmode flag: accept both "devmode" and "devmode.txt" at the card root, matching every
+# other card-root flag (flagExists in C does the same). Dev mode = stay-awake + SSH.
+devmode() { [ -f "$SDCARD_PATH/devmode" ] || [ -f "$SDCARD_PATH/devmode.txt" ]; }
+
 export BIOS_PATH="$SDCARD_PATH/Bios"
 export ROMS_PATH="$SDCARD_PATH/Roms"
 export SAVES_PATH="$SDCARD_PATH/Saves"
@@ -365,7 +370,7 @@ killall ntpd 2>/dev/null # MinUI keeps its own clock
 # stay-awake in C (PWR_init), so gating SSH on the SAME flag is what stops the reconnect rodeo: the
 # device stays awake AND reachable together, the way the Miyoo already works. enable-ssh (which
 # wifi.txt still creates above) stays a valid trigger so existing dev cards keep working.
-if [ -f "$SDCARD_PATH/devmode.txt" ] || [ -f "$SHARED_USERDATA_PATH/enable-ssh" ]; then
+if devmode || [ -f "$SHARED_USERDATA_PATH/enable-ssh" ]; then
 	# adbd SURVIVES in dev mode on purpose: the USB block above keeps stock "data" mode precisely
 	# so adb is available as a wifi-less fallback when ssh cannot be reached. Killing it here too
 	# quietly removed that escape hatch (caught in review, 2026-08-30). MtpDaemon still dies either
@@ -431,7 +436,7 @@ fi
 # Boot receipt, DEV CARDS ONLY (devmode.txt at the card root): kernel seconds at menu launch,
 # one ~40-byte line per boot. Measured the fleet for the README table (2026-08-31); stays as a
 # regression canary on dev cards and costs users nothing.
-[ -f "$SDCARD_PATH/devmode.txt" ] && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$LOGS_PATH/boot-time.txt"
+devmode && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$LOGS_PATH/boot-time.txt"
 EXEC_PATH="/tmp/minui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH" # tmpfs; a sync here would flush every filesystem for a file that never touches disk

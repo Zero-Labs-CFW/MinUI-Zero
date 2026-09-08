@@ -2294,17 +2294,18 @@ static void* PWR_monitorBattery(void *arg) {
 }
 
 void PWR_init(void) {
-	// DEV MODE (opt-in, off unless the user drops devmode.txt at the SD-card root): arm the
+	// DEV MODE (opt-in, off unless the user drops a "devmode" flag at the SD-card root): arm the
 	// stay-awake inhibit for this boot, so the device never autosleeps and — critically — never
 	// reaches the 2-minute sleep escalation that POWERS IT OFF on a platform without deep sleep
 	// (PWR_waitForWake below: no PLAT_supportsDeepSleep -> falls through to PWR_powerOff). That
 	// power-off is what made an idle h700 "die" mid-SSH and killed every remote debug session
 	// (2026-08-09). STAY_AWAKE_PATH lives in /tmp, so a reboot clears it and it cannot be re-set
 	// remotely on a device that just powered itself off; re-arming it HERE at every startup is
-	// what makes a dev session survive reboots. No devmode.txt = stock behaviour, untouched.
-	if (exists(SDCARD_PATH "/devmode.txt")) {
+	// what makes a dev session survive reboots. No devmode flag = stock behaviour, untouched.
+	// flagExists() accepts both "devmode" and "devmode.txt", matching every other card-root flag.
+	if (flagExists(DEVMODE_PATH)) {
 		putFile(STAY_AWAKE_PATH, "1");
-		LOG_info("devmode.txt: stay-awake armed (no autosleep, no idle power-off)\n");
+		LOG_info("devmode: stay-awake armed (no autosleep, no idle power-off)\n");
 	}
 	pwr.can_sleep = 1;
 	pwr.can_poweroff = 1;

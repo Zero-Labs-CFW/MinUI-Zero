@@ -52,6 +52,11 @@ export IS_FLIP
 
 export PLATFORM="miyoomini"
 export SDCARD_PATH="/mnt/SDCARD"
+
+# devmode flag: accept both "devmode" and "devmode.txt" at the card root, matching every
+# other card-root flag (flagExists in C does the same). Dev mode = stay-awake + SSH.
+devmode() { [ -f "$SDCARD_PATH/devmode" ] || [ -f "$SDCARD_PATH/devmode.txt" ]; }
+
 export BIOS_PATH="$SDCARD_PATH/Bios"
 export SAVES_PATH="$SDCARD_PATH/Saves"
 export SYSTEM_PATH="$SDCARD_PATH/.system/$PLATFORM"
@@ -107,7 +112,7 @@ bt "launch.sh start"
 # Boot receipt, DEV CARDS ONLY (devmode.txt at the card root): kernel seconds at menu launch,
 # one ~40-byte line per boot. Measured the fleet for the README table (2026-08-31); stays as a
 # regression canary on dev cards and costs users nothing.
-[ -f "$SDCARD_PATH/devmode.txt" ] && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$LOGS_PATH/boot-time.txt"
+devmode && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$LOGS_PATH/boot-time.txt"
 
 # WIFI OPT-IN — the same one visible wifi.txt at the card root as TrimUI and Anbernic.
 # PORTED 2026-08-31 after learning the hard way: the MMP's wifi previously came from an ad-hoc
@@ -165,8 +170,8 @@ fi
 # next boot separates the three cases instead of costing another evening: line present + "devmode
 # ssh" present = the block ran; line present, no "devmode ssh" = a gate was false and it names
 # which; NEITHER line = the launcher that ran is not the file on the card.
-[ -f "$SDCARD_PATH/devmode.txt" ] && echo "reached ssh gate $(date 2>/dev/null) devmode=y wifi=$([ -f "$SDCARD_PATH/wifi.txt" ] && echo y || echo n)" >> "$LOGS_PATH/ssh-boot.txt"
-if [ -f "$SDCARD_PATH/devmode.txt" ] && [ -f "$SDCARD_PATH/wifi.txt" ]; then
+devmode && echo "reached ssh gate $(date 2>/dev/null) devmode=y wifi=$([ -f "$SDCARD_PATH/wifi.txt" ] && echo y || echo n)" >> "$LOGS_PATH/ssh-boot.txt"
+if devmode && [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	SSH_DIR="$USERDATA_PATH/SSH"
 	# NOT "ssh.txt": the old community pak left an SSH.txt in this same directory, and vfat lookups
 	# are case-insensitive, so the two names are ONE file on the device — which made the old pak's
@@ -237,7 +242,7 @@ fi
 # the pak's own header. A dev card that has never had devmode.txt simply never sees it.
 SSH_PAK_SRC="$SYSTEM_PATH/paks/tools-stash/SSH.pak"
 SSH_PAK_DST="$SDCARD_PATH/Tools/miyoomini/SSH.pak"
-if [ -f "$SDCARD_PATH/devmode.txt" ]; then
+if devmode; then
 	[ -d "$SSH_PAK_DST" ] || cp -r "$SSH_PAK_SRC" "$SSH_PAK_DST" 2>/dev/null
 elif [ -f "$SSH_PAK_DST/launch.sh" ] && grep -q 'DEV CARDS ONLY' "$SSH_PAK_DST/launch.sh" 2>/dev/null; then
 	# Remove only OUR copy. "SSH.pak" is exactly the name of the community pak that used to give

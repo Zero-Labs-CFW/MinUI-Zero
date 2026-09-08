@@ -24,6 +24,10 @@ else
 fi
 
 export PLATFORM="h700"
+
+# devmode flag: accept both "devmode" and "devmode.txt" at the card root, matching every other
+# card-root flag (flagExists in C does the same). Dev mode = stay-awake + SSH.
+devmode() { [ -f "$SDCARD_PATH/devmode" ] || [ -f "$SDCARD_PATH/devmode.txt" ]; }
 export SYSTEM_PATH="$SDCARD_PATH/.system/$PLATFORM"
 export CORES_PATH="$SYSTEM_PATH/cores"
 export BIOS_PATH="$SDCARD_PATH/Bios"
@@ -154,7 +158,7 @@ WIFI_TXT="$SDCARD_PATH/wifi.txt"
 		  # Boot receipt, DEV CARDS ONLY (devmode.txt at the card root): kernel seconds at menu launch,
 # one ~40-byte line per boot. Measured the fleet for the README table (2026-08-31); stays as a
 # regression canary on dev cards and costs users nothing.
-[ -f "$SDCARD_PATH/devmode.txt" ] && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$LOGS_PATH/boot-time.txt"
+devmode && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$LOGS_PATH/boot-time.txt"
 while : ; do
 			sleep 45
 			[ -f "$WIFI_TXT" ] || continue
