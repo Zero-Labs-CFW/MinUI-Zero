@@ -16,24 +16,17 @@ index fc6e531..2ad2013 100644
  #define FILE_SYSTEM         "/dev/mmcblk1p1"
  #elif defined(PLATFORM_MY282)
 diff --git a/src/window.cpp b/src/window.cpp
-index 23ec08b..a0e5413 100644
+index 23ec08b..68a1bb4 100644
 --- a/src/window.cpp
 +++ b/src/window.cpp
-@@ -52,6 +52,17 @@ const int CWindow::execute(void)
+@@ -52,6 +52,10 @@ const int CWindow::execute(void)
              }
              else if(l_event.type == SDL_JOYBUTTONDOWN)
              {
-+                // MinUI Zero: the physical MENU button quits, everywhere. Users could not
-+                // find the exit (it hid in the Y-button system menu); MENU-quits matches how
-+                // every other screen in the firmware behaves. The pushed SDL_QUIT re-inserts
-+                // itself in the handler above, unwinding every nested dialog cleanly.
-+                if (l_event.jbutton.button == MYKEY_MENU)
-+                {
-+                    SDL_Event l_quit;
-+                    l_quit.type = SDL_QUIT;
-+                    SDL_PushEvent(&l_quit);
-+                    continue;
-+                }
++                // MinUI Zero: the physical MENU button opens the System menu (Select all, New
++                // directory, Disk info, Quit), matching how MENU opens a menu elsewhere in the
++                // firmware; Quit inside it keeps the exit discoverable. (Dan, 2026-09-08: was a
++                // direct quit, changed to open the menu.) MENU->SYSTEM is the keyPress remap below.
                  printf("joy:%d\n",l_event.jbutton.button); fflush(stdout);
                  SDL_Event key_event;
  				key_event.key.keysym.sym = l_event.jbutton.button==MYKEY_MENU?MYKEY_SYSTEM:l_event.jbutton.button;
