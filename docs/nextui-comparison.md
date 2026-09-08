@@ -1,5 +1,32 @@
 # NextUI thermal/CPU-governor comparison
 
+## Zero vs NextUI at a glance
+
+[NextUI](https://github.com/LoveRetro/NextUI) is the other major MinUI fork for these devices,
+full-featured and polished where Zero is deliberately minimal. Both are good firmware; pick by
+philosophy.
+
+| | **MinUI Zero** | **NextUI** |
+|---|---|---|
+| Philosophy | Lowest power that holds full speed | Full-featured |
+| Firmware source code | ~21,500 lines | ~51,200 lines |
+| Base install download | 7 MB | 82 MB |
+| Rendering | Lean pipeline; the GPU only displays the finished frame in-game, and powers down at the menu | Fully OpenGL/GPU-based, with shaders and overlays |
+| CPU | Frame-aware closed loop plus a pipelined PS1 frontend; holds full speed at stock clocks, never overclocks | Dynamic scaling; performance mode is a 2.0 GHz overclock |
+| Undervolting | Self-calibrating per-chip tool, finds each chip's lowest safe voltage (opt-in) | None |
+| Features | Minimal by design: no box art, store, themes, or accounts | Box art, WiFi, Bluetooth audio, cheats, game switcher, Pak Store, LED effects, themes |
+| Background services in-game | keymon only, rewritten for zero idle wakeups | keymon, battery monitor, audio monitor, plus WiFi and Bluetooth stacks when enabled |
+| Deep sleep | Yes | Yes |
+| Devices | Brick, Brick Pro, Smart Pro (+ Anbernic RG35XX Plus / H and Miyoo Mini family) | Brick, Brick Pro, Smart Pro, Smart Pro S |
+
+Measured at MinUI Zero v1.5 and NextUI v6.14.0. Source lines count each firmware's own `.c`/`.h` and
+exclude the emulator cores both ship; download sizes are each project's base release zip. The NextUI
+column comes from its README and its own boot and launch scripts, and the governor difference is
+researched in detail below. Code flows both ways between these projects: deep sleep shares a lineage,
+and NextUI is credited in this codebase.
+
+---
+
 Researched 2026-06-30 from the `nextui` remote (LoveRetro/NextUI) — release notes, PR #695,
 and their shipped `governor.sh`. Goal: find NextUI's documented thermal benchmarks and compare
 their CPU-scaling design against ours.
