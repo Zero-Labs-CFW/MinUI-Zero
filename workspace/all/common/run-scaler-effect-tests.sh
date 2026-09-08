@@ -32,8 +32,12 @@ for platform in miyoomini h700 control; do
     h700) source=h700; define=-DGOV_PLATFORM_H700 ;;
     control) source=h700; define= ;;
   esac
-  awk '/^scaler_t PLAT_getScaler\(/ {p=1} p {print} p && /^}/ {exit}' \
+  # miyoomini splits the plain-scaler choice into its own helper (the overlay path returns it
+  # directly), so extract that too. Absent on the other platforms, which yields an empty first pass.
+  awk '/^static scaler_t PLAT_getPlainScaler\(/ {p=1} p {print} p && /^}/ {exit}' \
     "../../$source/platform/platform.c" > "$out/platform-scaler.inc"
+  awk '/^scaler_t PLAT_getScaler\(/ {p=1} p {print} p && /^}/ {exit}' \
+    "../../$source/platform/platform.c" >> "$out/platform-scaler.inc"
   ${CC:-cc} -std=gnu99 -O2 -g -Wno-deprecated-declarations $flags $define -Itests/scaler -I. -I"$out" \
     scaler.c scaler_geometry_test.c -o "$out/geometry"
   printf '%s: ' "$platform"

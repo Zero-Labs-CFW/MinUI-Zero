@@ -175,6 +175,12 @@ static inline void GFX_BlitSurfaceExec(SDL_Surface *src, SDL_Rect *srcrect, SDL_
 				Opt.u32GlobalSrcConstColor = (amod << (src->format->Ashift - src->format->Aloss)) & src->format->Amask;
 				Opt.eDFBBlendFlag = (MI_Gfx_DfbBlendFlags_e)
 						   (E_MI_GFX_DFB_BLEND_SRC_PREMULTIPLY | E_MI_GFX_DFB_BLEND_COLORALPHA | E_MI_GFX_DFB_BLEND_ALPHACHANNEL);
+			} else if (src->format->Amask) {
+				// Per-pixel alpha with no alpha-mod: the screen-effect overlay. ALPHACHANNEL must be
+				// asked for explicitly — SRC_PREMULTIPLY alone describes how the colour was stored,
+				// not where the blend factor comes from, so without this the overlay blits opaque.
+				Opt.eDFBBlendFlag = (MI_Gfx_DfbBlendFlags_e)
+						   (E_MI_GFX_DFB_BLEND_SRC_PREMULTIPLY | E_MI_GFX_DFB_BLEND_ALPHACHANNEL);
 			} else	Opt.eDFBBlendFlag = E_MI_GFX_DFB_BLEND_SRC_PREMULTIPLY;
 		}
 		{
@@ -906,6 +912,108 @@ void PLAT_setEffect(int effect) {
 	next_effect = effect;
 }
 
+///////////////////////////////
+// SCREEN EFFECT OVERLAY — composited by MI_GFX, not drawn by the CPU.
+//
+// v1.7.5 shipped a fused software scaler that sampled and patterned every panel pixel. It made the
+// pattern screen-aligned (the point) but cost 5.3x the integer path it replaced: measured on the
+// device as ~45% CPU vs ~25% with NES at Aspect, with the audio breaking up (Dan, 2026-09-08).
+// Host benchmark, NES 256x240 -> 640x480, ms/frame: fused 0.479 line / 0.544 grid; integer 0.091;
+// pattern-only over a hardware-scaled output 0.021 / 0.086. Dropping just the interpolation was NOT
+// enough (0.184 / 0.411 — grid barely moved), because the cost is writing 307k panel pixels at all.
+//
+// So the game goes back to being scaled by the 2D engine (zero CPU) and the pattern is a separate
+// hardware blit. The blit path already computes dst = src + dst*(1-srcAlpha), so a PREMULTIPLIED
+// BLACK source (RGB=0) with per-pixel alpha `a` yields dst*(1-a) — arithmetically identical to the
+// effect_dim the software scalers use.
+//
+// The pattern is SEPARABLE, which is why this costs ~36KB and not a full panel (614KB): scanlines
+// vary only by row, so a narrow COLUMN stretched across the panel reproduces them exactly (every
+// source pixel in a row is identical, so nearest and bilinear agree). Grid adds a short ROW
+// stretched down. That matters here: the MMA heap has ~6MB with the render pages already taking
+// most of it, and exhausting it is the documented "no game starts until reboot" failure.
+#define FX_BAND 16          // source width/height of the two strips; >1 keeps the stride sanely aligned
+static struct {
+	HWBuffer buf;
+	SDL_Surface* col;   // FX_BAND x FIXED_HEIGHT — horizontal scanlines
+	SDL_Surface* row;   // FIXED_WIDTH x FX_BAND  — vertical grid lines
+	int built_effect, built_period;
+	int tried;          // allocation attempted (success or failure), so we retry only once
+} fx = { .built_effect = -1 };
+static int fx_period = 2;   // pattern period in PANEL pixels, from the live geometry
+
+static int fx_alloc(void) {
+	if (fx.tried) return fx.col != NULL;
+	fx.tried = 1;
+	size_t col_pitch = FX_BAND * 2, row_pitch = FIXED_WIDTH * 2;
+	size_t need = ALIGN4K(col_pitch * FIXED_HEIGHT) + ALIGN4K(row_pitch * FX_BAND);
+	if (MI_SYS_MMA_Alloc((MI_U8*)"mma_heap_name0", ALIGN4K(need), &fx.buf.padd) != MI_SUCCESS
+	 && MI_SYS_MMA_Alloc(NULL, ALIGN4K(need), &fx.buf.padd) != MI_SUCCESS) {
+		LOG_info("fx: MMA_Alloc(%zu) failed — effects fall back to the software scalers\n", need);
+		fx.buf.padd = 0; return 0;
+	}
+	if (MI_SYS_Mmap(fx.buf.padd, ALIGN4K(need), &fx.buf.vadd, true) != MI_SUCCESS || !fx.buf.vadd) {
+		LOG_info("fx: MMA_Mmap failed — effects fall back to the software scalers\n");
+		MI_SYS_MMA_Free(fx.buf.padd); fx.buf.padd = 0; return 0;
+	}
+	memset(fx.buf.vadd, 0, ALIGN4K(need));
+	uint8_t* base = fx.buf.vadd;
+	size_t off = ALIGN4K(col_pitch * FIXED_HEIGHT);
+	fx.col = SDL_CreateRGBSurfaceFrom(base, FX_BAND, FIXED_HEIGHT, 16, col_pitch,
+		0x0F00, 0x00F0, 0x000F, 0xF000);
+	fx.row = SDL_CreateRGBSurfaceFrom(base + off, FIXED_WIDTH, FX_BAND, 16, row_pitch,
+		0x0F00, 0x00F0, 0x000F, 0xF000);
+	if (!fx.col || !fx.row) {
+		LOG_info("fx: CreateRGBSurfaceFrom failed: %s\n", SDL_GetError());
+		if (fx.col) SDL_FreeSurface(fx.col);
+		if (fx.row) SDL_FreeSurface(fx.row);
+		fx.col = fx.row = NULL; return 0;
+	}
+	surf_setPa(fx.col, fx.buf.padd);
+	surf_setPa(fx.row, fx.buf.padd + off);
+	SDL_SetSurfaceBlendMode(fx.col, SDL_BLENDMODE_BLEND);
+	SDL_SetSurfaceBlendMode(fx.row, SDL_BLENDMODE_BLEND);
+	LOG_info("fx: overlay ready (%zu bytes, period-driven)\n", need);
+	return 1;
+}
+
+// Alpha is the BLACK fraction, i.e. exactly what effect_dim removes: dim keeps (256-d)/256, so the
+// overlay carries d/256 as 4-bit alpha. d = 102>>strength, matching the scalers' `edge`.
+static void fx_build(int effect, int period) {
+	if (!fx.col) return;
+	unsigned strength = (effect==EFFECT_LINE50 || effect==EFFECT_GRID50) ? 1 :
+	                    (effect==EFFECT_LINE25 || effect==EFFECT_GRID25) ? 2 : 0;
+	unsigned a4 = ((102u >> strength) * 15u + 128u) / 256u;   // 4-bit alpha, rounded
+	if (!a4) a4 = 1;
+	uint16_t on = (uint16_t)(a4 << 12);                       // ARGB4444, RGB=0 => premultiplied black
+	uint16_t* c = fx.col->pixels;
+	for (int y = 0; y < FIXED_HEIGHT; y++) {
+		uint16_t v = (period > 1 && y % period == period - 1) ? on : 0;
+		for (int x = 0; x < FX_BAND; x++) c[y * FX_BAND + x] = v;
+	}
+	uint16_t* r = fx.row->pixels;
+	for (int x = 0; x < FIXED_WIDTH; x++) {
+		uint16_t v = (period > 1 && x % period == period - 1) ? on : 0;
+		for (int y = 0; y < FX_BAND; y++) r[y * FIXED_WIDTH + x] = v;
+	}
+	fx.built_effect = effect; fx.built_period = period;
+}
+
+static int fx_wanted(void) { return next_effect > EFFECT_NONE && fx_alloc(); }
+
+// Called from PLAT_flip with the framebuffer page already bound, right after the game blit.
+static void fx_composite(void) {
+	int effect = next_effect;
+	if (effect <= EFFECT_NONE || !fx.col) return;
+	if (effect != fx.built_effect || fx_period != fx.built_period) fx_build(effect, fx_period);
+	int grid = (effect==EFFECT_GRID || effect==EFFECT_GRID50 || effect==EFFECT_GRID25);
+	// Stretch the strips over the whole panel. Exact, not approximate: every source pixel along the
+	// stretched axis is identical, so the filter cannot introduce error. Letterbox bands get dimmed
+	// too, which is invisible — dimming black is black.
+	GFX_BlitSurfaceExec(fx.col, NULL, vid.video, NULL, 0,0, grid);   // nowait until the last blit
+	if (grid) GFX_BlitSurfaceExec(fx.row, NULL, vid.video, NULL, 0,0, 0);
+}
+
 // FBIO_WAITFORVSYNC is not in every libc's linux/fb.h, but the driver implements it (probed on
 // device 2026-08-01: SUPPORTED, 120 waits = 59.6873Hz). Define it if the header did not.
 #ifndef FBIO_WAITFORVSYNC
@@ -934,18 +1042,7 @@ void PLAT_vsync(int remaining) {
 	}
 }
 
-scaler_t PLAT_getScaler(GFX_Renderer* renderer) {
-	scaler_t effect = NULL;
-	switch (next_effect) {
-		case EFFECT_LINE:   effect = scaler_effect(renderer->scale, 0, 0); break;
-		case EFFECT_LINE50: effect = scaler_effect(renderer->scale, 0, 1); break;
-		case EFFECT_LINE25: effect = scaler_effect(renderer->scale, 0, 2); break;
-		case EFFECT_GRID:   effect = scaler_effect(renderer->scale, 1, 0); break;
-		case EFFECT_GRID50: effect = scaler_effect(renderer->scale, 1, 1); break;
-		case EFFECT_GRID25: effect = scaler_effect(renderer->scale, 1, 2); break;
-	}
-	if (effect) return effect;
-	
+static scaler_t PLAT_getPlainScaler(GFX_Renderer* renderer) {
 	switch (renderer->scale) {
 		case 6:  return scale6x6_n16;
 		case 5:  return scale5x5_n16;
@@ -956,10 +1053,39 @@ scaler_t PLAT_getScaler(GFX_Renderer* renderer) {
 	}
 }
 
+scaler_t PLAT_getScaler(GFX_Renderer* renderer) {
+	scaler_t effect = NULL;
+	// The overlay draws the pattern in hardware, so the CPU scaler must NOT also draw it — otherwise
+	// it is applied twice AND we keep paying for the expensive path we are removing. Falls through to
+	// the software effect scalers when the overlay could not be allocated.
+	if (fx_wanted()) return PLAT_getPlainScaler(renderer);
+	switch (next_effect) {
+		case EFFECT_LINE:   effect = scaler_effect(renderer->scale, 0, 0); break;
+		case EFFECT_LINE50: effect = scaler_effect(renderer->scale, 0, 1); break;
+		case EFFECT_LINE25: effect = scaler_effect(renderer->scale, 0, 2); break;
+		case EFFECT_GRID:   effect = scaler_effect(renderer->scale, 1, 0); break;
+		case EFFECT_GRID50: effect = scaler_effect(renderer->scale, 1, 1); break;
+		case EFFECT_GRID25: effect = scaler_effect(renderer->scale, 1, 2); break;
+	}
+	if (effect) return effect;
+	return PLAT_getPlainScaler(renderer);
+}
+
 void PLAT_blitRenderer(GFX_Renderer* renderer) {
 	if (effect_type!=next_effect) {
 		effect_type = next_effect;
 		renderer->blit = PLAT_getScaler(renderer); // refresh the scaler
+	}
+	// Pattern period in PANEL pixels. vid.screen is stretched whole->whole onto the panel by the
+	// present blit, so a source pixel lands on (game width on panel / src_w) panel pixels. Derived
+	// per frame because it is cheap and geometry changes (scaling mode, core resolution) do not all
+	// route through PLAT_setSharpness.
+	if (renderer->src_w && renderer->src_h && vid.width && vid.height) {
+		int gw = renderer->dst_w * FIXED_WIDTH  / (int)vid.width;
+		int gh = renderer->dst_h * FIXED_HEIGHT / (int)vid.height;
+		int px = gw / (int)renderer->src_w, py = gh / (int)renderer->src_h;
+		int p = px < py ? px : py;
+		fx_period = p < 2 ? 2 : (p > 16 ? 16 : p);
 	}
 	void* dst = renderer->dst + (renderer->dst_y * renderer->dst_p) + (renderer->dst_x * FIXED_BPP);
 	((scaler_t)renderer->blit)(renderer->src,dst,renderer->src_w,renderer->src_h,renderer->src_p,renderer->dst_w,renderer->dst_h,renderer->dst_p);
@@ -1112,7 +1238,11 @@ void PLAT_flip(SDL_Surface* IGNORED, int sync) {
 	if (scrub) memset((uint8_t*)vid.fbmmap + (size_t)back * vid.page_bytes, 0, vid.page_bytes);
 
 	fb_bindPage(back);
-	GFX_BlitSurfaceExec(vid.screen, NULL, vid.video, NULL, 2,0,0); // rotate=2 (180, panel is mounted inverted), nowait=0
+	// nowait=1 when the effect overlay follows: the 2D engine queues both blits and we fence once,
+	// after the last one, instead of stalling between them.
+	int fx_on = (next_effect > EFFECT_NONE && fx.col != NULL);
+	GFX_BlitSurfaceExec(vid.screen, NULL, vid.video, NULL, 2,0, fx_on); // rotate=2 (180, panel is mounted inverted)
+	if (fx_on) fx_composite(); // screen-aligned scanlines/grid, composited by MI_GFX (see fx_* above)
 
 	if (flip_run) {
 		pthread_mutex_lock(&flip_mx);

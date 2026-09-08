@@ -3774,9 +3774,12 @@ static void buffer_downsample(const void *data, unsigned width, unsigned height,
 static void selectScaler(int src_w, int src_h, int src_p) {
 	LOG_info("selectScaler\n");
 	int render_fit = fit;
-#if defined(GOV_PLATFORM_MIYOOMINI) || defined(GOV_PLATFORM_H700)
+#if defined(GOV_PLATFORM_H700)
 	// Software effects need a final-resolution surface: stretching their already-drawn
-	// lines/grid through MI_GFX or the DE creates uneven bands. Native stays integer.
+	// lines/grid through the DE creates uneven bands. Native stays integer.
+	// MIYOOMINI IS NO LONGER HERE: it composites the pattern with MI_GFX after the present scale
+	// (platform.c fx_*), so it wants the CHEAP geometry back — a panel-sized surface meant the CPU
+	// scaled every pixel in software, which is the ~45%-vs-25% regression Dan measured on 2026-09-08.
 	if (screen_effect != EFFECT_NONE) render_fit = 1;
 #endif
 	
@@ -3895,7 +3898,7 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 			sprintf(scaler_name, "aspect fit");
 			dst_w = aspect_w * scale_f;
 			dst_h = aspect_h * scale_f;
-#if defined(GOV_PLATFORM_MIYOOMINI) || defined(GOV_PLATFORM_H700)
+#if defined(GOV_PLATFORM_H700)
 			// Fit the reported aspect directly; rounding an intermediate aspect_w/h
 			// changes the game's rectangle when an effect is toggled (e.g. SNES 4:3).
 			dst_h = DEVICE_HEIGHT;
@@ -5716,7 +5719,7 @@ static void Menu_scale(SDL_Surface* src, SDL_Surface* dst) {
 		ry = (dh - rh) / 2;
 	}
 	
-#if defined(GOV_PLATFORM_MIYOOMINI) || defined(GOV_PLATFORM_H700)
+#if defined(GOV_PLATFORM_H700)
 	if (screen_effect != EFFECT_NONE &&
 	    (scaling == SCALE_ASPECT || scaling == SCALE_FULLSCREEN)) {
 		// The effect path already has a panel-space rectangle. Reuse it for the

@@ -29,6 +29,11 @@ static SDL_Surface* GFX_resize(int w, int h, int p) {
 	assert(surface.pixels);
 	return &surface;
 }
+// miyoomini composites the Screen Effect with MI_GFX instead of drawing it in the CPU scaler, and
+// PLAT_getScaler asks fx_wanted() whether that overlay is available. Model both answers: 0 keeps the
+// software effect scalers (the fallback when MMA allocation fails), 1 is the shipping path.
+static int fx_overlay_available = 0;
+static int fx_wanted(void) { return fx_overlay_available && next_effect > EFFECT_NONE; }
 #include "platform-scaler.inc"
 #define GFX_getScaler PLAT_getScaler
 // These are extracted verbatim at test time, never copied implementations.
@@ -68,7 +73,22 @@ int main(void) {
 		assert(renderer.scale == 3 && screen->w == 640 && screen->h == 480);
 		assert(renderer.dst_x == 80 && renderer.dst_y == 24);
 		run(160, 144, 10.0 / 9, SCALE_ASPECT, effect);
-#if defined(GOV_PLATFORM_MIYOOMINI) || defined(GOV_PLATFORM_H700)
+#if defined(GOV_PLATFORM_MIYOOMINI)
+		// MIYOOMINI: the effect is composited by MI_GFX AFTER the present scale, so an effect must
+		// NOT change the geometry any more — it takes the same cheap oversized path as effects-off.
+		// Forcing a panel-sized surface here is what made the CPU scale every pixel in software
+		// (~45% vs ~25% CPU, choppy audio; measured 2026-09-08).
+		assert(renderer.scale == 4 && screen->w == 768 && screen->h == 576);
+		assert(renderer.blit != NULL);
+		// and with the overlay available the scaler must be a PLAIN one, not an effect scaler,
+		// or the pattern would be drawn twice — once in software, once in hardware.
+		fx_overlay_available = 1;
+		run(160, 144, 10.0 / 9, SCALE_ASPECT, effect);
+		assert(renderer.blit == (void*)scale4x4_c16);
+		fx_overlay_available = 0;
+		run(160, 144, 10.0 / 9, SCALE_ASPECT, effect);
+		assert(renderer.blit != (void*)scale4x4_c16); // fallback still draws the effect in software
+#elif defined(GOV_PLATFORM_H700)
 		assert(screen->w == 640 && screen->h == 480 && renderer.scale == -1);
 		assert(renderer.dst_w == 533 && renderer.dst_h == 480);
 		assert(renderer.dst_x == 53 && renderer.dst_y == 0);
