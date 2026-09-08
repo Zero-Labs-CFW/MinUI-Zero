@@ -80,7 +80,9 @@ appears, tuned core already installed.
 ## Install
 
 [The latest release](https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/latest) carries four
-artifacts. They are not interchangeable, and a card serves the one device you installed it for.
+artifacts. A card serves its whole **family**, not just one device: a TrimUI card runs on the Brick,
+Brick Pro, and Smart Pro alike, and a Miyoo card on the Mini, Plus, and Flip. Only the Anbernic Plus
+and H need a per-device image, and no card crosses families.
 
 | Device | Download | Install |
 |---|---|---|

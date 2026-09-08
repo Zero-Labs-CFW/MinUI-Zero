@@ -36,6 +36,8 @@ The machine answers that question better than a menu can.
 Installing
 
 Only the TrimUI Brick, TrimUI Brick Pro and TrimUI Smart Pro are supported.
+One card works on all three: they share this build, so you can move it
+freely between them.
 
 Use a reputable SD card, freshly formatted as FAT32 (MBR). Preload the
 "Bios" and "Roms" folders (see below), then copy everything in this zip to
