@@ -10,13 +10,12 @@ lower input lag, and more dependable sleep and saves.
 **Full speed. Zero tinkering.** Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**,
 **Anbernic RG35XX Plus / H**, and the **Miyoo Mini family**.
 
-## Screenshots
+<br>
+  <img src="docs/img/brickpro-menu.png" width="260" alt="Main menu" />
+  <img src="docs/img/brickpro-optimize-cpu.png" width="260" alt="Optimize CPU: per-chip undervolting" />
+  <img src="docs/img/brickpro-ingame-menu.png" width="260" alt="In-game menu" />
+_Screenshots from Brick Pro._
 
-<p>
-  <img src="docs/img/menu-clock.png" width="280" alt="Main menu with the optional clock" />
-  <img src="docs/img/optimize-cpu-pitch.png" width="280" alt="Optimize CPU: per-chip undervolting" />
-  <img src="docs/img/charging-screen.png" width="280" alt="Cool, dim charging screen" />
-</p>
 
 ## Why Zero
 
