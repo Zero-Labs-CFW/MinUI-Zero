@@ -360,7 +360,12 @@ fi
 # (Found on the Brick Pro with wifi enabled, 2026-08-30; adbd carve-out added in review.)
 killall MtpDaemon 2>/dev/null
 killall ntpd 2>/dev/null # MinUI keeps its own clock
-if [ -f "$SHARED_USERDATA_PATH/enable-ssh" ]; then
+# DEV MODE is now unified on devmode.txt (Dan, 2026-09-08: "stay awake should just be Dev Mode ...
+# add it to all the devices when devmode is active"). devmode.txt at the card root already arms
+# stay-awake in C (PWR_init), so gating SSH on the SAME flag is what stops the reconnect rodeo: the
+# device stays awake AND reachable together, the way the Miyoo already works. enable-ssh (which
+# wifi.txt still creates above) stays a valid trigger so existing dev cards keep working.
+if [ -f "$SDCARD_PATH/devmode.txt" ] || [ -f "$SHARED_USERDATA_PATH/enable-ssh" ]; then
 	# adbd SURVIVES in dev mode on purpose: the USB block above keeps stock "data" mode precisely
 	# so adb is available as a wifi-less fallback when ssh cannot be reached. Killing it here too
 	# quietly removed that escape hatch (caught in review, 2026-08-30). MtpDaemon still dies either
