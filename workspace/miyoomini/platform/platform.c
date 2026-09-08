@@ -50,7 +50,10 @@ static int mma_page = 0;
 // SDL 1.2 let the upstream code stash the MMA physical address in SDL_Surface::unused1
 // (`#define pixelsPa unused1`). SDL2 removed that field, so keep a tiny side table instead —
 // only the render target and the framebuffer-page wrapper ever need a physical address.
-#define PA_SLOTS 4
+// 8, not 4 (review, 2026-09-08): the effect overlay strips (fx_alloc) took the last two slots, so
+// the table sat exactly full — screen, video, col, row — and the NEXT surf_setPa anywhere would have
+// silently no-op'd into the upside-down-screen failure described in PLAT_quitVideo. Headroom is free.
+#define PA_SLOTS 8
 static struct { SDL_Surface* s; MI_PHY pa; } pa_tbl[PA_SLOTS];
 static void surf_setPa(SDL_Surface* s, MI_PHY pa) {
 	if (!s) return;
@@ -528,6 +531,7 @@ static int mmp_reclaimMMA(void) {
 }
 
 static void mmpFlipStart(void); // async flip thread; defined with the flip machinery below
+static void fx_free(void);      // effect overlay teardown; defined with the fx_* machinery below
 static void mmpFlipStop(void);
 
 static pthread_mutex_t flip_mx  = PTHREAD_MUTEX_INITIALIZER;
@@ -772,6 +776,11 @@ void PLAT_quitVideo(void) {
 	// Treating 0 as valid here would close STDIN on a teardown that ran without a successful init.
 	if (vid.fdfb > 0) { close(vid.fdfb); vid.fdfb = 0; }
 
+	// The effect overlay strips are MMA too. Free them HERE (review, 2026-09-08) rather than leaving
+	// them for mmp_reclaimMMA to sweep on the next launch: that sweeper is crash recovery, it cannot
+	// act at all when it fails to locate the fb_device row, and a clean exit should not lean on it.
+	fx_free();
+
 	// Unmap what we actually mapped: initVideo maps ALIGN4K(MMA_PAGE) * PAGE_COUNT, not one page.
 	MI_SYS_Munmap(vid.buffer.vadd, ALIGN4K(ALIGN4K(MMA_PAGE) * PAGE_COUNT));
 	MI_SYS_MMA_Free(vid.buffer.padd);
@@ -939,6 +948,7 @@ static struct {
 	SDL_Surface* row;   // FIXED_WIDTH x FX_BAND  — vertical grid lines
 	int built_effect, built_period;
 	int tried;          // allocation attempted (success or failure), so we retry only once
+	size_t bytes;       // what was mapped, so fx_free unmaps exactly that
 } fx = { .built_effect = -1 };
 static int fx_period = 2;   // pattern period in PANEL pixels, from the live geometry
 
@@ -957,6 +967,7 @@ static int fx_alloc(void) {
 		MI_SYS_MMA_Free(fx.buf.padd); fx.buf.padd = 0; return 0;
 	}
 	memset(fx.buf.vadd, 0, ALIGN4K(need));
+	fx.bytes = ALIGN4K(need);
 	uint8_t* base = fx.buf.vadd;
 	size_t off = ALIGN4K(col_pitch * FIXED_HEIGHT);
 	fx.col = SDL_CreateRGBSurfaceFrom(base, FX_BAND, FIXED_HEIGHT, 16, col_pitch,
@@ -1000,6 +1011,17 @@ static void fx_build(int effect, int period) {
 }
 
 static int fx_wanted(void) { return next_effect > EFFECT_NONE && fx_alloc(); }
+
+// Mirror of fx_alloc, called from PLAT_quitVideo. Clears the PA slots too (they are the same
+// PA_SLOTS table the quit path already clears for screen/video) and resets `tried` so a later
+// init in the same process allocates again instead of believing the buffer is still there.
+static void fx_free(void) {
+	if (fx.col) { surf_clearPa(fx.col); SDL_FreeSurface(fx.col); fx.col = NULL; }
+	if (fx.row) { surf_clearPa(fx.row); SDL_FreeSurface(fx.row); fx.row = NULL; }
+	if (fx.buf.vadd) { MI_SYS_Munmap(fx.buf.vadd, fx.bytes); fx.buf.vadd = NULL; }
+	if (fx.buf.padd) { MI_SYS_MMA_Free(fx.buf.padd); fx.buf.padd = 0; }
+	fx.bytes = 0; fx.tried = 0; fx.built_effect = -1; fx.built_period = 0;
+}
 
 // Called from PLAT_flip with the framebuffer page already bound, right after the game blit.
 static void fx_composite(void) {
