@@ -34,10 +34,14 @@ Your games, silicon, and settings vary. Raw data and reasoning:
 ## Zero or NextUI?
 
 [NextUI](https://github.com/LoveRetro/NextUI) is the other major TrimUI MinUI fork: full-featured
-and polished where Zero is deliberately minimal. Both are good firmware; pick by philosophy. Zero is
-~21,500 lines / 7 MB with a lean render path that powers the GPU down at the menu and never
-overclocks. NextUI is ~51,200 lines / 82 MB, fully GPU-based, with box art, WiFi, Bluetooth audio,
-cheats, a Pak Store, and themes. Full comparison: [`docs/nextui-comparison.md`](docs/nextui-comparison.md).
+and polished where Zero is deliberately minimal. Both are good firmware; pick by philosophy.
+
+- **MinUI Zero**: ~21,500 lines / 7 MB, with a lean render path that powers the GPU down at the
+  menu and never overclocks.
+- **NextUI**: ~51,200 lines / 82 MB, fully GPU-based, with box art, WiFi, Bluetooth audio, cheats,
+  a Pak Store, and themes.
+
+Full comparison: [`docs/nextui-comparison.md`](docs/nextui-comparison.md).
 
 ## How it works
 
