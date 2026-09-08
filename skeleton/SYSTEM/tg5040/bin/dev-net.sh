@@ -24,6 +24,21 @@ LOG="$SHARED/ssh-ip.txt"
   #    it is dev-gated (enable-ssh), never on a user card.
   touch /tmp/stay_awake 2>/dev/null && echo "stay-awake: armed (no autosleep while SSH is on)"
 
+  # Respect the WiFi Toggle: if the user turned WiFi OFF (wifi.txt.off, no wifi.txt), do NOT bring the
+  # radio up, even in dev mode. Steps 1-3 below otherwise reassociate from the PERSISTENT
+  # /etc/wifi/wpa_supplicant.conf (stock firmware's or a prior session's) even once the derived
+  # wifi.conf is gone, which lit the WiFi icon behind a toggle that read "off" (Dan, on-device
+  # 2026-09-08, after a first fix that only cleared the derived file). Take the radio DOWN and stop;
+  # stay-awake (above) still holds, and SSH is simply not reachable over WiFi, which is what off means.
+  if [ -f "$SD/wifi.txt.off" ] && [ ! -f "$SD/wifi.txt" ]; then
+    echo "wifi: toggled OFF (wifi.txt.off) -- leaving the radio DOWN, skipping SSH-over-wifi"
+    killall -9 wpa_supplicant 2>/dev/null
+    killall udhcpc 2>/dev/null
+    ifconfig wlan0 down 2>/dev/null
+    command -v rfkill >/dev/null 2>&1 && rfkill block wifi 2>/dev/null
+    exit 0
+  fi
+
   # 1) radios on
   rfkill unblock all 2>/dev/null || true
   ifconfig wlan0 up 2>/dev/null || true
