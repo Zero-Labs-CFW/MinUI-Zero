@@ -356,6 +356,14 @@ if [ -f "$SDCARD_PATH/wifi.txt" ]; then
 		printf 'SSID=%s\nPSK=%s\n' "$_ssid" "$_psk" > "$SHARED_USERDATA_PATH/wifi.conf"
 		touch "$SHARED_USERDATA_PATH/enable-ssh"
 	fi
+elif [ -f "$SDCARD_PATH/wifi.txt.off" ]; then
+	# WiFi Toggle turned it off: drop the pair we DERIVED from wifi.txt (above). Left behind, they
+	# make dev-net.sh reassociate from the stale wifi.conf on the next boot while the WiFi Toggle
+	# still reads .off, so the radio comes up (operstate "up", icon on) behind a UI that says off
+	# (Dan, on-device 2026-09-08). wifi.txt is the source of truth; the derived files must not
+	# outlive it. Keyed on wifi.txt.off (our toggle's own marker) so a LEGACY manual setup
+	# (enable-ssh + wifi.conf, no wifi.txt*) is untouched: it has neither wifi.txt nor wifi.txt.off.
+	rm -f "$SHARED_USERDATA_PATH/wifi.conf" "$SHARED_USERDATA_PATH/enable-ssh"
 fi
 # MtpDaemon and ntpd are USB/clock daemons with NOTHING to do with wifi or SSH, and they used to
 # sit in the else branch below, so turning on wifi left them running for the whole session.
