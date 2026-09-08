@@ -148,6 +148,65 @@ if [ -f "$SDCARD_PATH/wifi.txt" ]; then
 		} >> "$WLOG" 2>&1 &
 	fi
 fi
+
+# DEV-ONLY SSH (Dan, 2026-09-07). Gated on devmode.txt at the card root, exactly like the boot
+# receipt above, so a user card NEVER starts a daemon — this fork stays runs-cold and radio-quiet.
+# WHY THIS EXISTS: the MMP's ssh used to come from an ad-hoc community pak that lived only on the
+# card (same pak as the old wifi bring-up). The first clean update deleted it, wifi survived because
+# 2026-08-31 absorbed that half into this file, and ssh did not because we never absorbed this half.
+# The result was a device that could be updated ONLY by card reader, which cost a whole evening.
+# Requires wifi.txt too: without a network there is nothing to listen on.
+# Host keys live on the CARD (.userdata/miyoomini/SSH), so they survive updates and the device keeps
+# one identity — the orphaned keys the old pak left there are reused rather than regenerated.
+if [ -f "$SDCARD_PATH/devmode.txt" ] && [ -f "$SDCARD_PATH/wifi.txt" ]; then
+	SSH_DIR="$USERDATA_PATH/SSH"
+	SSH_LOG="$LOGS_PATH/ssh.txt"
+	mkdir -p "$SSH_DIR" "$LOGS_PATH" 2>/dev/null
+	{
+	echo "== devmode ssh $(date 2>/dev/null)"
+	# key auth: drop authorized_keys at the card root (or in the SSH dir) and it is installed here.
+	for AK in "$SDCARD_PATH/authorized_keys" "$SSH_DIR/authorized_keys"; do
+		[ -f "$AK" ] || continue
+		mkdir -p /root/.ssh 2>/dev/null
+		cp "$AK" /root/.ssh/authorized_keys 2>/dev/null \
+			&& { chmod 700 /root/.ssh 2>/dev/null; chmod 600 /root/.ssh/authorized_keys 2>/dev/null; echo "authorized_keys installed from $AK"; } \
+			|| echo "authorized_keys FAILED to install from $AK (is /root writable?)"
+		break
+	done
+	HK="$SSH_DIR/dropbear_ed25519_host_key"
+	STARTED=0
+	# 1) the console's own dropbear, if this firmware has one. -R lets it make its own host key when
+	#    ours is absent; we pass -r first so the identity stays stable across updates.
+	for DB in /customer/app/dropbear /usr/sbin/dropbear /usr/bin/dropbear /bin/dropbear /mnt/SDCARD/miyoo/app/dropbear; do
+		[ -x "$DB" ] || continue
+		if [ -f "$HK" ]; then "$DB" -r "$HK" -p 22 2>/dev/null; else "$DB" -R -p 22 2>/dev/null; fi
+		sleep 1
+		pgrep dropbear >/dev/null 2>&1 && { echo "started $DB on :22"; STARTED=1; break; }
+	done
+	# 2) a dropbearmulti we ship for THIS architecture, if one is ever added. The tg5040 binary in
+	#    .system/tg5040/bin is aarch64 and cannot run here, so only the miyoomini path is tried.
+	if [ "$STARTED" != 1 ]; then
+		DBM="$SYSTEM_PATH/bin/dropbearmulti"
+		if [ -x "$DBM" ]; then
+			[ -f "$HK" ] || "$DBM" dropbearkey -t ed25519 -f "$HK" 2>/dev/null
+			"$DBM" dropbear -r "$HK" -p 22 2>/dev/null
+			sleep 1
+			pgrep dropbear >/dev/null 2>&1 && { echo "started shipped dropbearmulti on :22"; STARTED=1; }
+		fi
+	fi
+	# 3) no daemon anywhere: say so loudly and record what this console actually has, so the next
+	#    boot answers the question instead of another evening of port scans (same probe pattern as
+	#    the 8188fu module hunt above).
+	if [ "$STARTED" != 1 ]; then
+		echo "NO SSH DAEMON STARTED — nothing will be listening."
+		echo "PROBE: dropbear/ssh binaries present on this console:"
+		find /customer /usr /bin /sbin /mnt/SDCARD/miyoo -name '*dropbear*' -o -name 'sshd' 2>/dev/null | head -20
+		echo "PROBE: end. If this list is empty we must ship an armhf dropbearmulti."
+	fi
+	echo "ip: $(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)"
+	} >> "$SSH_LOG" 2>&1 &
+fi
+
 # WiFi Toggle visibility (Dan, 2026-08-31): the tool appears in Tools ONLY when wifi is
 # configured — wifi.txt (on) or wifi.txt.off (toggled off; must stay visible or there is no way
 # back on). Unconfigured cards keep a clean Tools menu; the pak ships stashed in .system so
