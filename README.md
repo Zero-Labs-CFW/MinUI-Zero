@@ -10,6 +10,14 @@ lower input lag, and more dependable sleep and saves.
 **Full speed. Zero tinkering.** Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**,
 **Anbernic RG35XX Plus / H**, and the **Miyoo Mini family**.
 
+## Screenshots
+
+<p>
+  <img src="docs/img/menu-clock.png" width="280" alt="Main menu with the optional clock" />
+  <img src="docs/img/optimize-cpu-pitch.png" width="280" alt="Optimize CPU: per-chip undervolting" />
+  <img src="docs/img/charging-screen.png" width="280" alt="Cool, dim charging screen" />
+</p>
+
 ## Why Zero
 
 - **Longer battery**: ~7.5 hours on Game Boy, ~7 on PlayStation
