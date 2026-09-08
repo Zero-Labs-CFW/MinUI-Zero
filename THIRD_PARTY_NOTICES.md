@@ -62,6 +62,12 @@ The base release zip ships three prebuilt third-party programs alongside the emu
   as the tg5040 build. NOTE: that image exports `LIBNAME=libSDL2-2.0.so.0`, which silently defeats
   libtommath's `ifndef LIBNAME` and makes its default target a no-op — `unset LIBNAME` before
   building. Only spawned when the `devmode.txt` dev flag exists, never on a user card.
+- **Dropbear 2022.83-MM** (`.system/miyoomini/bin/dropbear-onion`) — the prebuilt `dropbear` binary
+  from OnionUI/Onion (https://github.com/OnionUI/Onion, `static/build/.tmp_update/bin/dropbear`),
+  the dominant Miyoo Mini CFW. Shipped as-is because it is the exact binary that provided SSH on
+  this hardware historically (the community pak that used to give Dan's card ssh wrapped it), and
+  the SSH pak prefers it over our own build. Same three deps as ours (libc/libcrypt/libutil), MIT
+  per Dropbear's LICENSE. Dev-gated identically: only reachable behind `devmode.txt`.
 - **DinguxCommander** (`Tools/tg5040/Files.pak/DinguxCommander`) — the Files tool, built from
   `shauninman/DinguxCommander-sdl2` @ `8eaa0ef` (cloned, hash-pin-verified, and built by
   `workspace/tg5040/makefile`). Inherited from upstream MinUI, which ships the same program. The source tree
