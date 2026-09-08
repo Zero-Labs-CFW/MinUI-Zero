@@ -233,6 +233,19 @@ else
 	rm -rf "$WIFI_PAK_DST" 2>/dev/null
 fi
 
+# SSH visibility, DEV CARDS ONLY (Dan, 2026-09-08: "We should do that and enable with devmode").
+# Same stash/copy pattern as WiFi Toggle above, but gated on devmode.txt so a user card never gets
+# a way to start a daemon. This is the on-demand twin of the boot block earlier in this file, and
+# it follows Onion's shape (SSH as a toggle you press, wifi-gated) rather than inventing one — see
+# the pak's own header. A dev card that has never had devmode.txt simply never sees it.
+SSH_PAK_SRC="$SYSTEM_PATH/paks/tools-stash/SSH.pak"
+SSH_PAK_DST="$SDCARD_PATH/Tools/miyoomini/SSH.pak"
+if [ -f "$SDCARD_PATH/devmode.txt" ]; then
+	[ -d "$SSH_PAK_DST" ] || cp -r "$SSH_PAK_SRC" "$SSH_PAK_DST" 2>/dev/null
+else
+	rm -rf "$SSH_PAK_DST" 2>/dev/null
+fi
+
 
 export CPU_SPEED_MENU=600000
 export CPU_SPEED_GAME=1200000
