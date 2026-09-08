@@ -2576,6 +2576,16 @@ static void PWR_waitForWake(void) {
 		}
 		SDL_Delay(200);
 		if (SDL_GetTicks()-sleep_ticks>=DEEP_SLEEP_DELAY) {
+			// DEV MODE: never suspend-to-RAM and never idle-power-off (Dan, 2026-09-08). A dev
+			// session must stay reachable over SSH, and deep sleep suspends the whole system (SSH
+			// dies); the stay-awake flag blocks the IDLE path into here, but a POWER-press faux-sleep
+			// still lands here and would escalate. Treat devmode like the charging case: reset the
+			// timer and keep polling in light faux-sleep (screen off, system + SSH alive). Skipping
+			// only the deep-sleep branch below would be wrong — it falls through to PWR_powerOff().
+			if (flagExists(DEVMODE_PATH)) {
+				sleep_ticks += 60000;
+				continue;
+			}
 			if (pwr.is_charging) {
 				sleep_ticks += 60000; // check again in a minute
 				continue;
