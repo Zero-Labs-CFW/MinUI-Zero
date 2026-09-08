@@ -2688,9 +2688,6 @@ static void zero_ftv2_core_leave(int parked) {
 static void input_tick(void) {
 	PAD_poll();
 
-	// devmode screenshot: MENU+SELECT chord (or the /tmp trigger). No-op without a devmode flag.
-	GFX_maybeScreenshot(PAD_isPressed(BTN_MENU) && PAD_justPressed(BTN_SELECT));
-
 	int show_setting = 0;
 	PWR_update(NULL, &show_setting, Menu_beforeSleep, Menu_afterSleep);
 

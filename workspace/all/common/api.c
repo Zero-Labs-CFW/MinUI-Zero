@@ -330,6 +330,7 @@ void GFX_setPresentationDrop(int enabled) {
 	LOG_info("presentation-drop: %s\n", enabled ? "enabled" : "disabled");
 }
 void GFX_flip(SDL_Surface* screen) {
+	GFX_maybeScreenshot(); // devmode: file-triggered PNG capture; cached no-op otherwise
 	// UNCONDITIONAL present — the menu/UI/single-shot path. Presentation-drop must never
 	// apply here: menu screens render once and then wait for input, so one skipped
 	// present is an INVISIBLE MENU until the next input-driven redraw — Dan hit an
@@ -412,6 +413,7 @@ uint32_t GFX_getFlipWaitUs(void) { return gfx_flip_wait_us; }
 static uint32_t gfx_pace_period_us = 0; // 0 = stock FRAME_BUDGET; set by DRC to the panel period
 void GFX_setPacePeriodUs(uint32_t us) { gfx_pace_period_us = us; }
 void GFX_sync(void) {
+	GFX_maybeScreenshot(); // devmode: file-triggered capture, checked here so static dialogs (say/confirm/Tools) that only GFX_flip when dirty are still reachable while idling
 	uint32_t frame_duration = SDL_GetTicks() - frame_start;
 	// Preserve the original gate (the "under budget / strict / first frame" condition helps SuperFX
 	// chip games by not stalling a genuinely over-budget frame even further).
@@ -450,13 +452,17 @@ FALLBACK_IMPLEMENTATION SDL_Surface* PLAT_captureRendererToSurface(void) { retur
 // (`touch /tmp/take_screenshot`), so a dev can grab a frame remotely without touching the pad.
 // Reads the live SDL renderer (PLAT_captureRendererToSurface) and writes a PNG to Screenshots/.
 // flagExists is read once and cached, so a user card pays a single check and then nothing.
-void GFX_maybeScreenshot(int hotkey) {
+void GFX_maybeScreenshot(void) {
+	// Devmode-gated, file-triggered ONLY: `touch /tmp/take_screenshot` (over SSH) captures whatever
+	// is on the panel. No button chord — MENU mutates the screen (raises the dimmer bar) and the old
+	// MENU+SELECT could not reach the Tools, which are separate binaries (say/confirm). Called from
+	// both GFX_flip AND GFX_sync so a STATIC dialog that only flips when dirty (say.elf, confirm.elf,
+	// Optimize CPU) is still reachable while it idles on GFX_sync. Dan, on-device 2026-09-08.
 	static int dev = -1;
 	if (dev<0) dev = flagExists(DEVMODE_PATH);
 	if (!dev) return;
-	int triggered = exists(SCREENSHOT_TRIGGER_PATH);
-	if (!hotkey && !triggered) return;
-	if (triggered) unlink(SCREENSHOT_TRIGGER_PATH);
+	if (!exists(SCREENSHOT_TRIGGER_PATH)) return;
+	unlink(SCREENSHOT_TRIGGER_PATH);
 	SDL_Surface* shot = PLAT_captureRendererToSurface();
 	if (!shot) { LOG_info("screenshot: this platform has no readable renderer\n"); return; }
 	mkdir(SCREENSHOTS_PATH, 0777);
