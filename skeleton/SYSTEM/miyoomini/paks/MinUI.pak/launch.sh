@@ -158,9 +158,20 @@ fi
 # Requires wifi.txt too: without a network there is nothing to listen on.
 # Host keys live on the CARD (.userdata/miyoomini/SSH), so they survive updates and the device keeps
 # one identity — the orphaned keys the old pak left there are reused rather than regenerated.
+# INSTRUMENTATION (2026-09-08): on the first boot of this block it produced NO output whatsoever —
+# not even its own first line — with both gate files verified present on the card afterwards. The
+# block re-runs correctly under real busybox ash, so the failure is in reaching it, not in it. This
+# one line fires on the SAME gate as the boot receipt above (which demonstrably does fire), so the
+# next boot separates the three cases instead of costing another evening: line present + "devmode
+# ssh" present = the block ran; line present, no "devmode ssh" = a gate was false and it names
+# which; NEITHER line = the launcher that ran is not the file on the card.
+[ -f "$SDCARD_PATH/devmode.txt" ] && echo "reached ssh gate $(date 2>/dev/null) devmode=y wifi=$([ -f "$SDCARD_PATH/wifi.txt" ] && echo y || echo n)" >> "$LOGS_PATH/ssh-boot.txt"
 if [ -f "$SDCARD_PATH/devmode.txt" ] && [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	SSH_DIR="$USERDATA_PATH/SSH"
-	SSH_LOG="$LOGS_PATH/ssh.txt"
+	# NOT "ssh.txt": the old community pak left an SSH.txt in this same directory, and vfat lookups
+	# are case-insensitive, so the two names are ONE file on the device — which made the old pak's
+	# 2025 trace look like ours and cost real time to untangle. A distinct name keeps them apart.
+	SSH_LOG="$LOGS_PATH/ssh-boot.txt"
 	mkdir -p "$SSH_DIR" "$LOGS_PATH" 2>/dev/null
 	{
 	echo "== devmode ssh $(date 2>/dev/null)"
@@ -221,6 +232,7 @@ if [ -f "$SDCARD_PATH/wifi.txt" ] || [ -f "$SDCARD_PATH/wifi.txt.off" ]; then
 else
 	rm -rf "$WIFI_PAK_DST" 2>/dev/null
 fi
+
 
 export CPU_SPEED_MENU=600000
 export CPU_SPEED_GAME=1200000

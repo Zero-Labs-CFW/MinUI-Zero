@@ -94,7 +94,12 @@ echo "build  : $(cat ./build/latest.txt)"
 
 $SSH "$TARGET" true 2>/dev/null || {
 	echo "device unreachable at $TARGET:$PORT"
-	echo "  - power it on; run Tools > SSH once per boot (it insmods the wifi module)"
+	# There is NO "Tools > SSH" pak on this platform — this line used to claim there was, which sent
+	# a later session hunting for a tool that has never existed (Dan, 2026-09-08: "not true").
+	# SSH here comes from .system/$PLATFORM/bin/dev-net.sh, which MinUI.pak/launch.sh starts at boot
+	# ONLY when .userdata/shared/enable-ssh is present. So the fix is a file on the card, not a menu.
+	echo "  - power it on; SSH starts at boot only if .userdata/shared/enable-ssh exists on the card"
+	echo "    (dev-net.sh writes the address it got to .userdata/shared/ssh-ip.txt)"
 	echo "  - after a reboot it takes ~2 minutes to reassociate; poll ssh, not ping"
 	exit 1
 }
