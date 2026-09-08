@@ -1663,7 +1663,13 @@ static void Config_syncFrontend(char* key, int value) {
 	}
 	else if (exactMatch(key,config.frontend.options[FE_OPT_EFFECT].key)) {
 		screen_effect = value;
-		GFX_setEffect(value);
+		// Apply immediately only OUTSIDE the in-game menu. Menu_loop clears the effect on entry and
+		// re-applies screen_effect on exit, so while the menu is up this call is both redundant and
+		// visible: on miyoomini the effect is a present-time MI_GFX overlay, and toggling it here
+		// drew scanlines over the menu itself until you closed it (Dan, 2026-09-08). Platforms that
+		// bake the effect into the game scaler never showed the difference, but the deferral is
+		// correct for all of them — the menu is not supposed to carry the effect.
+		if (!show_menu) GFX_setEffect(value);
 		renderer.dst_p = 0;
 		i = FE_OPT_EFFECT;
 	}
