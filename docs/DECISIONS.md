@@ -1121,3 +1121,39 @@ Inherited verbatim from upstream MinUI, and it survived a line-by-line firmware 
 marked it "identical, already have" — compared, but never checked for semantics.
 Fix: no `nice` at all, matching tg5040 (which never used it). Verified on device: minarch nice = 0.
 Lesson: the bug was not in the clever code. It was in an inherited primitive nobody re-derived.
+
+## D65 — 8-bit systems drop the fixed 1008 MHz pin for a 600-1008 bracket (2026-09-14, supersedes D61 on the threaded present path)
+
+D61 (v1.4.1) pinned GB/GBC/FC/SMS/GG/PCE at MINARCH_FMIN=FMAX=1008000 because, on the serial
+present path, a ceiling of 600 or 816 starved the short GLES upload/submit bursts that the frontend's
+pure-work sensor cannot see (Pokemon Gold: 55-58 fps episodes at both caps, 1008 recovered
+immediately). D61 also assumed schedutil would idle at 408 beneath the cap. The 2026-09-14 NextUI
+1:1 receipts showed the second half does not hold on this kernel: schedutil rides the cap, so the
+six systems ran at 1008 in 98% of samples (Zelda at 7.5% use, Gradius at 14%) while GBA, MD and SNES
+float on 600-1416 and hold 60 at 600 on the same present path. Threading v2 had meanwhile moved the
+present off the frame-critical path, which was the burst D61 was working around.
+
+A/B on the bench Brick (Tools > BracketAB, WiFi off, 8 min per run, balanced order bracket/pin/pin/
+bracket, Zelda DX + Gradius, `.notes/2026-09-11-nextui-benchmark/data-zero-v2/bracketab/`):
+
+    arm            game     clock (steady)   fps        under/s  dup/s  cpu C        irq/s
+    pin 1008       zelda    997 (1008: 97%)  60.3       0.00     0.00   31.7 +/- 0.5  2054
+    bracket 600    zelda    624 (600: 92%)   60.3       0.00     0.00   30.9 +/- 1.9  1738
+    pin 1008       gradius  1002 (1008: 97%) 60.3       0.00     0.00   36.3 +/- 0.2  2946
+    bracket 600    gradius  625 (600: 92%)   60.2       0.00     0.00   36.0 +/- 0.6  2470
+
+The gate was D61's own failure signature on the bracket arm: no sub-60 episodes, under/s 0.00,
+dup/s 0.00 (never present-starved), launch latency unchanged, present-skip unique-frame rate
+unchanged. The closed loop sank the ceiling to 600 within the first samples and held it. So the
+1008 floor is obsolete on the threaded path. Gains are modest and honest: 0.3-0.8 C cooler (inside
+the run-to-run spread), 15-16% fewer interrupts, and consistency with the 16-bit brackets. Battery
+in 8-min windows is inconclusive either way, consistent with D14 (race-to-idle) and with the
+campaign-level finding that governor strategy barely moves gameplay drain on this SoC.
+
+Decided: ship the bracket on all six 8-bit paks. The values are exported as
+`MINARCH_FMIN="${MINARCH_FMIN:-600000}"` / `MINARCH_FMAX="${MINARCH_FMAX:-1008000}"` so a bench
+harness can A/B the old pin from the environment without editing a pak; a normal launch sets
+neither. Rejected: keeping the pin for thermal margin (the A/B shows none is needed), and 408 as
+the floor (D21: no win below 600, and the loop already idles the ceiling at its floor).
+Touches: the six pak launch.sh files only; no minarch change. Re-open if any 8-bit title shows
+under/s > 0 at a 600 ceiling on hardware; the pin arm is one env export away for a repro.
