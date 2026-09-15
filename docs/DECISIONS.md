@@ -1157,3 +1157,24 @@ neither. Rejected: keeping the pin for thermal margin (the A/B shows none is nee
 the floor (D21: no win below 600, and the loop already idles the ceiling at its floor).
 Touches: the six pak launch.sh files only; no minarch change. Re-open if any 8-bit title shows
 under/s > 0 at a 600 ceiling on hardware; the pin arm is one env export away for a repro.
+
+## D66 — Hidden-Tools hatch moves to MENU+SELECT; L1+R1+SELECT is reserved for Focus Mode (2026-09-15)
+
+The hide-tools escape hatch was L1+R1+SELECT at the root. Favorites (feat/favorites, unshipped) needs
+a chord for Focus Mode, a persistent toggle that replaces the whole root with the Favorites list and
+survives reboots. Dan wanted L1+R1+SELECT for it. The two were weighed on the cost of an accidental
+press: an accidental Focus toggle strands the user in a five-game list until they find the chord
+again, so it gets the deliberate three-button gesture (which MinUI users already read as reveal/hide);
+an accidental Tools reveal is harmless and momentary, so it can take a two-button one.
+
+MENU+SELECT was chosen for Tools because it is free at the launcher on all three platforms: the
+launcher never read BTN_MENU at the menu, keymon and api.c pair MENU only with PLUS/MINUS
+(brightness) on tg5040/h700/MMP Plus, and the brightness HUD appears only on PLUS/MINUS, so holding
+MENU is silent. It also avoids every shoulder chord (L1+R1+SELECT Focus, L2+R2+SELECT screenshot),
+and on the original Miyoo Mini it avoids SELECT/START-plus-shoulder, which are that device's
+volume/brightness modifiers. Rejected: flipping the two (puts the persistent toggle on the
+easier chord), and MENU+START (equivalent; SELECT kept as the reveal button, START for launching).
+
+Touches: minui.c (the hatch condition), README.md and the card README.txt (one line each). The
+Favorites branch must add a !PAD_isPressed(BTN_MENU) guard on its SELECT = Clear Recents binding
+and drop its L2+R2+START chord when it lands. Existing hide-tools users relearn one chord.

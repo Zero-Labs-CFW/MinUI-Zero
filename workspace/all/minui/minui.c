@@ -1708,11 +1708,14 @@ int main (int argc, char *argv[]) {
 				}
 			}
 
-			// hide-tools escape hatch: L1+R1+SELECT at the root opens Tools even when hidden by
-			// hide-tools.txt. Holding both shoulders also suppresses the L1/R1 alpha jump below
-			// (those require the OTHER shoulder released), so there is no collision.
+			// hide-tools escape hatch: MENU+SELECT at the root opens Tools even when hidden by
+			// hide-tools.txt. Was L1+R1+SELECT; moved 2026-09-15 so the shoulder chord can go to
+			// Favorites' Focus Mode (a persistent, screen-changing toggle deserves the deliberate
+			// three-button chord; revealing Tools is harmless if hit by accident). MENU is free at
+			// the launcher on every platform: keymon and api.c only pair it with PLUS/MINUS, and the
+			// brightness HUD only appears on those, so holding MENU here is silent.
 			if (exactMatch(top->path, SDCARD_PATH) && flagExists(HIDE_TOOLS_PATH)
-				&& PAD_isPressed(BTN_L1) && PAD_isPressed(BTN_R1) && PAD_justPressed(BTN_SELECT)) {
+				&& PAD_isPressed(BTN_MENU) && PAD_justPressed(BTN_SELECT)) {
 				char* tp = SDCARD_PATH "/Tools/" PLATFORM;
 				if (exists(tp)) {
 					openDirectory(tp, 0);

@@ -101,7 +101,7 @@ its own boot chain, device tree, and kernel).
 **WiFi and SSH stay off** until you ask: rename `wifi.txt.example` to `wifi.txt` at the card root with
 your network as `SSID:password`, and a **WiFi Toggle** tool appears in Tools. **Minimal menu**: empty
 `no-recents` and `hide-tools` files at the card root strip it further (with `hide-tools`, hold
-`L1 + R1` and press `SELECT` to reach Tools anyway).
+`MENU` and press `SELECT` to reach Tools anyway).
 
 ## Anbernic RG35XX Plus / H
 
