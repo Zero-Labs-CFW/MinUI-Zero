@@ -1,8 +1,8 @@
 diff --git a/src/def.h b/src/def.h
-index fc6e531..b6170c3 100644
+index fc6e531..708fff5 100644
 --- a/src/def.h
 +++ b/src/def.h
-@@ -110,11 +110,32 @@
+@@ -110,11 +110,33 @@
  #define MYKEY_OPEN          1	// A
  #define MYKEY_PARENT        0	// B
  #define MYKEY_OPERATION     3	// X
@@ -15,29 +15,46 @@ index fc6e531..b6170c3 100644
  #define PATH_DEFAULT        "/"
  #define FILE_SYSTEM         "/dev/mmcblk1p1"
 +#elif defined(PLATFORM_H700)
-+// Keys for Anbernic RG35XX Plus/H on the MinUI Zero image. The pad arrives as KEYBOARD scancodes
-+// there (the same CODE_* table workspace/h700/platform/platform.h reads), not joystick buttons, so
-+// these are keysyms. Shipping the TG5040 joystick table on the H left only R2 (BACKSPACE = keysym 8
-+// = MYKEY_MENU) doing anything, reported 2026-09-15. Same semantics as the Brick: Y opens the
-+// System menu, MENU remaps to it (window.cpp), L1/R1 page.
-+#define MYKEY_UP            SDLK_w            // Up
-+#define MYKEY_RIGHT         SDLK_d            // Right
-+#define MYKEY_DOWN          SDLK_s            // Down
-+#define MYKEY_LEFT          SDLK_a            // Left
-+#define MYKEY_SYSTEM        SDLK_LALT         // Y
-+#define MYKEY_PAGEUP        SDLK_e            // L1
-+#define MYKEY_PAGEDOWN      SDLK_t            // R1
-+#define MYKEY_OPEN          SDLK_LSHIFT       // A
-+#define MYKEY_PARENT        SDLK_LCTRL        // B
-+#define MYKEY_OPERATION     SDLK_SPACE        // X
-+#define MYKEY_SELECT        SDLK_RSHIFT       // SELECT
-+#define MYKEY_TRANSFER      SDLK_RETURN       // START
-+#define MYKEY_MENU			SDLK_ESCAPE       // MENU
++// Joys for Anbernic RG35XX Plus/H on the MinUI Zero image. The pad enumerates as an SDL JOYSTICK
++// ("muOS-Keys", 17 buttons, dpad on hat 0), NOT keyboard events. Button indices are muOS's
++// gamecontrollerdb mapping (a:b3 b:b4 x:b6 y:b5 L1:b7 R1:b8 back/SELECT:b9 start:b10 guide/MENU:b11),
++// verified live on an H 2026-09-15. The dpad is a HAT, handled by window.cpp's JOYHATMOTION path, so
++// UP/DOWN/LEFT/RIGHT stay as keysym tokens (large values, no collision with buttons 0-16). Shipping
++// the TG5040 indices here mapped the wrong buttons ("controls all over the place", reported).
++#define MYKEY_UP            SDLK_UP           // Up   (hat)
++#define MYKEY_RIGHT         SDLK_RIGHT        // Right(hat)
++#define MYKEY_DOWN          SDLK_DOWN         // Down (hat)
++#define MYKEY_LEFT          SDLK_LEFT         // Left (hat)
++#define MYKEY_SYSTEM        5                 // Y
++#define MYKEY_PAGEUP        7                 // L1
++#define MYKEY_PAGEDOWN      8                 // R1
++#define MYKEY_OPEN          3                 // A
++#define MYKEY_PARENT        4                 // B
++#define MYKEY_OPERATION     6                 // X
++#define MYKEY_SELECT        9                 // SELECT
++#define MYKEY_TRANSFER      10                // START
++#define MYKEY_MENU			11                // MENU (guide)
 +#define PATH_DEFAULT        "/"
-+#define FILE_SYSTEM         "/dev/mmcblk0p5"  // muOS-layout ROMS partition; Disk info only
++#define FILE_SYSTEM         "/dev/mmcblk0p6"  // the ROMS card partition; Disk info only
  #elif defined(PLATFORM_MY282)
  // Keys for Mini Zero 28
  #define MYKEY_UP            SDLK_UP         // Up
+diff --git a/src/sdlutils.cpp b/src/sdlutils.cpp
+index 9e47238..9946776 100644
+--- a/src/sdlutils.cpp
++++ b/src/sdlutils.cpp
+@@ -104,7 +104,10 @@ void SDL_utils::renderAll(void)
+ #if defined(PLATFORM_MY355)
+     SDL_Rect rect{0,0,640,480};
+ 	SDL_BlitScaled(Globals::g_screen, NULL, Globals::g_screen_real,&rect);
+-#elif defined(PLATFORM_TG5040)
++#elif defined(PLATFORM_TG5040) || defined(PLATFORM_H700)
++	// H700 (Anbernic 640x480 landscape) shares this generic integer-scale-and-center path with the
++	// Brick. Without it, H700 fell into the #else portrait-rotate branch (480x640, for MY282/Zero28)
++	// and wrote past the end of the 640x480 framebuffer -> segfault on launch (fixed 2026-09-15).
+ 	int sw = Globals::g_screen_real->w;
+ 	int sh = Globals::g_screen_real->h;
+ 	int sx = (sw / SCREEN_WIDTH);
 diff --git a/src/window.cpp b/src/window.cpp
 index 23ec08b..68a1bb4 100644
 --- a/src/window.cpp
