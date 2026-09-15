@@ -963,7 +963,11 @@ static Array* getEntries(char* path){
 		char* tmp = strrchr(collated_path, '(');
 		// 1 because we want to keep the opening parenthesis to avoid collating "Game Boy Color" and "Game Boy Advance" into "Game Boy"
 		// but conditional so we can continue to support a bare tag name as a folder name
-		if (tmp) tmp[1] = '\0'; 
+		if (tmp) tmp[1] = '\0';
+		// A bare tag has no '(' to stop the prefix, so "GB" would swallow "GBA" and "GBC" (and not the
+		// reverse). Reported on the RG35XX H (2026-09-15), where muOS-style bare-tag folders are common.
+		// A bare-tag folder collates nothing but itself.
+		int bare_tag = (tmp == NULL);
 		
 		DIR *dh = opendir(ROMS_PATH);
 		if (dh!=NULL) {
@@ -977,7 +981,7 @@ static Array* getEntries(char* path){
 				if (dp->d_type!=DT_DIR) continue;
 				strcpy(tmp, dp->d_name);
 			
-				if (!prefixMatch(collated_path, full_path)) continue;
+				if (bare_tag ? !exactMatch(collated_path, full_path) : !prefixMatch(collated_path, full_path)) continue;
 				addEntries(entries, full_path);
 			}
 			closedir(dh);
