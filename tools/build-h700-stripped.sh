@@ -477,11 +477,15 @@ if [ -d "$REPO/skeleton/EXTRAS/Tools/h700" ]; then
 		cp "$REPO/workspace/all/clock/build/h700/clock.elf" "$STAGE/Tools/h700/Clock.pak/"
 	[ -f "$REPO/workspace/all/minput/build/h700/minput.elf" ] && \
 		cp "$REPO/workspace/all/minput/build/h700/minput.elf" "$STAGE/Tools/h700/Input.pak/"
-	# Files ships the same aarch64 DinguxCommander the Brick uses (its libs resolve on the lean
-	# rootfs — checked on-device, not assumed). It needs its res/ tree alongside the binary.
+	# Files ships the h700 build of DinguxCommander (same source and libs as the Brick's, which
+	# resolve on the lean rootfs, checked on-device; but the PLATFORM_H700 key table, because the H's
+	# pad arrives as keyboard keys and the Brick's joystick table left it unusable, 2026-09-15). It is
+	# produced by workspace/tg5040/makefile alongside the Brick binary. Refuse to ship the Brick
+	# binary in its place: that is exactly the broken state this replaces.
 	DC="$REPO/workspace/tg5040/other/DinguxCommander-sdl2"
-	if [ -f "$DC/DinguxCommander" ] && [ -d "$STAGE/Tools/h700/Files.pak" ]; then
-		cp "$DC/DinguxCommander" "$STAGE/Tools/h700/Files.pak/"
+	if [ -d "$STAGE/Tools/h700/Files.pak" ]; then
+		[ -f "$DC/DinguxCommander-h700" ] || { echo "ERROR: DinguxCommander-h700 missing; run 'make tg5040' (its early target builds both Files binaries)"; exit 1; }
+		cp "$DC/DinguxCommander-h700" "$STAGE/Tools/h700/Files.pak/DinguxCommander"
 		cp -R "$DC/res" "$STAGE/Tools/h700/Files.pak/" 2>/dev/null || true
 	fi
 fi

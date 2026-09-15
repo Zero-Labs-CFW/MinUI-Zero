@@ -30,6 +30,10 @@ all: readmes
 
 early: $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN) $(COMMANDER_PIN)
 	mkdir -p other
+	# Files for the h700 image: same source, keyboard-scancode key table (def.h PLATFORM_H700), since
+	# the H's pad arrives as keyboard keys and the Brick's joystick table left it unusable. Built FIRST
+	# with its objects removed after, so the tg5040 link below never picks up h700-flavoured objects.
+	cd $(REQUIRES_COMMANDER) && rm -f src/*.o && make -j PLATFORM=h700 TARGET=DinguxCommander-h700 && rm -f src/*.o
 	cd $(REQUIRES_COMMANDER) && make -j
 	cd $(REQUIRES_EVTEST) && $(CROSS_COMPILE)gcc -o evtest evtest.c
 	cd $(REQUIRES_JSTEST) && $(CROSS_COMPILE)gcc -o jstest jstest.c
@@ -37,7 +41,7 @@ early: $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN) $(COMMANDER_PIN)
 
 clean:
 	cd show && make clean
-	cd $(REQUIRES_COMMANDER) && make clean
+	cd $(REQUIRES_COMMANDER) && make clean && rm -f DinguxCommander-h700
 	cd $(REQUIRES_UNZIP60) && make -f unix/Makefile.trimuismart clean
 
 ###########################################################
