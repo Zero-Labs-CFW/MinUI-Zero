@@ -27,6 +27,7 @@ Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**,
 - **Longer battery**: ~7.5 hours on Game Boy, ~7 on PlayStation
 - **Cooler**: 2-5°C below stock without dropping frame rate
 - **No CPU settings**: every game is tuned automatically, with opt-in per-chip undervolting
+- **Cool, GPU-dark menu**: the graphics chip powers down at the menu, so it sits cool in your hand
 - **Deep sleep by default**: near-zero draw, instant resume
 - **Fast boot**: power-on to a browsable menu in seconds
 - **Hard to break**: bad ROMs exit cleanly and saves are crash-safe
@@ -36,9 +37,10 @@ Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**,
 
 - **2-3°C cooler** than stock's default clock, **4-5°C cooler** than its 2.0GHz Performance mode
 - **~7.5 hours** Game Boy battery (up from ~6 before tuning), **~6.5-7 hours** on PlayStation
-- Bloody Roar II holds a **locked 60fps at stock clocks** (other firmwares reach 60 via a 2.0GHz
-  overclock); Tony Hawk's Pro Skater 2 runs **60fps at 1008 MHz**, half the stock clock
-- Menu idle **~26°C** with the GPU powered down
+- Bloody Roar II holds a **locked 60fps at its stock ceiling (~1570 MHz)**; NextUI's default drops
+  it to ~56fps and only holds 60 in its 2.0GHz mode
+- Light systems hold 60fps at **600–1008 MHz**, well under half the stock clock
+- Menu idle **~28°C** with the GPU powered down
 
 Your games, silicon, and settings vary. Raw data and reasoning:
 [`docs/bench/`](docs/bench/) and [`docs/DECISIONS.md`](docs/DECISIONS.md).
@@ -53,14 +55,26 @@ and polished where Zero is deliberately minimal. Both are good firmware; pick by
 - **NextUI**: ~51,200 lines / 82 MB, fully GPU-based, with box art, WiFi, Bluetooth audio, cheats,
   a Pak Store, and themes.
 
-Full comparison: [`docs/nextui-comparison.md`](docs/nextui-comparison.md).
+Measured 1:1 on one Brick (same games, radios off, all three of NextUI's CPU modes):
+
+- **The menu runs much cooler** — **28°C vs 34°C**, at a third of the clock, because Zero powers the
+  GPU down at the menu where NextUI keeps a live GL scene running. That's the temperature you feel in
+  hand between games.
+- **Holds 60fps at stock** where NextUI's default drops PlayStation frames and only its 2.0GHz mode
+  holds them, at **41–64% less CPU clock** on light systems for the same 60fps.
+- **Launches about twice as fast**, and there are **no CPU modes to pick**.
+- **Battery is modestly (~10%) better** over a matched drain. In-game temperature is a wash with
+  NextUI's default: the CPU is a small share of in-game power, so that edge is real but not dramatic.
+
+Full comparison and data: [`docs/nextui-comparison.md`](docs/nextui-comparison.md).
 
 ## How it works
 
 There is no CPU Speed setting because the machine answers that itself. Each system ships a clock
 bracket measured on real hardware, and where a bracket has room the frontend holds the lowest clock
 that still keeps frame rate (so Bloody Roar II pays 1800 only in the scenes that need it). The
-lightest systems are pinned flat at 1008 MHz, where measurement showed nothing left to find below.
+lightest systems (Game Boy, GBC, NES and friends) run a 600–1008 MHz bracket, low enough to sip in
+quiet scenes and high enough to hold full speed through the busy ones.
 **Deep sleep** suspends to RAM, and on TrimUI **Optimize CPU** measures your chip's lowest safe
 voltage for about 20% less CPU power at the same clocks. Full detail:
 [**docs/how-it-works.md**](docs/how-it-works.md).

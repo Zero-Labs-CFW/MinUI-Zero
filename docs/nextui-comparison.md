@@ -19,17 +19,84 @@ philosophy.
 | Deep sleep | Yes | Yes |
 | Devices | Brick, Brick Pro, Smart Pro (+ Anbernic RG35XX Plus / H and Miyoo Mini family) | Brick, Brick Pro, Smart Pro, Smart Pro S |
 
-Measured at MinUI Zero v1.5 and NextUI v6.14.0. Source lines count each firmware's own `.c`/`.h` and
-exclude the emulator cores both ship; download sizes are each project's base release zip. The NextUI
-column comes from its README and its own boot and launch scripts, and the governor difference is
-researched in detail below. Code flows both ways between these projects: deep sleep shares a lineage,
-and NextUI is credited in this codebase.
+Source lines count each firmware's own `.c`/`.h` and exclude the emulator cores both ship; download
+sizes are each project's base release zip. Code flows both ways between these projects: deep sleep
+shares a lineage, and NextUI is credited in this codebase.
 
 ---
 
-Researched 2026-06-30 from the `nextui` remote (LoveRetro/NextUI) — release notes, PR #695,
-and their shipped `governor.sh`. Goal: find NextUI's documented thermal benchmarks and compare
-their CPU-scaling design against ours.
+## Measured head-to-head (2026-09-14)
+
+Earlier versions of this document compared the two governors by reading NextUI's `governor.sh`
+without flashing it. This section replaces that with a direct 1:1: **one TrimUI Brick, both
+firmwares on their own cards, the same seven attract-demo ROMs, radios off, brightness lowest, the
+same logger on each, and all three of NextUI's CPU modes tested.** Zero v1.7.x as shipped; NextUI
+6.14.0 as shipped. Frame timing came from an `LD_PRELOAD` shim hooking each firmware's present call,
+plus Zero's own loop telemetry. Full report and raw data: `.notes/2026-09-13-nextui-1to1-result/`.
+
+**Frame-hold** (fps · frames that missed their slot per minute):
+
+| Game | Zero | NextUI auto (default) | NextUI performance | NextUI powersave |
+|---|---|---|---|---|
+| Bloody Roar II (PS1) | **60.2 · 1.3** | 56.1 · 232 | 60.2 · 1.1 | 55.8 · 40 |
+| Tony Hawk 2 (PS1) | **60.2 · 0.0** | 60.2 · 10.5 | 60.2 · 0.9 | 60.1 · 9.0 |
+| Gradius (NES) | 60.3 · 0.0 | 60.1 · 6.7 | 60.2 · 2.6 | 60.2 · 1.4 |
+| Zelda DX (GBC) | 60.3 · 0.0 | 60.2 · 1.1 | 60.2 · 0.1 | 60.1 · 3.5 |
+| SF2 (SNES) | 60.3 · 0.0 | 60.1 · 4.7 | 60.1 · 2.3 | 60.2 · 0.6 |
+| Sonic (Genesis) | 60.3 · 0.0 | 60.2 · 0.4 | 60.2 · 0.5 | 60.1 · 3.0 |
+| Mario Kart (GBA) | 60.2 · 0.0 | 60.2 · 2.5 | 60.2 · 0.5 | 60.2 · 3.1 |
+
+Zero holds a clean 60 on every game. NextUI's **default** drops Bloody Roar to 56fps and stutters
+the other PS1 title; it only holds every game cleanly in **performance** mode (2000 MHz pinned), and
+its **powersave** mode (the one the NextUI author benchmarked Zero against) hitches on light systems
+and still drops Bloody Roar.
+
+**Clock for the same 60fps** (steady-state mean, MHz):
+
+| | Zero | NextUI auto | NextUI performance | NextUI powersave |
+|---|---|---|---|---|
+| Bloody Roar II | 1570 | 1760 | 2000 | 902 |
+| Tony Hawk 2 | 1461 | 1748 | 2000 | 833 |
+| Gradius | 1003 | 1764 | 2000 | 1200 |
+| Zelda DX | 1001 | 1693 | 2000 | 628 |
+| SF2 | 661 | 1778 | 2000 | 1200 |
+| Sonic | 763 | 1749 | 2000 | 1064 |
+| Mario Kart | 617 | 1711 | 2000 | 648 |
+
+NextUI's `auto` rides its 1800 cap on everything, including a Game Boy game; Zero's frame-aware loop
+sits where the frame budget allows. Same 60fps, **41–64% less clock on the light systems**.
+
+**Heat, battery, idle, boot, launch:**
+
+| | Zero | NextUI auto |
+|---|---|---|
+| In-game CPU temperature | 33–39 °C | 30–38 °C (wash; only NextUI *performance* is hot, 41–48 °C) |
+| Battery, matched 90-min drain from full | 9.9 %/hr · 119 mV/hr | 10.6 %/hr · 136 mV/hr (Zero ~7–14% less) |
+| Menu idle | 597 MHz · 28.2 °C | 1522 MHz · 33.8 °C |
+| Boot to menu process | 7.8 s | 9.4 s |
+| Launch to first game frame | 0.9–1.3 s | 2.1–2.6 s |
+| CPU modes the user must pick | none | 3 |
+
+**The honest shape of it.** Zero runs much **cooler than stock MinUI** (2–5 °C, see the A/B below)
+and much **cooler than NextUI at the menu** (28.2 vs 33.8 °C, a third of the clock, GPU powered
+down). Where it does *not* pull ahead is in-game temperature against NextUI's *default*: there it is
+a **wash**, because both run schedutil-family governors and, during GLES gameplay, the CPU rail is a
+small share of total power (panel, GPU, DDR dominate). For the same reason battery is a **modest
+~10% edge** over a matched drain, not a multiple. So Zero's decisive, uncontested wins are **quality
+at stock** (holds 60 where NextUI's default drops frames, clean pacing, ~2× faster launch),
+**cooler and near-zero-draw at idle** (deep sleep at 2 min vs NextUI's 10-min suspend), and **no
+modes to choose**. The one claim to avoid is "cooler *in games* than NextUI's default" — that
+specific comparison is a tie.
+
+---
+
+## Background: the 2026-06 governor analysis (inferred from `governor.sh`)
+
+The material below predates the head-to-head above. It was researched 2026-06-30 from the `nextui`
+remote (release notes, PR #695, their shipped `governor.sh`) **without flashing NextUI**, so its
+NextUI temperatures are inferred, not measured. Two of its conclusions have since been overturned by
+the direct test and are corrected inline. Kept for the governor-design history and the PR #695
+context, both still valid.
 
 ## The benchmark number you remembered
 NextUI does **not** publish a formal temperature table. Their numbers live in two places:
@@ -62,9 +129,9 @@ Reads `scaling_available_frequencies` live; three modes:
 |---|---|---|
 | Governor | schedutil | schedutil (hybrid) |
 | Floor | 408 | 408 (just corrected from assumed 480) |
-| Cap | 1800 global (every system) | **per-system** (PS1 1800, 16-bit 1416, 8-bit 1008) |
+| Cap | 1800 global (every system) | **per-system** (PS1 1800, 16-bit 1416, 8-bit 600–1008 bracket) |
 | 2.0GHz OC | exposed in Performance mode | **never** (thesis: no overclock) |
-| Frame-aware loop | none | built, but **not firing** on-device (ceiling never sinks below f_max) |
+| Frame-aware loop | none | built; the 2026-09 head-to-head showed it holds 60 where NextUI's schedutil default drops PS1 frames |
 | Result | "5–10°C cooler" vs old userspace | 36–37°C sustained PS1; schedutil self-scaled 816–1608 |
 
 ## Three-way comparison: original MinUI vs NextUI vs ours
@@ -88,24 +155,24 @@ POWERSAVE 1200 / **NORMAL 1608 (the default — `minarch_cpu_speed .default_valu
 - **vs original MinUI:** **2–3°C cooler than its 1608 default, 4–5°C cooler than 2000 Performance** —
   and structurally more efficient: MinUI pins 1608 even for NES and during idle/menus, where we drop
   to 600. That standing-power gap is larger than the temp delta suggests and the static pin can't close it.
-- **vs NextUI:** **a thermal tie** — NextUI's `auto` *is* `schedutil` 408–1800, the same mechanism we
-  measured, so its temps track ours (~38–39°C). (Inferred from their `governor.sh`, not separately
-  flashed.) Our differences are philosophy, not degrees: per-system caps (they cap everything at 1800),
-  never exposing the 2.0 OC, and staying pure-software RGB565 (NextUI adds GL/GPU features we omit).
+- **vs NextUI:** this inferred "thermal tie" was **half right**, and the 2026-09 head-to-head above
+  settled it. *In games* the temperatures are a wash, as predicted (both schedutil-family). *At idle*
+  they are not: Zero's GPU-dark menu idles 5.6°C cooler at a third of the clock, because NextUI's menu
+  is a live GL scene. And the frame-hold that a temperature tie hides is the real story: Zero holds 60
+  at stock where NextUI's default drops PS1 frames. Our differences are per-system caps (they cap
+  everything at 1800), never exposing the 2.0 OC, no modes to pick, and staying pure-software RGB565.
 
 ## The two findings that matter
 1. **Independent convergence = strong validation.** Two forks, arrived separately at the identical
    core: *schedutil + range-limit, floor 408, cap one step below the 2.0 OC.* We're on the right road.
-2. **Our closed-loop ceiling controller currently adds nothing over plain schedutil.** On-device the
-   ceiling pins at f_max the whole session; schedutil does all the real scaling underneath. NextUI
-   deliberately shipped *without* such a loop and still got the 5–10°C win. So our decision point:
-   - **(a)** Debug/tune the frame-aware sink so it demonstrably beats plain schedutil, **or**
-   - **(b)** Lean into schedutil + **per-system ranges** (our real edge — NextUI caps *everything* at
-     1800; we cap an 8-bit game's schedutil at 1008, which should run cooler than NextUI on light
-     systems) and treat the closed loop as optional.
-
-   (b) fits the "stay lean / runs cold" thesis and is already half-built (per-system f_max is applied
-   statically at game load). Our differentiator is **per-system caps**, not the bespoke controller.
+2. **Both, as it turned out.** This note originally guessed the closed-loop controller added nothing
+   over plain schedutil and framed it as an either/or with per-system caps. The 2026-09 head-to-head
+   overturned that: plain schedutil (NextUI's default) drops Bloody Roar to 56fps, while Zero's loop
+   holds 60 at a *lower* clock (1570 vs 1760), and Zero holds 60 on every light system at 41–64% less
+   clock. So per-system caps and the frame-aware loop are not competing options — together they are
+   what lets one configuration replace NextUI's three manual modes, each of which compromises
+   something (default drops PS1 frames, powersave hitches, performance cooks). Per-system caps are
+   still the cheapest, clearest edge; the loop is what makes them safe to run low.
 
 ## On-device A/B result (measured 2026-06-30, same game each run, only clock policy differs)
 Method: `GOV_DISABLE=1` + `userspace`@2000000 reproduces the old MinUI pin; schedutil is our governor.
