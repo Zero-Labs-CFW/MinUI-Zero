@@ -91,7 +91,8 @@ matching tag (eg. PlayStation bios goes in "/Bios/PS/").
 Bios file names are case-sensitive:
 
 FC: disksys.rom GB: gb_bios.bin GBA: gba_bios.bin GBC: gbc_bios.bin MD:
-bios_CD_E.bin bios_CD_J.bin bios_CD_U.bin PS: psxonpsp660.bin
+bios_CD_E.bin bios_CD_J.bin bios_CD_U.bin PCE: syscard3.pce PS:
+psxonpsp660.bin
 
 ----------------------------------------------------------------------------
 Disc-based games
