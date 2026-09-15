@@ -145,7 +145,7 @@ Two empty files at the card root strip the menu down further, and each works
 with or without a ".txt" extension. Delete the file to restore the default.
 
 no-recents   hides the Recently Played row and stops recording plays.
-hide-tools   hides the Tools folder. Hold MENU and press SELECT at the
+hide-tools   hides the Tools folder. Hold SELECT and press START at the
 main menu to open Tools anyway.
 
 For a full lockdown instead of a declutter, use simple mode: create an empty
