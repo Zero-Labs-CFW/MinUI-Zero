@@ -38,6 +38,7 @@ Numbers and reasoning: [`docs/bench/`](docs/bench/) · [NextUI comparison](docs/
 ## Consoles
 
 **Ready to play:** Game Boy Color, Game Boy Advance, NES, SNES, Sega Genesis, PlayStation.
+
 **Also aboard, dormant:** Game Boy, mGBA, Super Game Boy, Game Gear, Master System, TurboGrafx-16, Virtual Boy, PICO-8. Create the matching Roms folder (e.g. "Virtual Boy (VB)") and the system appears, tuned core already installed.
 
 ## Download and install
