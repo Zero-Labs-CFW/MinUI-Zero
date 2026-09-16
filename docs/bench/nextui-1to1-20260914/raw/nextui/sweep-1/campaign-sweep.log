@@ -1,0 +1,195 @@
+=== SWEEP start 2026-09-13 18:02:44 batt=100% ===
+no minui.elf (tool-launched; ok)
+audiomon: up
+cold-soak: want cpu <= 99C (now 24C)
+minarch: 3983  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  shim: render 0.1/s swap 59.2/s, worst gap 1018.6 ms, late frames 3 (70 s)
+  launch->first frame: 1.76 s
+  self-reported: [INFO] total startup time 2710ms
+done -> nextui-preflight_zelda_20260913-180247.csv (29 samples), end 26C
+PREFLIGHT FAIL: mode NOT honored post-launch -> # fw=nextui-preflight workload=zelda start=2026-09-13 18:02:58 soak=99C prelaunch=schedutil/1800000 launch_up=35.06 max0=1800000 gov=schedutil devfreq=none,none backlight=none -> aborting (nothing wasted)
+=== SWEEP start 2026-09-13 19:27:15 batt=94% ===
+no minui.elf (tool-launched; ok)
+audiomon: up
+cold-soak: want cpu <= 99C (now 25C)
+minarch: 3887  post-launch gov=conservative max=1200000 (prelaunch performance/2000000)
+fps-shim: armed (11 lines)
+  shim: render 0.1/s swap 59.2/s, worst gap 1021.0 ms, late frames 4 (72 s)
+  launch->first frame: 1.11 s
+  self-reported: [INFO] total startup time 2127ms
+done -> nextui-preflight_zelda_20260913-192718.csv (28 samples), end 26C
+PREFLIGHT OK: config-set mode honored post-launch -> # fw=nextui-preflight workload=zelda start=2026-09-13 19:27:29 soak=99C prelaunch=performance/2000000 launch_up=27.40 max0=1200000 gov=conservative devfreq=none,none backlight=none
+PREFLIGHT OK: shim armed (72 lines) -> running full sweep
+--- MODE=auto  sysfs now gov=schedutil max=1800000  batt=94% ---
+--- auto / zelda ---
+cold-soak: want cpu <= 99C (now 25C)
+minarch: 4859  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (8 lines)
+  shim: render 0.0/s swap 60.0/s, worst gap 1831.7 ms, late frames 13 (482 s)
+  launch->first frame: 3.86 s
+  self-reported: [INFO] total startup time 5953ms
+done -> nextui-auto_zelda_20260913-192835.csv (224 samples), end 31C
+--- auto / gradius ---
+cold-soak: want cpu <= 99C (now 31C)
+minarch: 11323  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.0/s, worst gap 945.6 ms, late frames 58 (486 s)
+  launch->first frame: 1.21 s
+  self-reported: [INFO] total startup time 2139ms
+done -> nextui-auto_gradius_20260913-193649.csv (223 samples), end 35C
+--- auto / sonic ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 17761  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.1/s, worst gap 862.3 ms, late frames 7 (486 s)
+  launch->first frame: 1.09 s
+  self-reported: [INFO] total startup time 1948ms
+done -> nextui-auto_sonic_20260913-194504.csv (224 samples), end 36C
+--- auto / mariokart ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 24223  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (9 lines)
+  shim: render 0.0/s swap 60.0/s, worst gap 3013.7 ms, late frames 26 (485 s)
+  launch->first frame: 1.09 s
+  self-reported: [INFO] total startup time 4314ms
+done -> nextui-auto_mariokart_20260913-195318.csv (224 samples), end 35C
+--- auto / sf2 ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 30689  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.0/s, worst gap 967.2 ms, late frames 42 (486 s)
+  launch->first frame: 1.24 s
+  self-reported: [INFO] total startup time 2209ms
+done -> nextui-auto_sf2_20260913-200134.csv (223 samples), end 37C
+--- auto / thps2 ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 4769  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.0/s, worst gap 1203.2 ms, late frames 89 (487 s)
+  launch->first frame: 1.10 s
+  self-reported: [INFO] total startup time 2310ms
+done -> nextui-auto_thps2_20260913-200949.csv (224 samples), end 37C
+--- auto / bloodyroar ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 11234  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (12 lines)
+  shim: render 0.1/s swap 56.0/s, worst gap 1137.9 ms, late frames 1866 (487 s)
+  launch->first frame: 1.10 s
+  self-reported: [INFO] total startup time 2252ms
+done -> nextui-auto_bloodyroar_20260913-201804.csv (222 samples), end 37C
+--- MODE=powersave  sysfs now gov=conservative max=1200000  batt=83% ---
+--- powersave / zelda ---
+cold-soak: want cpu <= 99C (now 38C)
+minarch: 17674  post-launch gov=conservative max=1200000 (prelaunch conservative/1200000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.0/s, worst gap 833.1 ms, late frames 32 (488 s)
+  launch->first frame: 1.14 s
+  self-reported: [INFO] total startup time 1935ms
+done -> nextui-powersave_zelda_20260913-202621.csv (211 samples), end 37C
+--- powersave / gradius ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 23778  post-launch gov=conservative max=1200000 (prelaunch conservative/1200000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.1/s, worst gap 828.7 ms, late frames 15 (487 s)
+  launch->first frame: 1.23 s
+  self-reported: [INFO] total startup time 1925ms
+done -> nextui-powersave_gradius_20260913-203438.csv (222 samples), end 37C
+--- powersave / sonic ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 30183  post-launch gov=conservative max=1200000 (prelaunch conservative/1200000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.0/s, worst gap 818.0 ms, late frames 28 (485 s)
+  launch->first frame: 1.12 s
+  self-reported: [INFO] total startup time 1909ms
+done -> nextui-powersave_sonic_20260913-204255.csv (218 samples), end 37C
+--- powersave / mariokart ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 4128  post-launch gov=conservative max=1200000 (prelaunch conservative/1200000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.0/s, worst gap 804.5 ms, late frames 29 (486 s)
+  launch->first frame: 1.15 s
+  self-reported: [INFO] total startup time 1906ms
+done -> nextui-powersave_mariokart_20260913-205109.csv (211 samples), end 36C
+--- powersave / sf2 ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 10231  post-launch gov=conservative max=1200000 (prelaunch conservative/1200000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.1/s, worst gap 892.4 ms, late frames 9 (484 s)
+  launch->first frame: 1.84 s
+  self-reported: [INFO] total startup time 2557ms
+done -> nextui-powersave_sf2_20260913-205925.csv (221 samples), end 38C
+--- powersave / thps2 ---
+cold-soak: want cpu <= 99C (now 38C)
+minarch: 16612  post-launch gov=conservative max=1200000 (prelaunch conservative/1200000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 59.9/s, worst gap 1120.0 ms, late frames 76 (487 s)
+  launch->first frame: 1.12 s
+  self-reported: [INFO] total startup time 2220ms
+done -> nextui-powersave_thps2_20260913-210739.csv (215 samples), end 38C
+--- powersave / bloodyroar ---
+cold-soak: want cpu <= 99C (now 38C)
+minarch: 22824  post-launch gov=conservative max=1200000 (prelaunch conservative/1200000)
+fps-shim: armed (11 lines)
+  shim: render 0.1/s swap 55.7/s, worst gap 1104.3 ms, late frames 328 (486 s)
+  launch->first frame: 1.17 s
+  self-reported: [INFO] total startup time 2195ms
+done -> nextui-powersave_bloodyroar_20260913-211556.csv (216 samples), end 37C
+--- MODE=performance  sysfs now gov=performance max=2000000  batt=71% ---
+--- performance / zelda ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 29092  post-launch gov=performance max=2000000 (prelaunch performance/2000000)
+fps-shim: armed (10 lines)
+  shim: render 0.0/s swap 60.1/s, worst gap 837.5 ms, late frames 4 (485 s)
+  launch->first frame: 2.92 s
+  self-reported: [INFO] total startup time 3756ms
+done -> nextui-performance_zelda_20260913-212413.csv (227 samples), end 41C
+--- performance / gradius ---
+cold-soak: want cpu <= 99C (now 41C)
+minarch: 3293  post-launch gov=performance max=2000000 (prelaunch performance/2000000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.1/s, worst gap 829.4 ms, late frames 25 (485 s)
+  launch->first frame: 1.06 s
+  self-reported: [INFO] total startup time 1942ms
+done -> nextui-performance_gradius_20260913-213229.csv (225 samples), end 45C
+--- performance / sonic ---
+cold-soak: want cpu <= 99C (now 45C)
+minarch: 9787  post-launch gov=performance max=2000000 (prelaunch performance/2000000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.1/s, worst gap 827.8 ms, late frames 8 (485 s)
+  launch->first frame: 1.05 s
+  self-reported: [INFO] total startup time 1917ms
+done -> nextui-performance_sonic_20260913-214043.csv (226 samples), end 44C
+--- performance / mariokart ---
+cold-soak: want cpu <= 99C (now 44C)
+minarch: 16301  post-launch gov=performance max=2000000 (prelaunch performance/2000000)
+fps-shim: armed (7 lines)
+  shim: render 0.0/s swap 60.1/s, worst gap 1767.9 ms, late frames 7 (482 s)
+  launch->first frame: 4.43 s
+  self-reported: [INFO] total startup time 6283ms
+done -> nextui-performance_mariokart_20260913-214857.csv (227 samples), end 42C
+--- performance / sf2 ---
+cold-soak: want cpu <= 99C (now 44C)
+minarch: 22849  post-launch gov=performance max=2000000 (prelaunch performance/2000000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.0/s, worst gap 869.0 ms, late frames 21 (486 s)
+  launch->first frame: 1.05 s
+  self-reported: [INFO] total startup time 1966ms
+done -> nextui-performance_sf2_20260913-215713.csv (225 samples), end 47C
+--- performance / thps2 ---
+cold-soak: want cpu <= 99C (now 47C)
+minarch: 29345  post-launch gov=performance max=2000000 (prelaunch performance/2000000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.1/s, worst gap 1101.4 ms, late frames 11 (486 s)
+  launch->first frame: 1.05 s
+  self-reported: [INFO] total startup time 2191ms
+done -> nextui-performance_thps2_20260913-220529.csv (226 samples), end 47C
+--- performance / bloodyroar ---
+cold-soak: want cpu <= 99C (now 47C)
+minarch: 3512  post-launch gov=performance max=2000000 (prelaunch performance/2000000)
+fps-shim: armed (7 lines)
+  shim: render 0.1/s swap 60.0/s, worst gap 2291.4 ms, late frames 13 (483 s)
+  launch->first frame: 4.28 s
+  self-reported: [INFO] total startup time 6628ms
+done -> nextui-performance_bloodyroar_20260913-221343.csv (226 samples), end 45C
+SWEEP COMPLETE 2026-09-13 22:22:00 batt=53%

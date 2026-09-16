@@ -1,0 +1,26 @@
+=== DRAIN(zero) start 2026-09-14 18:47:29 dev=brick batt=100% uv=4108000 ===
+--- drain / zelda (30 min) ---
+cold-soak: want cpu <= 99C (now 33C)
+minarch: 3489  post-launch gov=schedutil max=600000 (prelaunch schedutil/1800000)
+fps-shim: armed (12 lines)
+  frame-hold: avg 60.4/59.7 fps, dup/s 0.00, under/s 0.00 (1779 samples)
+  shim: render 25.0/s swap 0.0/s, worst gap 547.6 ms, late frames 12482 (1733 s)
+  launch->first frame: 1.09 s
+done -> zero-drain_zelda_20260914-184729.csv (793 samples), end 35C
+--- drain / sf2 (30 min) ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 26245  post-launch gov=schedutil max=1416000 (prelaunch schedutil/600000)
+fps-shim: armed (10 lines)
+  frame-hold: avg 60.3/60.1 fps, dup/s 0.00, under/s 0.00 (1792 samples)
+  shim: render 28.3/s swap 0.0/s, worst gap 540.2 ms, late frames 9296 (1730 s)
+  launch->first frame: 1.12 s
+done -> zero-drain_sf2_20260914-191746.csv (797 samples), end 36C
+--- drain / bloodyroar (30 min) ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 16486  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1200000)
+fps-shim: armed (3 lines)
+  frame-hold: avg 60.2/60.0 fps, dup/s 0.00, under/s 0.01 (1789 samples)
+  shim: render 35.7/s swap 0.0/s, worst gap 5817.1 ms, late frames 15391 (1752 s)
+  launch->first frame: 1.44 s
+done -> zero-drain_bloodyroar_20260914-194802.csv (838 samples), end 39C
+=== DRAIN(zero) done 2026-09-14 20:18:18 batt=85% uv=3928000 ===

@@ -1,0 +1,11 @@
+=== SWEEP start 2026-09-13 18:02:44 batt=100% ===
+no minui.elf (tool-launched; ok)
+audiomon: up
+cold-soak: want cpu <= 99C (now 24C)
+minarch: 3983  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  shim: render 0.1/s swap 59.2/s, worst gap 1018.6 ms, late frames 3 (70 s)
+  launch->first frame: 1.76 s
+  self-reported: [INFO] total startup time 2710ms
+done -> nextui-preflight_zelda_20260913-180247.csv (29 samples), end 26C
+PREFLIGHT FAIL: mode NOT honored post-launch -> # fw=nextui-preflight workload=zelda start=2026-09-13 18:02:58 soak=99C prelaunch=schedutil/1800000 launch_up=35.06 max0=1800000 gov=schedutil devfreq=none,none backlight=none -> aborting (nothing wasted)

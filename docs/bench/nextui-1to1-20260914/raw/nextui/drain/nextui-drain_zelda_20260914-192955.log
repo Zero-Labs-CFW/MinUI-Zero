@@ -1,0 +1,276 @@
+[INFO] rom_path: /mnt/SDCARD/Roms/Game Boy Color (GBC)/Zelda DX - Links Awakening.gbc
+current_mode 1024x768
+SDL_UDEV_DEVICEADDED 2 /dev/input/event1
+SDL_UDEV_DEVICEADDED 8 /dev/audio
+SDL_UDEV_DEVICEADDED 8 /dev/dsp
+SDL_UDEV_DEVICEADDED 2 /dev/input/event2
+SDL_UDEV_DEVICEADDED 8 /dev/mixer
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0c
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0p
+SDL_UDEV_DEVICEADDED 8 /dev/snd/controlC0
+SDL_UDEV_DEVICEADDED 2 /dev/input/event0
+SDL_UDEV_DEVICEADDED 6 /dev/input/event3
+SDL_UDEV_DEVICEADDED 6 /dev/input/js0
+SDL_UDEV_DEVICEADDED 8 /dev/snd/seq
+SDL_UDEV_DEVICEADDED 8 /dev/sequencer
+SDL_UDEV_DEVICEADDED 8 /dev/sequencer2
+SDL_UDEV_DEVICEADDED 8 /dev/snd/timer
+MALI_CreateWindow:0x1bbad560 done.
+[INFO] Current render driver: opengles2
+[INFO] Supported texture formats:
+[INFO] - SDL_PIXELFORMAT_ABGR8888
+[INFO] - SDL_PIXELFORMAT_ARGB8888
+[INFO] - SDL_PIXELFORMAT_RGB888
+[INFO] - SDL_PIXELFORMAT_BGR888
+[INFO] - SDL_PIXELFORMAT_YV12
+[INFO] - SDL_PIXELFORMAT_IYUV
+[INFO] - SDL_PIXELFORMAT_NV12
+[INFO] - SDL_PIXELFORMAT_NV21
+[WARN] Unable to open led settings file
+[WARN] LEDS_applyRules called before PWR_init
+[WARN] LEDS_applyRules called before InitSettings
+[INFO] load shader from file /mnt/SDCARD/.system/tg5040/shaders/default.glsl
+[INFO] load shader from file /mnt/SDCARD/.system/tg5040/shaders/default.glsl
+[INFO] Saved shader program to cache: default.glsl
+[INFO] Program linked and cached
+[INFO] Shader Program Linking Success default.glsl shader ID is 3
+[INFO] load shader from file /mnt/SDCARD/.system/tg5040/shaders/overlay.glsl
+[INFO] load shader from file /mnt/SDCARD/.system/tg5040/shaders/overlay.glsl
+[INFO] Saved shader program to cache: overlay.glsl
+[INFO] Program linked and cached
+[INFO] Shader Program Linking Success overlay.glsl shader ID is 6
+[INFO] load shader from file /mnt/SDCARD/.system/tg5040/shaders/noshader.glsl
+[INFO] load shader from file /mnt/SDCARD/.system/tg5040/shaders/noshader.glsl
+[INFO] Saved shader program to cache: noshader.glsl
+[INFO] Program linked and cached
+[INFO] Shader Program Linking Success noshader.glsl shader ID is 9
+[INFO] default shaders loaded, 3
+
+SDL_UDEV_DEVICEADDED 2 /dev/input/event1
+SDL_UDEV_DEVICEADDED 8 /dev/audio
+SDL_UDEV_DEVICEADDED 8 /dev/dsp
+SDL_UDEV_DEVICEADDED 2 /dev/input/event2
+SDL_UDEV_DEVICEADDED 8 /dev/mixer
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0c
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0p
+SDL_UDEV_DEVICEADDED 8 /dev/snd/controlC0
+SDL_UDEV_DEVICEADDED 2 /dev/input/event0
+SDL_UDEV_DEVICEADDED 6 /dev/input/event3
+SDL_UDEV_DEVICEADDED 6 /dev/input/js0
+SDL_UDEV_DEVICEADDED 8 /dev/snd/seq
+SDL_UDEV_DEVICEADDED 8 /dev/sequencer
+SDL_UDEV_DEVICEADDED 8 /dev/sequencer2
+SDL_UDEV_DEVICEADDED 8 /dev/snd/timer
+[INFO] Opening joystick 0: Xbox 360 Controller
+[WARN] Unable to open led settings file
+[WARN] LEDS_applyRules called before PWR_init
+[WARN] LEDS_applyRules called before InitSettings
+[WARN] LEDS_applyRules called before InitSettings
+[INFO] PWR_init complete
+[WARN] LEDS_applyRules called before InitSettings
+[INFO] Core_open
+[INFO] Block Extract: 0
+[INFO] core: gambatte version: Gambatte (v0.5.0 9b3b5e3) tag: GBC (valid_extensions: gb|gbc|dmg need_fullpath: 0)
+[INFO] OptionList_v2_init
+CATEGORY gb_link
+[INFO] Game_open
+opendir: No such file or directory
+File does not exist in /tmp/nextarch/GBC
+[INFO] Config_load
+[INFO] config.device_tag brick
+[INFO] usng device_system_path: /mnt/SDCARD/.system/tg5040/system-brick.cfg
+[INFO] Config_getPath /mnt/SDCARD/.userdata/tg5040/GBC-gambatte/Zelda DX - Links Awakening.gbc-brick.cfg
+[INFO] Config_getPath /mnt/SDCARD/.userdata/tg5040/GBC-gambatte/minarch-brick.cfg
+[INFO] Config_init
+[INFO] 	bind Up (UP) 0:4
+[INFO] 	bind Down (DOWN) 1:5
+[INFO] 	bind Left (LEFT) 2:6
+[INFO] 	bind Right (RIGHT) 3:7
+[INFO] 	bind Select (SELECT) 9:2
+[INFO] 	bind Start (START) 8:3
+[INFO] 	bind A Button (A) 4:8
+[INFO] 	bind B Button (B) 5:0
+[INFO] 	bind A Turbo (NONE) -1:9
+[INFO] 	bind B Turbo (NONE) -1:1
+[INFO] 	bind Prev. Palette (NONE) -1:10
+[INFO] 	bind Next Palette (NONE) -1:11
+[INFO] Config_readOptions
+[INFO] Config_readOptions
+[INFO] Core_init
+[INFO] [RA] RA_init() called, RAEnable=0
+[INFO] [RA] RetroAchievements disabled in settings, returning early
+[INFO] Core_load
+[INFO] game path: /mnt/SDCARD/Roms/Game Boy Color (GBC)/Zelda DX - Links Awakening.gbc (1048576)
+[INFO] [Gambatte] Rumble environment supported.
+[INFO] Input_init
+---------------------------------
+---------------------------------
+---------------------------------
+---------------------------------
+[INFO] Requested pixel format by core: 2
+[INFO] Format supported: RETRO_PIXEL_FORMAT_RGB565
+[INFO] [Gambatte] MBC5 ROM+RAM+BATTERY loaded.
+[INFO] [Gambatte] rambanks: 4
+[INFO] [Gambatte] rombanks: 64
+[INFO] [Gambatte] Got internal game name: ZELDA.
+[INFO] Checking cheat path: /mnt/SDCARD/Cheats/GBC/Zelda DX - Links Awakening.gbc.cht
+[INFO] Checking cheat path: /mnt/SDCARD/Cheats/GBC/Zelda DX - Links Awakening.gb.cht
+[INFO] Checking cheat path: /mnt/SDCARD/Cheats/GBC/Zelda DX - Links Awakening.gbc.cht
+[INFO] Checking cheat path: /mnt/SDCARD/Cheats/GBC/Zelda DX - Links Awakening.dmg.cht
+[INFO] Checking cheat path: /mnt/SDCARD/Cheats/GBC/Zelda DX - Links Awakening.cht
+[INFO] Checking cheat path: /mnt/SDCARD/Cheats/GBC/Zelda DX - Links Awakening*.cht
+[INFO] No cheat file found
+[INFO] SRAM_getPath /mnt/SDCARD/Saves/GBC/Zelda DX - Links Awakening.gbc.sav
+sav path (read): /mnt/SDCARD/Saves/GBC/Zelda DX - Links Awakening.gbc.sav
+[INFO] aspect_ratio: 1.111111 (160x144) fps: 59.727501
+[INFO] Config_readOptions
+[INFO] Config_readOptions
+[INFO] Config_readControlsString
+[INFO] SND_init
+[INFO] Available audio drivers:
+[INFO] - alsa
+[INFO] - dsp
+[INFO] - disk
+[INFO] - dummy
+[INFO] Current audio driver: alsa
+[INFO] Available audio devices:
+[INFO] - audiocodec, 
+[INFO] We now have audio device #2
+[INFO] Resizing audio buffer for new frame count: 4352
+[INFO] Resized audio buffer to: 17408 bytes
+[INFO] sample rate: 32768 (req) 32768 (rec) [samples 512]
+[INFO] PLAT_audioDeviceWatchRegister: Watching directory /mnt/SDCARD/.userdata/tg5040
+[INFO] PLAT_audioDeviceWatchRegister: Watching file /mnt/SDCARD/.userdata/tg5040/.asoundrc
+Simple mixer control 'Headphone',0
+  Capabilities: volume volume-joined pswitch pswitch-joined
+  Playback channels: Mono
+  Capture channels: Mono
+  Limits: 0 - 7
+  Mono: 0 [0%] [-42.00dB] Playback [on]
+Simple mixer control 'ADC Swap',0
+  Capabilities: enum
+  Items: 'Off' 'On'
+  Item0: 'Off'
+Simple mixer control 'ADC volume',0
+  Capabilities: volume
+  Playback channels: Front Left - Front Right
+  Capture channels: Front Left - Front Right
+  Limits: 0 - 255
+  Front Left: 160 [63%]
+  Front Right: 160 [63%]
+Simple mixer control 'ADCL Input MIC1 Boost',0
+  Capabilities: pswitch pswitch-joined
+  Playback channels: Mono
+  Mono: Playback [on]
+Simple mixer control 'ADCR Input MIC2 Boost',0
+  Capabilities: pswitch pswitch-joined
+  Playback channels: Mono
+  Mono: Playback [on]
+Simple mixer control 'DAC Swap',0
+  Capabilities: enum
+  Items: 'Off' 'On'
+  Item0: 'Off'
+Simple mixer control 'DAC volume',0
+  Capabilities: volume
+  Playback channels: Front Left - Front Right
+  Capture channels: Front Left - Front Right
+  Limits: 0 - 255
+  Front Left: 160 [63%]
+  Front Right: 160 [63%]
+Simple mixer control 'HpSpeaker',0
+  Capabilities: pswitch pswitch-joined
+  Playback channels: Mono
+  Mono: Playback [on]
+Simple mixer control 'LINEOUT',0
+  Capabilities: pswitch pswitch-joined
+  Playback channels: Mono
+  Mono: Playback [off]
+Simple mixer control 'LINEOUT Output Select',0
+  Capabilities: enum
+  Items: 'DAC_SINGLE' 'DAC_DIFFER'
+  Item0: 'DAC_SINGLE'
+Simple mixer control 'LINEOUT volume',0
+  Capabilities: volume volume-joined
+  Playback channels: Mono
+  Capture channels: Mono
+  Limits: 0 - 31
+  Mono: 26 [84%]
+Simple mixer control 'MIC1 gain volume',0
+  Capabilities: volume volume-joined
+  Playback channels: Mono
+  Capture channels: Mono
+  Limits: 0 - 31
+  Mono: 18 [58%]
+Simple mixer control 'MIC2 gain volume',0
+  Capabilities: volume volume-joined
+  Playback channels: Mono
+  Capture channels: Mono
+  Limits: 0 - 31
+  Mono: 18 [58%]
+Simple mixer control 'Soft Volume Master',0
+  Capabilities: volume
+  Playback channels: Front Left - Front Right
+  Capture channels: Front Left - Front Right
+  Limits: 0 - 255
+  Front Left: 255 [100%]
+  Front Right: 255 [100%]
+Simple mixer control 'codec hub mode',0
+  Capabilities: enum
+  Items: 'hub_disable' 'hub_enable'
+  Item0: 'hub_disable'
+Simple mixer control 'digital volume',0
+  Capabilities: volume volume-joined
+  Playback channels: Mono
+  Capture channels: Mono
+  Limits: 0 - 63
+  Mono: 40 [63%]
+Simple mixer control 'Headphone',0
+  Capabilities: volume volume-joined pswitch pswitch-joined
+  Playback channels: Mono
+  Capture channels: Mono
+  Limits: 0 - 7
+  Mono: 0 [0%] [-42.00dB] Playback [on]
+Simple mixer control 'digital volume',0
+  Capabilities: volume volume-joined
+  Playback channels: Mono
+  Capture channels: Mono
+  Limits: 0 - 63
+  Mono: 0 [0%]
+Simple mixer control 'DAC Swap',0
+  Capabilities: enum
+  Items: 'Off' 'On'
+  Item0: 'Off'
+SetRawBrightness(1)
+SetRawColortemp(0)
+SetRawContrast(50)
+SetRawSaturation(50)
+SetRawExposure(50)
+SetRawDisplayCal(1,100,92,58)
+[INFO] [RA] RA_loadGame: client=(nil), RAEnable=0, login=LOGIN_IDLE, path=/mnt/SDCARD/Roms/Game Boy Color (GBC)/Zelda DX - Links Awakening.gbc
+[INFO] chooseSyncRef: sync_ref is set to Auto, game region is NTSC, use core fps = no
+[INFO] set nr of shaders to 0
+[INFO] minarch: updating shader 1 - 17
+[INFO] loading shader 
+[INFO] load shader from file /mnt/SDCARD/Shaders/glsl/stock.glsl
+[INFO] load shader from file /mnt/SDCARD/Shaders/glsl/stock.glsl
+[INFO] Saved shader program to cache: stock.glsl
+[INFO] Program linked and cached
+[INFO] Shader Program Linking Success stock.glsl shader ID is 12
+[INFO] minarch: updating shader 2 - 17
+[INFO] loading shader 
+[INFO] load shader from file /mnt/SDCARD/Shaders/glsl/stock.glsl
+[INFO] load shader from file /mnt/SDCARD/Shaders/glsl/stock.glsl
+[INFO] Loaded shader program from cache: stock.glsl
+[INFO] Shader Program Linking Success stock.glsl shader ID is 15
+[INFO] minarch: updating shader 3 - 17
+[INFO] loading shader 
+[INFO] load shader from file /mnt/SDCARD/Shaders/glsl/stock.glsl
+[INFO] load shader from file /mnt/SDCARD/Shaders/glsl/stock.glsl
+[INFO] Loaded shader program from cache: stock.glsl
+[INFO] Shader Program Linking Success stock.glsl shader ID is 18
+[INFO] Config_readOptions
+[INFO] Config_readOptions
+[INFO] total startup time 2156ms
+
+[INFO] Joystick added at index 0: Xbox 360 Controller
+[INFO] Pixel conversion: ARM NEON SIMD optimizations enabled

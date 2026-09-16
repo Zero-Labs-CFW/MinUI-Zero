@@ -1,0 +1,87 @@
+=== ZBench start 2026-09-13 10:59:15 dev=brick batt=94% ===
+no minui.elf (tool-launched; ok)
+--- zelda ---
+cold-soak: want cpu <= 99C (now 33C)
+minarch: 6456
+done -> nextui_zelda_20260913-105915.csv (229 samples), end 33C
+--- gradius ---
+cold-soak: want cpu <= 99C (now 34C)
+minarch: 11204
+done -> nextui_gradius_20260913-110727.csv (230 samples), end 35C
+--- sonic ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 15967
+done -> nextui_sonic_20260913-111539.csv (230 samples), end 34C
+--- mariokart ---
+cold-soak: want cpu <= 99C (now 34C)
+minarch: 20731
+done -> nextui_mariokart_20260913-112351.csv (230 samples), end 35C
+--- sf2 ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 25491
+done -> nextui_sf2_20260913-113204.csv (230 samples), end 36C
+--- thps2 ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 30254
+done -> nextui_thps2_20260913-114016.csv (229 samples), end 37C
+--- bloodyroar ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 2642
+done -> nextui_bloodyroar_20260913-114827.csv (229 samples), end 37C
+--- bloodyroar ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 7403
+done -> nextui_bloodyroar_20260913-115639.csv (229 samples), end 36C
+--- thps2 ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 12147
+done -> nextui_thps2_20260913-120451.csv (230 samples), end 36C
+--- sf2 ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 16915
+done -> nextui_sf2_20260913-121304.csv (229 samples), end 37C
+--- mariokart ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 21657
+done -> nextui_mariokart_20260913-122115.csv (230 samples), end 35C
+--- sonic ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 26417
+done -> nextui_sonic_20260913-122928.csv (230 samples), end 36C
+--- gradius ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 31181
+done -> nextui_gradius_20260913-123740.csv (230 samples), end 36C
+--- zelda ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 3585
+done -> nextui_zelda_20260913-124552.csv (230 samples), end 35C
+--- sonic ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 8363
+done -> nextui_sonic_20260913-125404.csv (229 samples), end 36C
+--- zelda ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 13104
+done -> nextui_zelda_20260913-130217.csv (230 samples), end 35C
+--- bloodyroar ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 17869
+done -> nextui_bloodyroar_20260913-131029.csv (229 samples), end 36C
+--- sf2 ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 22617
+done -> nextui_sf2_20260913-131841.csv (230 samples), end 36C
+--- gradius ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 27381
+done -> nextui_gradius_20260913-132653.csv (230 samples), end 37C
+--- thps2 ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 32141
+done -> nextui_thps2_20260913-133505.csv (229 samples), end 36C
+--- mariokart ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 4538
+done -> nextui_mariokart_20260913-134316.csv (230 samples), end 35C
+CAMPAIGN COMPLETE

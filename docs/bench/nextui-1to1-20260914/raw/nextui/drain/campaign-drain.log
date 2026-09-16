@@ -1,0 +1,26 @@
+=== DRAIN(nextui) start 2026-09-14 19:29:55 batt=100% uv=4099000 ===
+--- drain / zelda (30 min) ---
+cold-soak: want cpu <= 99C (now 24C)
+minarch: 3888  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.1/s, worst gap 1036.6 ms, late frames 94 (1792 s)
+  launch->first frame: 1.16 s
+  self-reported: [INFO] total startup time 2156ms
+done -> nextui-drain_zelda_20260914-192955.csv (836 samples), end 35C
+--- drain / sf2 (30 min) ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 27640  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 60.1/s, worst gap 970.3 ms, late frames 109 (1790 s)
+  launch->first frame: 1.11 s
+  self-reported: [INFO] total startup time 2063ms
+done -> nextui-drain_sf2_20260914-200011.csv (835 samples), end 36C
+--- drain / bloodyroar (30 min) ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 19002  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  shim: render 0.0/s swap 55.5/s, worst gap 1238.2 ms, late frames 7529 (1793 s)
+  launch->first frame: 1.10 s
+  self-reported: [INFO] total startup time 2347ms
+done -> nextui-drain_bloodyroar_20260914-203025.csv (831 samples), end 38C
+=== DRAIN(nextui) done 2026-09-14 21:00:41 batt=84% uv=3893000 ===

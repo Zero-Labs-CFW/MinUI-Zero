@@ -1,0 +1,739 @@
+[INFO] MinArch
+[INFO] uv: table slot chips/3c8226dd00c64a5400009c0000000000
+[INFO] uv: voltage authority armed (8 table entries)
+[INFO] rom_path: /mnt/SDCARD/Roms/6) PlayStation (PS)/Tony Hawk's Pro Skater 2/Tony Hawk's Pro Skater 2.cue
+current_mode 1024x768
+SDL_UDEV_DEVICEADDED 2 /dev/input/event1
+SDL_UDEV_DEVICEADDED 8 /dev/audio
+SDL_UDEV_DEVICEADDED 8 /dev/dsp
+SDL_UDEV_DEVICEADDED 2 /dev/input/event2
+SDL_UDEV_DEVICEADDED 8 /dev/mixer
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0c
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0p
+SDL_UDEV_DEVICEADDED 8 /dev/snd/controlC0
+SDL_UDEV_DEVICEADDED 2 /dev/input/event0
+SDL_UDEV_DEVICEADDED 6 /dev/input/event3
+SDL_UDEV_DEVICEADDED 6 /dev/input/js0
+SDL_UDEV_DEVICEADDED 8 /dev/snd/seq
+SDL_UDEV_DEVICEADDED 8 /dev/sequencer
+SDL_UDEV_DEVICEADDED 8 /dev/sequencer2
+SDL_UDEV_DEVICEADDED 8 /dev/snd/timer
+MALI_CreateWindow:0x22338f0 done.
+SDL_UDEV_DEVICEADDED 2 /dev/input/event1
+SDL_UDEV_DEVICEADDED 8 /dev/audio
+SDL_UDEV_DEVICEADDED 8 /dev/dsp
+SDL_UDEV_DEVICEADDED 2 /dev/input/event2
+SDL_UDEV_DEVICEADDED 8 /dev/mixer
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0c
+SDL_UDEV_DEVICEADDED 8 /dev/snd/pcmC0D0p
+SDL_UDEV_DEVICEADDED 8 /dev/snd/controlC0
+SDL_UDEV_DEVICEADDED 2 /dev/input/event0
+SDL_UDEV_DEVICEADDED 6 /dev/input/event3
+SDL_UDEV_DEVICEADDED 6 /dev/input/js0
+SDL_UDEV_DEVICEADDED 8 /dev/snd/seq
+SDL_UDEV_DEVICEADDED 8 /dev/sequencer
+SDL_UDEV_DEVICEADDED 8 /dev/sequencer2
+SDL_UDEV_DEVICEADDED 8 /dev/snd/timer
+[INFO] Core_open
+[INFO] presentation-drop: enabled
+[INFO] threading v2: serial fallback did not exit cleanly — remaining SERIAL
+[INFO] OptionList_init
+[INFO] core: pcsx_rearmed version: PCSX-ReARMed (r26 050981b6) tag: PS (valid_extensions: bin|cue|img|mdf|pbp|toc|cbn|m3u|chd|iso|exe need_fullpath: 1)
+[INFO] Game_open
+[INFO] Config_load
+[INFO] config.device_tag brick
+[INFO] usng device_system_path: /mnt/SDCARD/.system/tg5040/system-brick.cfg
+[INFO] usng device_default_path: /mnt/SDCARD/.system/tg5040/paks/Emus/PS.pak/default-brick.cfg
+[INFO] Config_getPath /mnt/SDCARD/.userdata/tg5040/PS-pcsx_rearmed/Tony Hawk's Pro Skater 2.cue-brick.cfg
+[INFO] Config_getPath /mnt/SDCARD/.userdata/tg5040/PS-pcsx_rearmed/minarch-brick.cfg
+[INFO] Config_init
+[INFO] 	bind Up (UP) 0:4
+[INFO] 	bind Down (DOWN) 1:5
+[INFO] 	bind Left (LEFT) 2:6
+[INFO] 	bind Right (RIGHT) 3:7
+[INFO] 	bind Select (SELECT) 9:2
+[INFO] 	bind Start (START) 8:3
+[INFO] 	bind Circle (A) 4:8
+[INFO] 	bind Cross (B) 5:0
+[INFO] 	bind Triangle (X) 6:9
+[INFO] 	bind Square (Y) 7:1
+[INFO] 	bind L1 Button (L1) 10:10
+[INFO] 	bind R1 Button (R1) 11:11
+[INFO] 	bind L2 Button (L2) 12:12
+[INFO] 	bind R2 Button (R2) 13:13
+[INFO] Config_readOptions
+[INFO] resizeVideo(1024,768,2048) hard_scale: 1 crisp: 1
+[INFO] Config_readOptions
+[INFO] port: 1  device: dualshock
+[INFO] Core_init
+[INFO] Starting PCSX-ReARMed r26l-53-g050981b6 (cc 8.3.0 64bit pic arm64v8 neon ari64 gpu=neon)
+[INFO] build time: Sep  8 2026 17:06:41
+[INFO] 4 cpu core(s) detected
+[INFO] Init new dynarec, ndrc size 1001000, pgsize 4096
+[INFO] ndrc config: mul=175, ha=0, pex=0
+[INFO] (0x7f88a4b2d0) testing if we can run recompiled code @0x7f892dd000...
+[INFO] test passed.
+[INFO] Mapped (RAM/scrp/ROM/LUTs/TC):
+[INFO] 0x80000000/0x1f800000/0x1fc00000/(nil)/0x7f892dd000
+[INFO] compiler thread enabled
+[INFO] found JP BIOS file, crc32 ff3eeb8c: /mnt/SDCARD/Bios/PS/scph5500.bin
+[INFO] found US BIOS file, crc32 8d8cb7e4: /mnt/SDCARD/Bios/PS/scph5501.bin
+[INFO] found EU BIOS file, crc32 d786f0b9: /mnt/SDCARD/Bios/PS/scph5502.bin
+[INFO] Core_load
+[INFO] game path: /mnt/SDCARD/Roms/6) PlayStation (PS)/Tony Hawk's Pro Skater 2/Tony Hawk's Pro Skater 2.cue (0)
+[INFO] Input_init
+---------------------------------
+PRESENT    : D-Pad Left
+PRESENT    : D-Pad Up
+PRESENT    : D-Pad Down
+PRESENT    : D-Pad Right
+PRESENT    : Cross
+PRESENT    : Circle
+PRESENT    : Triangle
+PRESENT    : Square
+PRESENT    : L1
+PRESENT    : L2
+PRESENT    : L3
+PRESENT    : R1
+PRESENT    : R2
+PRESENT    : R3
+PRESENT    : Select
+PRESENT    : Start
+---------------------------------
+[INFO] DEFAULT D-Pad Up (Up): <UP>
+[INFO] DEFAULT D-Pad Down (Down): <DOWN>
+[INFO] DEFAULT D-Pad Left (Left): <LEFT>
+[INFO] DEFAULT D-Pad Right (Right): <RIGHT>
+[INFO] DEFAULT Circle (A Button): <A>
+[INFO] DEFAULT Cross (B Button): <B>
+[INFO] DEFAULT Triangle (X Button): <X>
+[INFO] DEFAULT Square (Y Button): <Y>
+[INFO] DEFAULT Start (Start): <START>
+[INFO] DEFAULT Select (Select): <SELECT>
+[INFO] DEFAULT L1 (L1 Button): <L1>
+[INFO] DEFAULT R1 (R1 Button): <R1>
+[INFO] DEFAULT L2 (L2 Button): <L2>
+[INFO] DEFAULT R2 (R2 Button): <R2>
+[INFO] DEFAULT L3 (L3 Button): <L3>
+[INFO] DEFAULT R3 (R3 Button): <R3>
+---------------------------------
+[INFO] Up: <UP> (0:4)
+[INFO] Down: <DOWN> (1:5)
+[INFO] Left: <LEFT> (2:6)
+[INFO] Right: <RIGHT> (3:7)
+[INFO] Select: <SELECT> (9:2)
+[INFO] Start: <START> (8:3)
+[INFO] Circle: <A> (4:8)
+[INFO] Cross: <B> (5:0)
+[INFO] Triangle: <X> (6:9)
+[INFO] Square: <Y> (7:1)
+[INFO] L1 Button: <L1> (10:10)
+[INFO] R1 Button: <R1> (11:11)
+[INFO] L2 Button: <L2> (12:12)
+[INFO] R2 Button: <R2> (13:13)
+---------------------------------
+[INFO] Using PIXEL_FORMAT 2
+[INFO] cdrom precache: 12 buffers
+[INFO] plugin: /builtin_gpu
+[INFO] plugin: /builtin_spu
+[INFO] Plugins loaded.
+[INFO] Loaded CD Image: /mnt/SDCARD/Roms/6) PlayStation (PS)/Tony Hawk's Pro Skater 2/Tony Hawk's Pro Skater 2.cue[+cue] (96 bytes).
+[INFO] Track 01 DATA  - Start 00:02:00, Length 70:40:43
+[INFO] End 70:42:43 (sector 318193)
+[INFO] cdrom precache: 12 buffers
+[INFO] CD-ROM Label: SLUS01066                       
+[INFO] CD-ROM ID: SLUS01066
+[INFO] CD-ROM EXE Name: SLUS_010.66;1
+[INFO] memcard 1 is libretro-managed
+[INFO] Loading memory card /mnt/SDCARD/Saves/PS/pcsx-card2.mcd
+[INFO] Loaded BIOS "/mnt/SDCARD/Bios/PS/scph5501.bin".
+[INFO] BIOS: 19951204, 'CEX-3000/1001/1002 by K.S.', 'A'
+sav path (read): /mnt/SDCARD/Saves/PS/Tony Hawk's Pro Skater 2.cue.sav
+[INFO] aspect_ratio: 1.333333 (256x240) fps: 60.000000
+[INFO] Config_readOptions
+[INFO] Config_readOptions
+[INFO] port: 1  device: dualshock
+[INFO] Config_readControlsString
+[INFO] SND_init
+[INFO] Available audio drivers:
+[INFO] - alsa
+[INFO] - dsp
+[INFO] - disk
+[INFO] - dummy
+[INFO] Current audio driver: alsa
+[INFO] sample rate: 44100 (req) 44100 (rec) [samples 512]
+[INFO] rate match: +3917ppm -> 60.235 fps target (core 60.0000)
+Simple mixer control 'Headphone',0
+  Capabilities: volume volume-joined pswitch pswitch-joined
+  Playback channels: Mono
+  Capture channels: Mono
+  Limits: 0 - 7
+  Mono: 0 [0%] [-42.00dB] Playback [on]
+Simple mixer control 'digital volume',0
+  Capabilities: volume volume-joined
+  Playback channels: Mono
+  Capture channels: Mono
+  Limits: 0 - 63
+  Mono: 0 [0%]
+Simple mixer control 'DAC Swap',0
+  Capabilities: enum
+  Items: 'Off' 'On'
+  Item0: 'Off'
+SetRawVolume(45)
+SetRawBrightness(16)
+[INFO] loop path: serial (auto-thread=0)
+[INFO] uv: hold thread started (transition-gated, holding 1012500uV)
+[INFO] governor: OPP ladder [408000 600000 816000 1008000 1200000 1416000 1608000 1800000 2000000 ] (9 entries)
+[INFO] uv: refusing ceiling raise to 1800000kHz; voltage readback failed
+[INFO] governor: f_min=1008000 f_max=1800000 kHz
+[INFO] selectScaler
+[INFO] aspect: 1.333333
+[INFO] resizeVideo(1280,960,2560) hard_scale: 1 crisp: 1
+[INFO] resize: platform clamped dst_h 960 -> 768
+[INFO] resizeVideo(640,480,1280) hard_scale: 2 crisp: 1
+[INFO] MEASURE d=1 fps=71.0/60.0 cpu=71.0 use=0 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=58.9/60.0 cpu=58.9 use=6 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=6 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=6 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=4 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] selectScaler
+[INFO] aspect: 1.333333
+[INFO] resizeVideo(1024,960,2048) hard_scale: 1 crisp: 1
+[INFO] resize: platform clamped dst_h 960 -> 768
+[INFO] resizeVideo(256,240,512) hard_scale: 4 crisp: 1
+[INFO] Pad1: Auto-enabling dualshock analog mode.
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] selectScaler
+[INFO] aspect: 1.333333
+[INFO] resizeVideo(1536,720,3072) hard_scale: 2 crisp: 1
+[INFO] resizeVideo(512,240,1024) hard_scale: 2 crisp: 1
+[INFO] selectScaler
+[INFO] aspect: 1.333333
+[INFO] resizeVideo(1280,960,2560) hard_scale: 1 crisp: 1
+[INFO] resize: platform clamped dst_h 960 -> 768
+[INFO] resizeVideo(320,240,640) hard_scale: 4 crisp: 1
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.0/60.0 cpu=59.0 use=7 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] selectScaler
+[INFO] aspect: 1.333333
+[INFO] resizeVideo(1536,720,3072) hard_scale: 2 crisp: 1
+[INFO] resizeVideo(512,240,1024) hard_scale: 2 crisp: 1
+[INFO] selectScaler
+[INFO] aspect: 1.333333
+[INFO] resizeVideo(1280,960,2560) hard_scale: 1 crisp: 1
+[INFO] resize: platform clamped dst_h 960 -> 768
+[INFO] resizeVideo(320,240,640) hard_scale: 4 crisp: 1
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=7 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.1/60.0 cpu=59.1 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=7 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.1/60.0 cpu=59.1 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] selectScaler
+[INFO] aspect: 1.333333
+[INFO] resizeVideo(1536,720,3072) hard_scale: 2 crisp: 1
+[INFO] resizeVideo(512,240,1024) hard_scale: 2 crisp: 1
+[INFO] selectScaler
+[INFO] aspect: 1.333333
+[INFO] resizeVideo(1280,960,2560) hard_scale: 1 crisp: 1
+[INFO] resize: platform clamped dst_h 960 -> 768
+[INFO] resizeVideo(320,240,640) hard_scale: 4 crisp: 1
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=7 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.7/60.0 cpu=59.7 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.5/60.0 cpu=59.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] gov-cap: at-ceil 0/122 ticks ceil=1800000 actual=408000 kHz
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.1/60.0 cpu=59.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.0/60.0 cpu=59.0 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.0/60.0 cpu=59.0 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.5/60.0 cpu=59.5 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.2/60.0 cpu=59.2 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.2/60.0 cpu=59.2 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.5/60.0 cpu=59.5 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.7/60.0 cpu=59.7 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.7/60.0 cpu=59.7 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.0/60.0 cpu=59.0 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.2/60.0 cpu=61.2 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] gov-cap: at-ceil 1/121 ticks ceil=1800000 actual=408000 kHz
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.7/60.0 cpu=59.7 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.7/60.0 cpu=59.7 use=5 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=4 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] selectScaler
+[INFO] aspect: 1.333333
+[INFO] resizeVideo(1536,720,3072) hard_scale: 2 crisp: 1
+[INFO] resizeVideo(512,240,1024) hard_scale: 2 crisp: 1
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=6 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=7 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] gov: ceil 1800000->1608000 kHz (temp=36C, signal=0 gen=60.5/60.2)
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=7 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=7 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=15 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=9 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.7/60.0 cpu=59.7 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=12 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.4/60.0 cpu=59.4 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.4/60.0 cpu=59.4 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=61.4/60.0 cpu=61.4 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.5/60.0 cpu=59.5 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=9 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=58.9/60.0 cpu=58.9 use=7 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=12 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] gov: ceil 1608000->1416000 kHz (temp=38C, signal=0 gen=60.0/60.2)
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.5/60.0 cpu=59.5 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] gov: ceil 1416000->1200000 kHz (temp=38C, signal=0 gen=59.5/60.2)
+[INFO] MEASURE d=1 fps=61.2/60.0 cpu=61.2 use=13 under/s=0 dup/s=0 ceil=1200 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=11 under/s=0 dup/s=0 ceil=1200 dac=?
+[INFO] gov: ceil 1200000->1008000 kHz (temp=37C, signal=0 gen=60.2/60.2)
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=12 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=11 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=13 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] gov-cap: at-ceil 7/121 ticks ceil=1008000 actual=1008000 kHz
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=13 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=11 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=11 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=55.3/60.0 cpu=55.3 use=22 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] audio catch-up: presentation-drop engaged (ring 44%)
+[INFO] gov: ceil 1008000->1200000 kHz (temp=38C, signal=1 gen=55.3/60.2)
+[INFO] gov: ceil 1200000->1800000 kHz (temp=38C, signal=1 gen=55.3/60.2)
+[INFO] MEASURE d=1 fps=65.7/60.0 cpu=65.7 use=20 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.4/60.0 cpu=59.4 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=13 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=14 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.2/60.0 cpu=59.2 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=13 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=13 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.4/60.0 cpu=60.4 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=13 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=13 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=58.8/60.0 cpu=58.8 use=13 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=8 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=5 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=7 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=5 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.3/60.0 cpu=59.3 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.4/60.0 cpu=61.4 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.2/60.0 cpu=59.2 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] gov-cap: at-ceil 6/121 ticks ceil=1800000 actual=816000 kHz
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.5/60.0 cpu=59.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.4/60.0 cpu=60.4 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.5/60.0 cpu=59.5 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] gov: ceil 1800000->1608000 kHz (temp=38C, signal=0 gen=59.6/60.2)
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=12 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] gov: ceil 1608000->1416000 kHz (temp=37C, signal=0 gen=60.6/60.2)
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.2/60.0 cpu=59.2 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] gov: ceil 1416000->1200000 kHz (temp=38C, signal=0 gen=59.2/60.2)
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=12 under/s=0 dup/s=0 ceil=1200 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=12 under/s=0 dup/s=0 ceil=1200 dac=?
+[INFO] gov: ceil 1200000->1008000 kHz (temp=37C, signal=0 gen=60.2/60.2)
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=12 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=12 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=12 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=13 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=12 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=14 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.4/60.0 cpu=60.4 use=12 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=13 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=13 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=14 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=12 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.4/60.0 cpu=60.4 use=12 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=12 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] MEASURE d=1 fps=58.6/60.0 cpu=58.6 use=12 under/s=0 dup/s=0 ceil=1008 dac=?
+[INFO] gov: ceil 1008000->1200000 kHz (temp=37C, signal=1 gen=58.6/60.2)
+[INFO] gov: ceil 1200000->1800000 kHz (temp=37C, signal=1 gen=58.6/60.2)
+[INFO] MEASURE d=1 fps=61.1/60.0 cpu=61.1 use=13 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.3/60.0 cpu=59.3 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.4/60.0 cpu=60.4 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.2/60.0 cpu=59.2 use=10 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=13 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.7/60.0 cpu=59.7 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.2/60.0 cpu=59.2 use=14 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=12 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=59.5/60.0 cpu=59.5 use=6 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=5 under/s=0 dup/s=0 ceil=1800 dac=?
+[INFO] gov: ceil 1800000->1608000 kHz (temp=36C, signal=0 gen=60.5/60.2)
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=7 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.0/60.0 cpu=59.0 use=6 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=12 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.5/60.0 cpu=59.5 use=9 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] gov-cap: at-ceil 10/121 ticks ceil=1608000 actual=816000 kHz
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=12 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=61.6/60.0 cpu=61.6 use=12 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.1/60.0 cpu=59.1 use=9 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.4/60.0 cpu=60.4 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=61.3/60.0 cpu=61.3 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.4/60.0 cpu=59.4 use=9 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=12 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=6 under/s=0 dup/s=0 ceil=1608 dac=?
+[INFO] gov: ceil 1608000->1416000 kHz (temp=37C, signal=0 gen=59.9/60.2)
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=14 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.3/60.0 cpu=59.3 use=14 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=14 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.4/60.0 cpu=59.4 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=14 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=15 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=15 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] gov-cap: at-ceil 9/121 ticks ceil=1416000 actual=408000 kHz
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=5 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=6 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=8 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=7 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.4/60.0 cpu=59.4 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=9 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.1/60.0 cpu=59.1 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.4/60.0 cpu=60.4 use=9 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.4/60.0 cpu=60.4 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] uv: voltage update failed after lowering to 1416000kHz; retaining higher rail
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=7 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.5/60.0 cpu=59.5 use=7 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.4/60.0 cpu=59.4 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=14 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=14 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.2/60.0 cpu=59.2 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=14 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] gov-cap: at-ceil 11/121 ticks ceil=1416000 actual=816000 kHz
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=14 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.1/60.0 cpu=59.1 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=7 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=5 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=7 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=6 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.7/60.0 cpu=59.7 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.3/60.0 cpu=59.3 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.1/60.0 cpu=60.1 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=9 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.7/60.0 cpu=59.7 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.9/60.0 cpu=60.9 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=9 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=9 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=6 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.0/60.0 cpu=59.0 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=61.2/60.0 cpu=61.2 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.8/60.0 cpu=59.8 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=10 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.4/60.0 cpu=60.4 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.2/60.0 cpu=59.2 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.8/60.0 cpu=60.8 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.7/60.0 cpu=59.7 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.3/60.0 cpu=60.3 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.6/60.0 cpu=60.6 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.2/60.0 cpu=60.2 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] gov-cap: at-ceil 9/121 ticks ceil=1416000 actual=816000 kHz
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.0/60.0 cpu=60.0 use=11 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.9/60.0 cpu=59.9 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.5/60.0 cpu=60.5 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.6/60.0 cpu=59.6 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.4/60.0 cpu=60.4 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=60.7/60.0 cpu=60.7 use=13 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=59.4/60.0 cpu=59.4 use=12 under/s=0 dup/s=0 ceil=1416 dac=?
+[INFO] MEASURE d=1 fps=61.0/60.0 cpu=61.0 use=13 under/s=0 dup/s=0 ceil=1416 dac=?

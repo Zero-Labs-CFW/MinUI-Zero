@@ -1,0 +1,67 @@
+=== BracketAB start 2026-09-14 13:41:07 batt=100% ===
+no minui.elf (tool-launched; ok)
+--- bracket / zelda ---
+cold-soak: want cpu <= 99C (now 24C)
+minarch: 3746  post-launch gov=schedutil max=600000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.2/59.7 fps, dup/s 0.00, under/s 0.00 (485 samples)
+  shim: render 24.8/s swap 0.0/s, worst gap 546.4 ms, late frames 3968 (470 s)
+  launch->first frame: 1.09 s
+done -> zero-bracket600_zelda_20260914-134107.csv (214 samples), end 29C
+--- pin / zelda ---
+cold-soak: want cpu <= 99C (now 29C)
+minarch: 9880  post-launch gov=schedutil max=1008000 (prelaunch schedutil/600000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/59.7 fps, dup/s 0.00, under/s 0.00 (483 samples)
+  shim: render 24.8/s swap 0.0/s, worst gap 546.3 ms, late frames 3846 (469 s)
+  launch->first frame: 1.06 s
+done -> zero-pin1008_zelda_20260914-134924.csv (221 samples), end 31C
+--- pin / zelda ---
+cold-soak: want cpu <= 99C (now 31C)
+minarch: 16213  post-launch gov=schedutil max=1008000 (prelaunch schedutil/1008000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/59.7 fps, dup/s 0.00, under/s 0.00 (482 samples)
+  shim: render 24.9/s swap 0.0/s, worst gap 548.1 ms, late frames 3473 (469 s)
+  launch->first frame: 1.03 s
+done -> zero-pin1008_zelda_20260914-135739.csv (221 samples), end 31C
+--- bracket / zelda ---
+cold-soak: want cpu <= 99C (now 31C)
+minarch: 22546  post-launch gov=schedutil max=600000 (prelaunch schedutil/1008000)
+fps-shim: armed (12 lines)
+  frame-hold: avg 60.4/59.7 fps, dup/s 0.00, under/s 0.00 (484 samples)
+  shim: render 24.7/s swap 0.0/s, worst gap 544.4 ms, late frames 3398 (471 s)
+  launch->first frame: 0.99 s
+done -> zero-bracket600_zelda_20260914-140554.csv (213 samples), end 32C
+--- bracket / gradius ---
+cold-soak: want cpu <= 99C (now 32C)
+minarch: 28655  post-launch gov=schedutil max=600000 (prelaunch schedutil/600000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/60.1 fps, dup/s 0.00, under/s 0.00 (486 samples)
+  shim: render 55.2/s swap 0.0/s, worst gap 547.1 ms, late frames 216 (483 s)
+  launch->first frame: 1.04 s
+done -> zero-bracket600_gradius_20260914-141411.csv (212 samples), end 35C
+--- pin / gradius ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 2363  post-launch gov=schedutil max=1008000 (prelaunch schedutil/600000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/60.1 fps, dup/s 0.00, under/s 0.00 (487 samples)
+  shim: render 55.2/s swap 0.0/s, worst gap 539.0 ms, late frames 457 (483 s)
+  launch->first frame: 0.99 s
+done -> zero-pin1008_gradius_20260914-142227.csv (220 samples), end 36C
+--- pin / gradius ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 8672  post-launch gov=schedutil max=1008000 (prelaunch schedutil/1008000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/60.1 fps, dup/s 0.00, under/s 0.00 (487 samples)
+  shim: render 55.2/s swap 0.0/s, worst gap 540.5 ms, late frames 364 (483 s)
+  launch->first frame: 0.91 s
+done -> zero-pin1008_gradius_20260914-143043.csv (220 samples), end 36C
+--- bracket / gradius ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 14980  post-launch gov=schedutil max=600000 (prelaunch schedutil/1008000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.2/60.1 fps, dup/s 0.00, under/s 0.00 (487 samples)
+  shim: render 55.1/s swap 0.0/s, worst gap 545.9 ms, late frames 212 (483 s)
+  launch->first frame: 0.91 s
+done -> zero-bracket600_gradius_20260914-143859.csv (211 samples), end 37C
+BracketAB COMPLETE 2026-09-14 14:47:15 batt=90%

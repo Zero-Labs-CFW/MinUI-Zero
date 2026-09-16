@@ -1,0 +1,181 @@
+=== ZBench(zero) start 2026-09-14 07:02:39 dev=brick panel=60.235 servo=1 deepsleep=disabled batt=100% ===
+no minui.elf (tool-launched; ok)
+cold-soak: want cpu <= 99C (now 26C)
+minarch: 3707  post-launch gov=schedutil max=1008000 (prelaunch schedutil/1800000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.4/59.7 fps, dup/s 0.00, under/s 0.00 (72 samples)
+  shim: render 31.4/s swap 0.0/s, worst gap 516.6 ms, late frames 521 (70 s)
+  launch->first frame: 1.09 s
+done -> zero-preflight_zelda_20260914-070240.csv (29 samples), end 26C
+PREFLIGHT OK: shim armed (70 lines), MEASURE present, geometry ok -> running 3 passes
+no minui.elf (tool-launched; ok)
+--- zelda ---
+cold-soak: want cpu <= 99C (now 26C)
+minarch: 4638  post-launch gov=schedutil max=1008000 (prelaunch schedutil/1008000)
+fps-shim: armed (12 lines)
+  frame-hold: avg 60.2/59.7 fps, dup/s 0.00, under/s 0.00 (483 samples)
+  shim: render 24.8/s swap 0.0/s, worst gap 546.4 ms, late frames 4080 (470 s)
+  launch->first frame: 0.97 s
+done -> zero_zelda_20260914-070356.csv (221 samples), end 30C
+--- gradius ---
+cold-soak: want cpu <= 99C (now 30C)
+minarch: 10968  post-launch gov=schedutil max=1008000 (prelaunch schedutil/1008000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/60.1 fps, dup/s 0.00, under/s 0.00 (487 samples)
+  shim: render 55.2/s swap 0.0/s, worst gap 553.3 ms, late frames 399 (483 s)
+  launch->first frame: 0.98 s
+done -> zero_gradius_20260914-071211.csv (220 samples), end 33C
+--- sonic ---
+cold-soak: want cpu <= 99C (now 33C)
+minarch: 17272  post-launch gov=schedutil max=600000 (prelaunch schedutil/1008000)
+fps-shim: armed (10 lines)
+  frame-hold: avg 60.3/60.0 fps, dup/s 0.00, under/s 0.00 (486 samples)
+  shim: render 48.8/s swap 0.0/s, worst gap 549.9 ms, late frames 1538 (475 s)
+  launch->first frame: 0.95 s
+done -> zero_sonic_20260914-072027.csv (216 samples), end 34C
+--- mariokart ---
+cold-soak: want cpu <= 99C (now 34C)
+minarch: 23465  post-launch gov=schedutil max=600000 (prelaunch schedutil/1008000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/59.7 fps, dup/s 0.00, under/s 0.00 (482 samples)
+  shim: render 15.0/s swap 0.0/s, worst gap 551.3 ms, late frames 6893 (472 s)
+  launch->first frame: 0.98 s
+done -> zero_mariokart_20260914-072842.csv (214 samples), end 34C
+--- sf2 ---
+cold-soak: want cpu <= 99C (now 34C)
+minarch: 29603  post-launch gov=schedutil max=1416000 (prelaunch schedutil/600000)
+fps-shim: armed (10 lines)
+  frame-hold: avg 60.3/60.1 fps, dup/s 0.00, under/s 0.00 (487 samples)
+  shim: render 27.2/s swap 0.0/s, worst gap 539.8 ms, late frames 2434 (469 s)
+  launch->first frame: 1.11 s
+done -> zero_sf2_20260914-073659.csv (212 samples), end 35C
+--- thps2 ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 3315  post-launch gov=schedutil max=1800000 (prelaunch schedutil/600000)
+fps-shim: armed (5 lines)
+  frame-hold: avg 60.2/60.0 fps, dup/s 0.00, under/s 0.00 (486 samples)
+  shim: render 26.7/s swap 0.0/s, worst gap 3971.6 ms, late frames 8239 (459 s)
+  launch->first frame: 1.51 s
+done -> zero_thps2_20260914-074515.csv (225 samples), end 35C
+--- bloodyroar ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 9767  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1008000)
+fps-shim: armed (3 lines)
+  frame-hold: avg 60.2/60.0 fps, dup/s 0.00, under/s 0.03 (485 samples)
+  shim: render 33.8/s swap 0.0/s, worst gap 5865.2 ms, late frames 4455 (469 s)
+  launch->first frame: 1.34 s
+done -> zero_bloodyroar_20260914-075332.csv (224 samples), end 38C
+--- bloodyroar ---
+cold-soak: want cpu <= 99C (now 38C)
+minarch: 16187  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (4 lines)
+  frame-hold: avg 60.2/60.0 fps, dup/s 0.00, under/s 0.01 (484 samples)
+  shim: render 34.9/s swap 0.0/s, worst gap 5817.3 ms, late frames 4223 (468 s)
+  launch->first frame: 1.24 s
+done -> zero_bloodyroar_20260914-080147.csv (224 samples), end 37C
+--- thps2 ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 22607  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1800000)
+fps-shim: armed (5 lines)
+  frame-hold: avg 60.2/60.0 fps, dup/s 0.00, under/s 0.00 (485 samples)
+  shim: render 26.7/s swap 0.0/s, worst gap 3946.7 ms, late frames 8245 (458 s)
+  launch->first frame: 1.25 s
+done -> zero_thps2_20260914-081001.csv (225 samples), end 37C
+--- sf2 ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 29051  post-launch gov=schedutil max=1416000 (prelaunch schedutil/1416000)
+fps-shim: armed (10 lines)
+  frame-hold: avg 60.4/60.1 fps, dup/s 0.00, under/s 0.00 (486 samples)
+  shim: render 27.3/s swap 0.0/s, worst gap 538.6 ms, late frames 2450 (468 s)
+  launch->first frame: 0.94 s
+done -> zero_sf2_20260914-081817.csv (213 samples), end 36C
+--- mariokart ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 2796  post-launch gov=schedutil max=600000 (prelaunch schedutil/600000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/59.7 fps, dup/s 0.00, under/s 0.00 (481 samples)
+  shim: render 15.0/s swap 0.0/s, worst gap 551.2 ms, late frames 6872 (470 s)
+  launch->first frame: 0.91 s
+done -> zero_mariokart_20260914-082631.csv (212 samples), end 35C
+--- sonic ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 8879  post-launch gov=schedutil max=600000 (prelaunch schedutil/600000)
+fps-shim: armed (10 lines)
+  frame-hold: avg 60.3/60.0 fps, dup/s 0.00, under/s 0.00 (487 samples)
+  shim: render 48.9/s swap 0.0/s, worst gap 543.1 ms, late frames 1694 (476 s)
+  launch->first frame: 0.97 s
+done -> zero_sonic_20260914-083446.csv (211 samples), end 37C
+--- gradius ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 14933  post-launch gov=schedutil max=1008000 (prelaunch schedutil/600000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/60.1 fps, dup/s 0.00, under/s 0.00 (487 samples)
+  shim: render 55.2/s swap 0.0/s, worst gap 545.1 ms, late frames 290 (483 s)
+  launch->first frame: 0.98 s
+done -> zero_gradius_20260914-084303.csv (220 samples), end 37C
+--- zelda ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 21235  post-launch gov=schedutil max=1008000 (prelaunch schedutil/1008000)
+fps-shim: armed (12 lines)
+  frame-hold: avg 60.2/59.7 fps, dup/s 0.00, under/s 0.00 (483 samples)
+  shim: render 24.8/s swap 0.0/s, worst gap 546.2 ms, late frames 3992 (469 s)
+  launch->first frame: 1.00 s
+done -> zero_zelda_20260914-085119.csv (221 samples), end 35C
+--- sonic ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 27567  post-launch gov=schedutil max=600000 (prelaunch schedutil/1008000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/60.0 fps, dup/s 0.00, under/s 0.00 (487 samples)
+  shim: render 48.9/s swap 0.0/s, worst gap 550.0 ms, late frames 1680 (475 s)
+  launch->first frame: 0.87 s
+done -> zero_sonic_20260914-085934.csv (216 samples), end 38C
+--- zelda ---
+cold-soak: want cpu <= 99C (now 38C)
+minarch: 1365  post-launch gov=schedutil max=1008000 (prelaunch schedutil/1416000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.4/59.7 fps, dup/s 0.00, under/s 0.00 (482 samples)
+  shim: render 24.8/s swap 0.0/s, worst gap 546.3 ms, late frames 3508 (470 s)
+  launch->first frame: 1.30 s
+done -> zero_zelda_20260914-090751.csv (221 samples), end 35C
+--- bloodyroar ---
+cold-soak: want cpu <= 99C (now 35C)
+minarch: 7729  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1008000)
+fps-shim: armed (3 lines)
+  frame-hold: avg 60.2/60.0 fps, dup/s 0.00, under/s 0.02 (485 samples)
+  shim: render 34.1/s swap 0.0/s, worst gap 5862.3 ms, late frames 4412 (468 s)
+  launch->first frame: 1.35 s
+done -> zero_bloodyroar_20260914-091606.csv (224 samples), end 37C
+--- sf2 ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 14146  post-launch gov=schedutil max=1416000 (prelaunch schedutil/1800000)
+fps-shim: armed (10 lines)
+  frame-hold: avg 60.3/60.1 fps, dup/s 0.00, under/s 0.00 (486 samples)
+  shim: render 27.2/s swap 0.0/s, worst gap 540.1 ms, late frames 2459 (468 s)
+  launch->first frame: 0.96 s
+done -> zero_sf2_20260914-092421.csv (213 samples), end 36C
+--- gradius ---
+cold-soak: want cpu <= 99C (now 36C)
+minarch: 20258  post-launch gov=schedutil max=1008000 (prelaunch schedutil/600000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/60.1 fps, dup/s 0.00, under/s 0.00 (487 samples)
+  shim: render 55.2/s swap 0.0/s, worst gap 539.3 ms, late frames 468 (483 s)
+  launch->first frame: 1.00 s
+done -> zero_gradius_20260914-093236.csv (220 samples), end 38C
+--- thps2 ---
+cold-soak: want cpu <= 99C (now 38C)
+minarch: 26565  post-launch gov=schedutil max=1800000 (prelaunch schedutil/1008000)
+fps-shim: armed (5 lines)
+  frame-hold: avg 60.2/60.0 fps, dup/s 0.00, under/s 0.00 (484 samples)
+  shim: render 26.8/s swap 0.0/s, worst gap 3942.5 ms, late frames 8234 (455 s)
+  launch->first frame: 1.25 s
+done -> zero_thps2_20260914-094052.csv (224 samples), end 37C
+--- mariokart ---
+cold-soak: want cpu <= 99C (now 37C)
+minarch: 527  post-launch gov=schedutil max=600000 (prelaunch schedutil/1416000)
+fps-shim: armed (11 lines)
+  frame-hold: avg 60.3/59.7 fps, dup/s 0.00, under/s 0.00 (483 samples)
+  shim: render 15.0/s swap 0.0/s, worst gap 551.2 ms, late frames 6931 (472 s)
+  launch->first frame: 0.86 s
+done -> zero_mariokart_20260914-094906.csv (213 samples), end 35C
+CAMPAIGN COMPLETE
+ZBench(zero) COMPLETE 2026-09-14 09:57:23 batt=71%
