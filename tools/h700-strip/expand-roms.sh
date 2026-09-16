@@ -121,7 +121,7 @@ say "partition grew: kernel now reports ${NEW_SIZE}s (~$(( NEW_SIZE / 2048 ))MB)
 
 # ---- 4. the destructive step. From here a failure needs a human, so mark the attempt first ----
 touch "$ATTEMPT_MARK"; sync
-mkfs.vfat -F 32 -n ROMS "$PART" >> "$LOG" 2>&1 || give_up "mkfs.vfat failed. Payload is safe at $BACKUP"
+mkfs.vfat -F 32 -n ZERO "$PART" >> "$LOG" 2>&1 || give_up "mkfs.vfat failed. Payload is safe at $BACKUP"
 sync
 mount -t vfat -o rw,utf8,noatime,nofail "$PART" "$MOUNT" 2>>"$LOG" || give_up "remount after format failed. Payload is safe at $BACKUP"
 cp -a "$BACKUP"/. "$MOUNT"/ 2>>"$LOG" || give_up "restore failed. Payload is safe at $BACKUP"

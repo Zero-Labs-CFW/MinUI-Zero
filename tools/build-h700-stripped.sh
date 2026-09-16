@@ -313,6 +313,24 @@ sed -i "s|^HOTKEY start|true # hotkey daemon disabled (minui owns input)|" "$SU"
 sed -i "s|^/opt/muos/script/system/catalogue.sh &|true # catalogue disabled (minui browses the filesystem)|" "$SU"
 sed -i "s|^/opt/muos/script/mux/sdl_map.sh &|true # sdl controller map disabled (evdev input, no SDL joystick)|" "$SU"
 
+# MUOS FOLDER TRIM (2026-09-15, r/trimui report). A stock muOS boot litters the card root with
+# folders MinUI never touches: MUOS/ (created by mount/bind.sh) plus ARCHIVE/ BACKUP/ ports/ (created
+# by mount/storage.sh on every mount). We CANNOT just disable those scripts: storage.sh is what
+# mounts the ROM partition MinUI reads, and startup.sh blocks the whole boot on the mount_ready flag
+# that bind.sh writes (system/startup.sh: until [ -f .../mount_ready ]). So instead we redirect what
+# they create off the card, leaving both scripts running and the boot gate satisfied.
+#   bind.sh   - point ROM_ROOT (the on-card MUOS source tree it mkdir/bind-mounts) at a tmpfs path.
+#               bind.sh still binds every location and still writes mount_ready; nothing of ours reads
+#               the muOS store (our frontend owns wifi/input/saves), so tmpfs-backed + non-persistent
+#               is fine. Net effect: no MUOS/ on the card.
+#   storage.sh - drop BACKUP/ARCHIVE/ports from its mkdir. ROMS stays: vfat is case-insensitive so it
+#               collapses into our existing Roms/ (a no-op) and keeps the union.sh primary branch.
+sed -i "s|ROM_ROOT=\"\$ROM_MOUNT/MUOS\"|ROM_ROOT=/run/muos/rom-store/MUOS|" "$R/opt/muos/script/mount/bind.sh"
+grep -q "ROM_ROOT=/run/muos/rom-store/MUOS" "$R/opt/muos/script/mount/bind.sh" || { echo "ERROR: MUOS-trim bind.sh anchor changed (ROM_ROOT line moved); folders would ship"; exit 1; }
+sed -i "s|mkdir -p \"\$MOUNT_POINT/ROMS\" \"\$MOUNT_POINT/BACKUP\" \"\$MOUNT_POINT/ARCHIVE\" \"\$MOUNT_POINT/ports\"|mkdir -p \"\$MOUNT_POINT/ROMS\" # muOS BACKUP/ARCHIVE/ports removed (MinUI does not use them)|" "$R/opt/muos/script/mount/storage.sh"
+grep -q "muOS BACKUP/ARCHIVE/ports removed" "$R/opt/muos/script/mount/storage.sh" || { echo "ERROR: MUOS-trim storage.sh anchor changed (mkdir line moved); folders would ship"; exit 1; }
+echo "  muOS folder trim applied (MUOS off-card via bind.sh, ARCHIVE/BACKUP/ports dropped from storage.sh)"
+
 # muOS also auto-connects wifi at boot from ITS saved config, while our frontend runs the same
 # connect a moment later using the credentials from wifi.txt. Two connects race each other over one
 # wpa_supplicant. Ours is the one that knows the user current credentials, so turn muOS off and let
@@ -437,7 +455,16 @@ echo "== building FAT ROMS payload (p6) =="
 STAGE="$OUT_DIR/card"; rm -rf "$STAGE"
 mkdir -p "$STAGE/.system/h700/bin" "$STAGE/.system/h700/lib" "$STAGE/.system/h700/cores" \
          "$STAGE/.system/res" "$STAGE/.userdata/h700/logs" "$STAGE/.userdata/shared/.minui" \
-         "$STAGE/Saves" "$STAGE/Bios" "$STAGE/Roms/Game Boy Color (GBC)"
+         "$STAGE/Saves" "$STAGE/Bios" \
+         "$STAGE/Roms/1) Game Boy Color (GBC)" \
+         "$STAGE/Roms/2) Game Boy Advance (GBA)" \
+         "$STAGE/Roms/3) Nintendo (FC)" \
+         "$STAGE/Roms/4) Super Nintendo (SUPA)" \
+         "$STAGE/Roms/5) Sega Genesis (MD)" \
+         "$STAGE/Roms/6) PlayStation (PS)"
+# Ship the six launch-tested h700 systems as empty template folders so a fresh card shows the user
+# exactly where each system's roms go (numeric prefix = launcher sort order; the (TAG) maps to the
+# emu pak). h700-only for now (tg5040/miyoomini ship a zip onto the user card, not a flashed image).
 cp "$REPO/workspace/all/minui/build/h700/minui.elf"     "$STAGE/.system/h700/bin/"
 cp "$REPO/workspace/all/minarch/build/h700/minarch.elf" "$STAGE/.system/h700/bin/"
 # Shared UI helpers every tool pak calls by bare name (the frontend puts this dir on PATH). Without
@@ -529,7 +556,7 @@ printf 'MinUI Zero (%s)\n%s\n' "$VERSION" "$(cd "$REPO" && git rev-parse --short
 # analog sticks exist (found on the first allowlist boot, 2026-08-27). The image is already built
 # per device, so the answer belongs in the payload rather than in a guess.
 printf '%s\n' "${DEVICE#rg35xx-}" > "$STAGE/.system/h700/board"
-[ -n "$H700_TEST_ROM" ] && [ -f "$H700_TEST_ROM" ] && cp "$H700_TEST_ROM" "$STAGE/Roms/Game Boy Color (GBC)/"
+[ -n "$H700_TEST_ROM" ] && [ -f "$H700_TEST_ROM" ] && cp "$H700_TEST_ROM" "$STAGE/Roms/1) Game Boy Color (GBC)/"
 # example wifi.txt at the card root (commented out; user adds their own "SSID:password")
 printf '# WiFi: one network per line as SSID:password (# comments ignored). Example:\n# MyNetwork:mypassword\n' > "$STAGE/wifi.txt.example"
 # ssh is opt-in and key-only: drop your public key here as authorized_keys and the frontend installs
@@ -558,7 +585,7 @@ fi
 
 rm -f "$OUT_DIR/p6.img"
 dd if=/dev/zero of="$OUT_DIR/p6.img" bs=512 count=$P6_SECTORS status=none
-"$MT/mformat" -i "$OUT_DIR/p6.img" -F -v ROMS ::
+"$MT/mformat" -i "$OUT_DIR/p6.img" -F -v ZERO ::
 for entry in "$STAGE"/* "$STAGE"/.[!.]*; do
 	[ -e "$entry" ] || continue
 	COPYFILE_DISABLE=1 "$MT/mcopy" -i "$OUT_DIR/p6.img" -s "$entry" ::
