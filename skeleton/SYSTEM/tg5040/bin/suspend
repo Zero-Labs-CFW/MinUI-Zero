@@ -6,7 +6,7 @@
 #  - a wifi config present with no AP in range makes the kernel REFUSE suspend (EBUSY),
 #    so we tear down wpa_supplicant / wlan0 / Bluetooth and rfkill-block first;
 #  - the ALSA mixer glitches on resume unless saved/restored.
-# Brick-specific bits to confirm on-device (see docs/ON-DEVICE-CHECKLIST.md): service
+# Brick-specific bits to confirm on-device (see docs/archive/ON-DEVICE-CHECKLIST.md): service
 # names, wlan0, /sys/class/rfkill/rfkill0, the wpa_supplicant paths.
 set -euo pipefail
 exec 0<&-

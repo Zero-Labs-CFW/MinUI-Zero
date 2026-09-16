@@ -47,7 +47,7 @@ target is not "coldest" narrowly; it is **the leanest, most-optimized OS this ha
 
 The roadmap below is no longer all forward-looking. A large batch shipped this session and was
 **validated on a real TrimUI Brick** (build MinUI-20260701-2, branch `integration`). Progress
-against the stages, with the authoritative detail in `docs/STATUS.md` and `docs/DECISIONS.md`:
+against the stages, with the authoritative detail in `docs/DECISIONS.md`:
 
 - **Stage 0 (baseline + measurement) — largely done.** `charge_counter` drain meter stood up
   (`current_now` is dead on the AXP2202); reproducible core builds pinned; first energy baseline

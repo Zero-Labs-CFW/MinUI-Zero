@@ -67,7 +67,7 @@ re-sleep. (On the Brick the power button *is* the sleep button, so these interlo
 - **D4 — Deep sleep is opt-in per platform** via the weak `PLAT_supportsDeepSleep()` returning
   1 only on tg5040/tg3040. Everywhere else it stays off → zero behavior change off-target.
 
-## On-device validation (needs the Brick — see docs/ON-DEVICE-CHECKLIST.md)
+## On-device validation (needs the Brick — see docs/archive/ON-DEVICE-CHECKLIST.md)
 - Confirm `/sys/power/state` exists and accepts `mem` (suspend-to-RAM supported by the kernel).
 - Confirm the wake button resumes (and the resume debounce prevents an immediate re-sleep).
 - Confirm the `bin/suspend` radio/mixer teardown matches the Brick (service names, `wlan0`,

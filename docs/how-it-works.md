@@ -43,7 +43,7 @@ The result is **~20% less CPU power at identical clocks**, measured, with nothin
 afterward. Voltages apply at runtime only, so any reboot returns to factory-safe values. Back up
 saves before calibrating, and revert anytime from the same tool.
 
-Background: [`undervolt-spike-design.md`](undervolt-spike-design.md) and
+Background: [`undervolt-spike-design.md`](archive/undervolt-spike-design.md) and
 [`dtb-undervolt-primer.md`](dtb-undervolt-primer.md).
 
 ## Deep sleep
@@ -58,7 +58,7 @@ device previously had, which was to power itself off and lose your place.
 
 The Miyoo Mini family cannot do this at all: its vendor kernel is built without suspend support, so
 `/sys/power/state` is empty and there is no suspend mode for any firmware to ask for. See the
-[README](../README.md#miyoo-mini-family-alpha) for what happens there instead.
+[README](../README.md#devices) for what happens there instead.
 
 Design notes: [`deep-sleep-design.md`](deep-sleep-design.md).
 
@@ -76,6 +76,6 @@ usually costs more than it saves. Frames are paced against the panel's real meas
 an assumed 60 Hz, and identical consecutive frames are not re-sent to the display, so a static screen
 lets the CPU finish early and idle.
 
-Details: [`no-gl-present-proposal.md`](no-gl-present-proposal.md),
-[`audio-pacing-design.md`](audio-pacing-design.md), and for the PlayStation frontend,
+Details: [`no-gl-present-proposal.md`](archive/no-gl-present-proposal.md),
+[`audio-pacing-design.md`](archive/audio-pacing-design.md), and for the PlayStation frontend,
 [`threading-v2-design.md`](threading-v2-design.md).

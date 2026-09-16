@@ -209,7 +209,7 @@ idle wakeups/sec), audio device closed in faux-sleep (~7%→0), targeted `fsync`
 (already auto), vblank (sleeps, no spin), picodrive ARCH (no aarch64 M68K JIT), FMIN floors (D21: 408
 saturates for zero win), core hotplug (D22: exact break-even). Remaining: battery re-baseline after the
 sweep; DTB undervolt is the only big lever left (high effort/risk, deferred). See
-`docs/zero-efficiency-roadmap.md` + `docs/qol-backlog.md`.
+`docs/archive/zero-efficiency-roadmap.md` + `docs/qol-backlog.md`.
 
 **2026-07-04 update — v1.0.0 live, BOTH devices validated (D24-D33):** generation-rate slip detector +
 predictive sink gate (D24/D28); Smart Pro fully brought up: sweep matches Brick, deep sleep 50-cycle

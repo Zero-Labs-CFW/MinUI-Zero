@@ -46,7 +46,7 @@ case "$gl" in
 esac
 
 hdr "Voltage / OPP / undervolt mechanism (spike: CAN we write CPU voltage at runtime?)"
-# READ-ONLY probe. This script NEVER writes a voltage. See docs/undervolt-spike-design.md.
+# READ-ONLY probe. This script NEVER writes a voltage. See docs/archive/undervolt-spike-design.md.
 for path in /sys/kernel/debug/opp /sys/class/devfreq /sys/class/regulator /sys/firmware/devicetree; do
   [ -e "$path" ] && echo "present: $path" || echo "absent:  $path"
 done
@@ -77,7 +77,7 @@ done
 echo "VERDICT INPUT: if every regulator microvolts node above is read-only (r--) and no OPP"
 echo "  voltage is writable, runtime undervolt is NOT possible on this kernel -> needs a custom"
 echo "  DTB/kernel (patched OPP voltages). If a CPU-rail regulator is writable, a bounded runtime"
-echo "  undervolt is feasible. Record this output in docs/undervolt-spike-design.md."
+echo "  undervolt is feasible. Record this output in docs/archive/undervolt-spike-design.md."
 
 hdr "Thermal zones (find which one is the CPU)"
 for z in /sys/class/thermal/thermal_zone*; do
