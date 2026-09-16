@@ -564,8 +564,9 @@ printf '# WiFi: one network per line as SSID:password (# comments ignored). Exam
 printf '# SSH: rename this to "authorized_keys" and paste your ssh PUBLIC key (one per line).\n# Without it dropbear never starts. Password login is not supported.\n' > "$STAGE/authorized_keys.example"
 if [ "$MODE" = dev ]; then
 	# devmode.txt, DEV CARD FLAG (api.c PWR_init arms /tmp/stay_awake at every startup when present).
-	# Without it an idle h700 POWERS ITSELF OFF after ~2.5min: 30s -> faux-sleep, then the 2-minute deep
-	# sleep escalation finds PLAT_supportsDeepSleep()==0 and falls through to PWR_powerOff() (api.c:2506).
+	# Without it an idle h700 goes to sleep after ~2.5min: 30s -> faux-sleep, then the 2-minute deep
+	# sleep escalation suspends to RAM (PLAT_supportsDeepSleep()==1 since the 2026-08-13 validation; before
+	# that it fell through to PWR_powerOff(), api.c:2506, which is what the next line describes).
 	# That killed every remote debug session on 2026-08-09. Delete this file to restore stock power
 	# behaviour (autosleep + idle power-off), it costs idle battery, so it must NOT ship in a release.
 	printf 'MinUI Zero dev flag: keeps the device awake (no autosleep, no idle power-off) so SSH sessions\nsurvive. Delete this file for stock power behaviour / best battery life.\n' > "$STAGE/devmode.txt"

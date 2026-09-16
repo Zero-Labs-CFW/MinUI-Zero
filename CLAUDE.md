@@ -43,8 +43,10 @@ sat unlaunchable with their cores already shipping (caught 2026-07-27). The rule
   - *Scaling defaults* — MMP GB/GBC/FC ship `Native`, tg5040 ships `Aspect`: panel geometry
     (640×480 makes NES-at-Aspect 2.5× horizontal → scroll shimmer; 1024×768 gives a clean 4.0×).
   - *Audio architecture* — MMP uses the MI_AO daemon + `MINARCH_PRELOAD` shim; tg5040 does not.
-  - *Deep sleep* — Brick/SP only (proven impossible on the MMP SoC). *GPU-dark menu* — Brick-only
-    (SP panel scans the GLES layer). *Present-skip (`ZERO_DUP_SKIP`)* — qualified on the GLES path
+  - *Deep sleep* — TrimUI (Brick/SP) and h700 (real suspend-to-RAM, validated on the Plus 2026-08-13);
+    proven impossible on the MMP SoC. *GPU-dark menu* — ships on Brick AND Smart Pro (the SP gate was a
+    model-cache misdetection, removed 2026-07-04, D-logged); the MMP and h700 have no GLES in the menu
+    path at all, so the GPU is idle there by construction. *Present-skip (`ZERO_DUP_SKIP`)* — qualified on the GLES path
     only; not enabled on the MMP fbdev path until measured there.
   - *Governor brackets* (`MINARCH_FMIN/FMAX`) — per-SoC receipts, never copied across platforms.
     An unmeasured bracket is labelled unmeasured in the launch.sh.
@@ -214,7 +216,7 @@ predictive sink gate (D24/D28); Smart Pro fully brought up: sweep matches Brick,
 certified, menu layout fixed (PADDING 40→10, 10 rows), audio saga resolved (D33 — DAC raw 160 = 0dB on
 BOTH devices, digital volume reversed on BOTH; stock semantics correct, don't "fix" from dB tables);
 own dropbear ships in .system (SP firmware has no sshd; dynamic build only — static segfaults);
-**GPU-dark menu is Brick-ONLY** (SP panel scans the GLES layer, not fb0 — content ≠ scanout, D-logged);
+**GPU-dark menu works on BOTH Brick and Smart Pro** (the SP "black menu" was a model-cache misdetection, not the fb path; gate removed 2026-07-04, fb verified pixel-perfect with the GPU suspended, D-logged);
 card hygiene sweeper + no-index markers ship in base zip. Battery 7.5h figure = Brick-measured.
 Dev access: Brick root@.90:22 (stock sshd), SP root@.249:2022 (our dropbear); deep sleep kills SSH
 after 2 min idle — have Dan power-tap; after `killall keymon.elf` RESTART it manually.
