@@ -1,4 +1,4 @@
-# NextUI thermal/CPU-governor comparison
+# NextUI Comparison
 
 ## Zero vs NextUI at a glance
 
