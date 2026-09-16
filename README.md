@@ -23,6 +23,7 @@ Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**, **Anbernic RG35XX Pl
 Our handhelds have more power than most retro games need. Zero uses only what the game asks for.
 
 * **Tuned per game**: the lowest clock that holds full speed (60 fps), no CPU setting to pick
+* **Longer battery**: no wasted CPU or GPU work, so a charge goes further
 * **Fast**: boots in seconds, games launch almost instantly
 * **Cool & instant menu**: software-rendered, the GPU stays idle while you browse
 * **Optimize CPU**: finds your chip's lowest safe voltage (TrimUI, opt-in)
