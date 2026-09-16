@@ -29,9 +29,9 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 * **Smooth**: even scrolling and clean audio, even under load
 * **Stock bugs fixed**: hot NES settings, crackling audio, hanging quit menus
 * **Hard to break**: bad ROMs exit cleanly, saves are crash-safe
-* **Still MinUI**: no box art, stores, themes, or performance modes
+* **Still MinUI**: no box art, stores, or themes
 
-Nothing to configure. Just play.
+*Nothing to configure. Just play.*
 
 Numbers and reasoning: [`docs/bench/`](docs/bench/) · [NextUI comparison](docs/nextui-comparison.md) · [`docs/DECISIONS.md`](docs/DECISIONS.md)
 
