@@ -1,7 +1,10 @@
-# Decisions log — closed-loop thermal governor
+# Decisions Log
 
-Running log of choices made while building the governor autonomously, so the
-reasoning survives even when the diff doesn't show it. Newest at the bottom.
+A running log of the choices made while building MinUI Zero and the reasoning behind them, so the
+why survives even when the diff does not show it. Entries are numbered (D1, D2, ...) and are cited
+from code comments, docs, and release notes. It started with the thermal governor and now covers
+everything: the render path, sleep, audio, threading, each platform, and the launcher. Newest at
+the bottom.
 
 ## D1 — Module placement: `workspace/all/common/governor.{c,h}`
 The governor is shared frontend logic that calls a platform primitive
