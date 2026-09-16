@@ -34,11 +34,21 @@
 // Card-root flags — bare base names (upstream convention). Read with flagExists(), which also
 // accepts a "<name>.txt" form, so both "no-recents" and "no-recents.txt" work.
 #define NO_RECENTS_PATH SDCARD_PATH "/no-recents" // opt-out: hides Recently Played AND stops recording plays (r/trimui request, 2026-09-02)
-#define HIDE_TOOLS_PATH SDCARD_PATH "/hide-tools" // opt-out: hides Tools from the menu; unlike simple mode, a combo (L1+R1+SELECT at root) still opens it (2026-09-03)
+#define HIDE_TOOLS_PATH SDCARD_PATH "/hide-tools" // opt-out: hides Tools from the menu; unlike simple mode, a combo (SELECT+START at root) still opens it (2026-09-03, chord moved 2026-09-15)
+#define NO_FAVORITES_PATH SDCARD_PATH "/no-favorites" // opt-out: no Favorites row, the in-game Y does nothing, focus is ignored (2026-09-15)
+#define FOCUS_PATH SDCARD_PATH "/focus" // Focus Mode: the root is the Favorites list plus Tools (add hide-tools to drop Tools too, like Russ's Tools_off). A flag, toggled by Tools > Focus Mode or by hand (2026-09-16)
 #define DEVMODE_PATH SDCARD_PATH "/devmode" // dev opt-in: stay-awake + SSH (read with flagExists, so "devmode" and "devmode.txt" both work, like every other card-root flag)
 #define SCREENSHOTS_PATH SDCARD_PATH "/Screenshots" // devmode screenshot tool output (created on first capture)
 #define SCREENSHOT_TRIGGER_PATH "/tmp/take_screenshot" // devmode: touch it (e.g. over SSH) to grab the current frame; MENU+SELECT does the same from the pad
 #define COLLECTIONS_PATH SDCARD_PATH "/Collections"
+
+// Favorites: an auto-managed "Five Game" list, a sibling of Recents. A game is favorited or
+// unfavorited from ITS OWN in-game menu (Y), so it is a deliberate act on the game you are playing,
+// never a stray press on a launcher row. The launcher shows the list as a read-only Favorites row
+// under Recently Played (Dan, 2026-09-16; the earlier launcher-side Y toggle and Focus Mode were cut).
+// One SD-relative rom path per line, like recent.txt. Read/write via Favorites_* in utils.c.
+#define FAVORITE_PATH SHARED_USERDATA_PATH "/.minui/favorites.txt"
+#define FAUX_FAVORITE_PATH SDCARD_PATH "/Favorites" // virtual sentinel, like FAUX_RECENT_PATH
 
 #define LAST_PATH "/tmp/last.txt" // transient
 #define CHANGE_DISC_PATH "/tmp/change_disc.txt"

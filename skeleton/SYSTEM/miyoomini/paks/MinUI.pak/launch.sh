@@ -120,38 +120,11 @@ devmode && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/de
 # silently lost networking (Dan's card, tonight). This block is the in-repo replacement. The
 # command sequence is not guessed: it is reconstructed from the old pak's own set-x trace, which
 # survived in .userdata/miyoomini/logs/Wifi.on-boot.txt on that card.
-# Stock internal binaries do the work (/customer/app/*); only the 8188fu kernel module has no
-# certain internal home — we try the known candidates and log a probe when all miss.
+# The sequence itself lives in bin/wifi-up.sh (moved 2026-09-16 so Tools > WiFi can run the same
+# step on TURN ON without a reboot); it parses wifi.txt, logs to logs/wifi.txt.log, and is a no-op
+# when wifi.txt is absent or malformed.
 if [ -f "$SDCARD_PATH/wifi.txt" ]; then
-	_w=$(sed '/^#/d;/^[[:space:]]*$/d' "$SDCARD_PATH/wifi.txt" | head -1)
-	_ssid=${_w%%:*}; _psk=${_w#*:}
-	if [ -n "$_ssid" ] && [ "$_ssid" != "$_w" ]; then
-		WLOG="$LOGS_PATH/wifi.txt.log"
-		{
-		echo "== wifi.txt bring-up $(date 2>/dev/null)"
-		# stock config: wpa_supplicant.conf lives in the console's internal /appconfigs
-		printf 'ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\nnetwork={\n\tssid="%s"\n\tpsk="%s"\n}\n' "$_ssid" "$_psk" > /appconfigs/wpa_supplicant.conf
-		# driver module: card ship first (if we ever bundle one), then stock candidates
-		if ! grep -q 8188fu /proc/modules 2>/dev/null; then
-			for KO in "$SYSTEM_PATH/lib/modules/8188fu.ko" /config/wifi/8188fu.ko /customer/wifi/8188fu.ko /lib/modules/8188fu.ko; do
-				[ -f "$KO" ] && { insmod "$KO"; echo "insmod $KO rc=$?"; break; }
-			done
-		fi
-		if ! grep -q 8188fu /proc/modules 2>/dev/null; then
-			echo "PROBE: no 8188fu.ko found; candidates on this console:"
-			find /config /customer /lib -name "*8188*" 2>/dev/null
-		fi
-		# power + interface + supplicant, straight from the old pak's trace
-		ifconfig lo up 2>/dev/null
-		/customer/app/axp_test wifion
-		sleep 2
-		ifconfig wlan0 up
-		killall wpa_supplicant 2>/dev/null; killall udhcpc 2>/dev/null
-		/customer/app/wpa_supplicant -B -D nl80211 -iwlan0 -c /appconfigs/wpa_supplicant.conf
-		udhcpc -i wlan0 -t 8 -T 3 -b 2>/dev/null &
-		command -v iw >/dev/null 2>&1 && iw dev wlan0 set power_save off 2>/dev/null
-		} >> "$WLOG" 2>&1 &
-	fi
+	sh "$SYSTEM_PATH/bin/wifi-up.sh" &
 fi
 
 # DEV-ONLY SSH (Dan, 2026-09-07). Gated on devmode.txt at the card root, exactly like the boot
@@ -222,21 +195,17 @@ if devmode && [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	} >> "$SSH_LOG" 2>&1 &
 fi
 
-# WiFi Toggle visibility (Dan, 2026-08-31): the tool appears in Tools ONLY when wifi is
-# configured — wifi.txt (on) or wifi.txt.off (toggled off; must stay visible or there is no way
-# back on). Unconfigured cards keep a clean Tools menu; the pak ships stashed in .system so
-# updates always carry it, and this block is the sole owner of the Tools copy. Deploys that
-# prune the Tools copy are self-healing: the next boot re-copies it.
-WIFI_PAK_SRC="$SYSTEM_PATH/paks/tools-stash/WiFi Toggle.pak"
-WIFI_PAK_DST="$SDCARD_PATH/Tools/miyoomini/WiFi Toggle.pak"
-if [ -f "$SDCARD_PATH/wifi.txt" ] || [ -f "$SDCARD_PATH/wifi.txt.off" ]; then
-	[ -d "$WIFI_PAK_DST" ] || cp -r "$WIFI_PAK_SRC" "$WIFI_PAK_DST" 2>/dev/null
-else
-	rm -rf "$WIFI_PAK_DST" 2>/dev/null
-fi
+# Tools folded into Settings (Dan, 2026-09-16): Clock, Focus Mode and WiFi are rows of
+# Settings.pak now. Drop the old paks from cards that had them. Clock and Focus Mode are ours by
+# name; the WiFi copy is marker-guarded because FAT32 folds case, so "WiFi.pak" is also the
+# community Wifi.pak, which we must never delete.
+for _p in "Clock.pak" "Focus Mode.pak" "WiFi Toggle.pak"; do
+	rm -rf "$SDCARD_PATH/Tools/miyoomini/$_p" 2>/dev/null
+done
+grep -q 'styled like Deep Sleep.pak' "$SDCARD_PATH/Tools/miyoomini/WiFi.pak/launch.sh" 2>/dev/null && rm -rf "$SDCARD_PATH/Tools/miyoomini/WiFi.pak" 2>/dev/null
 
 # SSH visibility, DEV CARDS ONLY (Dan, 2026-09-08: "We should do that and enable with devmode").
-# Same stash/copy pattern as WiFi Toggle above, but gated on devmode.txt so a user card never gets
+# The pak ships stashed in .system and this block owns the Tools copy, gated on devmode.txt so a user card never gets
 # a way to start a daemon. This is the on-demand twin of the boot block earlier in this file, and
 # it follows Onion's shape (SSH as a toggle you press, wifi-gated) rather than inventing one — see
 # the pak's own header. A dev card that has never had devmode.txt simply never sees it.

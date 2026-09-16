@@ -6091,6 +6091,14 @@ static void Menu_loop(void) {
 			Menu_updateState();
 		}
 		
+		// Favorites: Y here favorites or unfavorites THE GAME BEING PLAYED (Dan, 2026-09-16). Doing it
+		// from the pause menu keeps it a deliberate act on this game, not a stray press on a launcher
+		// row. The footer label flips (FAVORITE <-> UNFAVORITE), which is the only feedback needed.
+		if (PAD_justPressed(BTN_Y) && !flagExists(NO_FAVORITES_PATH)) {
+			Favorites_toggle((char*)game.path);
+			dirty = 1;
+		}
+
 		if (PAD_justPressed(BTN_B) || (BTN_WAKE!=BTN_MENU && PAD_tappedMenu(now))) {
 			status = STATUS_CONT;
 			show_menu = 0;
@@ -6195,6 +6203,8 @@ static void Menu_loop(void) {
 			SDL_FreeSurface(text);
 
 			if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
+			else if (!flagExists(NO_FAVORITES_PATH)) // Y favorites the running game; the label doubles as its state
+				GFX_blitButtonGroup((char*[]){ "Y", Favorites_has((char*)game.path) ? "FAVORITED" : "FAVORITE", NULL }, 0, screen, 0); // positive wording (Dan): the pill states where you are, Y still toggles
 			else GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"POWER":"MENU","SLEEP", NULL }, 0, screen, 0);
 			GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OKAY", NULL }, 1, screen, 1);
 			

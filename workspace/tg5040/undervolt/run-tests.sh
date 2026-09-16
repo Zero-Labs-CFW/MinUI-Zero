@@ -7,7 +7,7 @@ TMP=$(mktemp -d "$ROOT/.notes/uvmap-test.XXXXXX")
 trap 'rc=$?; rm -rf "$TMP"; exit $rc' EXIT HUP INT TERM  # preserve the status the trap used to mask
 
 UV_SCRIPT="$ROOT/workspace/tg5040/undervolt/uvmap.sh"
-TOOL_SCRIPT="$ROOT/skeleton/EXTRAS/Tools/tg5040/Optimize CPU.pak/launch.sh"
+TOOL_SCRIPT="$ROOT/skeleton/SYSTEM/tg5040/paks/Optimize CPU.pak/launch.sh"
 RECEIPT="$ROOT/docs/bench/receipts/uv-calibration"
 
 cp "$RECEIPT/margins.log" "$TMP/margins.log"

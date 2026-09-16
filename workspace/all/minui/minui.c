@@ -217,7 +217,7 @@ static void getUniqueName(Entry* entry, char* out_name) {
 
 static void Directory_index(Directory* self) {
 	int is_collection = prefixMatch(COLLECTIONS_PATH, self->path);
-	int skip_index = exactMatch(FAUX_RECENT_PATH, self->path) || is_collection; // not alphabetized
+	int skip_index = exactMatch(FAUX_RECENT_PATH, self->path) || is_collection; // not alphabetized (Favorites IS sorted, so it keeps its index)
 	
 	Hash* map = NULL;
 	char map_path[256];
@@ -327,6 +327,8 @@ static void Directory_index(Directory* self) {
 
 static Array* getRoot(void);
 static Array* getRecents(void);
+static Array* getFavorites(void);
+static int hasFavorites(void);
 static Array* getCollection(char* path);
 static Array* getDiscs(char* path);
 static Array* getEntries(char* path);
@@ -343,6 +345,9 @@ static Directory* Directory_new(char* path, int selected) {
 	}
 	else if (exactMatch(path, FAUX_RECENT_PATH)) {
 		self->entries = getRecents();
+	}
+	else if (exactMatch(path, FAUX_FAVORITE_PATH)) {
+		self->entries = getFavorites();
 	}
 	else if (!exactMatch(path, COLLECTIONS_PATH) && prefixMatch(COLLECTIONS_PATH, path) && suffixMatch(".txt", path)) {
 		self->entries = getCollection(path);
@@ -676,11 +681,42 @@ static int hasRoms(char* dir_name) {
 	// if (!has) printf("No roms for %s!\n", dir_name);
 	return has;
 }
+// Tools row, shared by the normal root and Focus Mode. hide-tools hides it but leaves the owner
+// escape hatch (SELECT+START at root opens Tools directly, handled in the main loop); simple mode
+// hides it with no hatch.
+static void addTools(Array* root) {
+	int hide_tools = flagExists(HIDE_TOOLS_PATH);
+	char* tools_path = SDCARD_PATH "/Tools/" PLATFORM;
+	if (exists(tools_path) && !simple_mode && !hide_tools) Array_push(root, Entry_new(tools_path, ENTRY_DIR));
+#ifdef PLATFORM_ALIAS
+	// community Tools paks publish under the scene's platform name (see getEmuPath, utils.c)
+	char* tools_alias_path = SDCARD_PATH "/Tools/" PLATFORM_ALIAS;
+	if (exists(tools_alias_path) && !simple_mode && !hide_tools) Array_push(root, Entry_new(tools_alias_path, ENTRY_DIR));
+#endif
+}
 static Array* getRoot(void) {
 	Array* root = Array_new();
-	
+
+	int no_favorites = flagExists(NO_FAVORITES_PATH); // card-root opt-out, same pattern as no-recents
+
+	// Focus Mode ("Five Game Handheld", after Retro Game Corps): with the focus flag set, the systems
+	// and Collections are replaced by the Favorites list. Recents and Tools keep their own switches
+	// (Dan, 2026-09-16: "allow showing Recents within Focus, because you can turn it off in settings"),
+	// so the pure five-game screen is Focus + Recents off + Tools hidden, and Settings stays reachable
+	// until the user hides Tools (its hatch still applies). A card-root FLAG, set by Settings > Favorites
+	// > Focus. Gated on hasFavorites() so an empty list falls through to the normal root, not a dead end.
+	if (!no_favorites && flagExists(FOCUS_PATH) && hasFavorites()) {
+		if (hasRecents()) Array_push(root, Entry_new(FAUX_RECENT_PATH, ENTRY_DIR));
+		Array* favorites = getFavorites();
+		for (int i=0; i<favorites->count; i++) Array_push(root, favorites->items[i]);
+		Array_free(favorites); // the entries now belong to root
+		addTools(root);
+		return root;
+	}
+
 	if (hasRecents()) Array_push(root, Entry_new(FAUX_RECENT_PATH, ENTRY_DIR));
-	
+	if (!no_favorites && hasFavorites()) Array_push(root, Entry_new(FAUX_FAVORITE_PATH, ENTRY_DIR)); // Favorites row, under Recents
+
 	Array* entries = Array_new();
 	DIR* dh = opendir(ROMS_PATH);
 	if (dh!=NULL) {
@@ -786,17 +822,7 @@ static Array* getRoot(void) {
 	}
 	Array_free(entries); // root now owns entries' entries
 	
-	// hide-tools.txt hides Tools from the list like simple mode, but leaves an owner escape
-	// hatch: the L1+R1+SELECT combo at root opens Tools directly (handled in the main loop).
-	int hide_tools = flagExists(HIDE_TOOLS_PATH);
-	char* tools_path = SDCARD_PATH "/Tools/" PLATFORM;
-	if (exists(tools_path) && !simple_mode && !hide_tools) Array_push(root, Entry_new(tools_path, ENTRY_DIR));
-#ifdef PLATFORM_ALIAS
-	// community Tools paks publish under the scene's platform name (see getEmuPath, utils.c)
-	char* tools_alias_path = SDCARD_PATH "/Tools/" PLATFORM_ALIAS;
-	if (exists(tools_alias_path) && !simple_mode && !hide_tools) Array_push(root, Entry_new(tools_alias_path, ENTRY_DIR));
-#endif
-	
+	addTools(root);
 	return root;
 }
 static Array* getRecents(void) {
@@ -815,6 +841,47 @@ static Array* getRecents(void) {
 		}
 		Array_push(entries, entry);
 	}
+	return entries;
+}
+
+// --- Favorites: auto-managed "Five Game" list, one SD-relative rom path per line (like recent.txt).
+// WRITTEN ONLY by minarch (Y in the in-game menu -> Favorites_toggle in utils.c); the launcher just
+// reads it and shows the row. No launcher-side toggle by design (Dan, 2026-09-16). ---
+static int hasFavorites(void) {
+	FILE* file = fopen(FAVORITE_PATH, "r");
+	if (!file) return 0;
+	int has = 0;
+	char line[256];
+	while (fgets(line,256,file)!=NULL) {
+		normalizeNewline(line);
+		trimTrailingNewlines(line);
+		if (strlen(line)==0) continue;
+		char sd_path[256];
+		sprintf(sd_path, "%s%s", SDCARD_PATH, line);
+		if (exists(sd_path)) { has = 1; break; }
+	}
+	fclose(file);
+	return has;
+}
+static Array* getFavorites(void) {
+	Array* entries = Array_new();
+	FILE* file = fopen(FAVORITE_PATH, "r");
+	if (file) {
+		char line[256];
+		while (fgets(line,256,file)!=NULL) {
+			normalizeNewline(line);
+			trimTrailingNewlines(line);
+			if (strlen(line)==0) continue;
+			char sd_path[256];
+			sprintf(sd_path, "%s%s", SDCARD_PATH, line);
+			if (exists(sd_path)) {
+				int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM;
+				Array_push(entries, Entry_new(sd_path, type));
+			}
+		}
+		fclose(file);
+	}
+	EntryArray_sort(entries); // alphabetical, so the L1/R1 alpha index is valid in the row and the Focus root
 	return entries;
 }
 static Array* getCollection(char* path) {
@@ -918,6 +985,8 @@ static void addEntries(Array* entries, char* path) {
 		tmp = full_path + strlen(full_path);
 		while((dp = readdir(dh)) != NULL) {
 			if (hide(dp->d_name)) continue;
+			// Input is a button tester, a diagnostic: dev cards only (Dan, 2026-09-16, "Tools is getting messy")
+			if (exactMatch(dp->d_name, "Input.pak") && !flagExists(DEVMODE_PATH)) continue;
 			strcpy(tmp, dp->d_name);
 			int is_dir = dp->d_type==DT_DIR;
 			int type;
@@ -1339,12 +1408,13 @@ static void Entry_open(Entry* self) {
 ///////////////////////////////////////
 
 static void saveLast(char* path) {
-	// special case for recently played
-	if (exactMatch(top->path, FAUX_RECENT_PATH)) {
+	// special case for recently played, and for Favorites (Dan, 2026-09-16: quitting a game opened
+	// from Favorites returns to Favorites, exactly like Recents)
+	if (exactMatch(top->path, FAUX_RECENT_PATH) || exactMatch(top->path, FAUX_FAVORITE_PATH)) {
 		// NOTE: that we don't have to save the file because
 		// your most recently played game will always be at
 		// the top which is also the default selection
-		path = FAUX_RECENT_PATH;
+		path = top->path;
 	}
 	putFile(LAST_PATH, path);
 }
@@ -1395,7 +1465,7 @@ static void loadLast(void) { // call after loading root directory
 							top->start = top->end - MAIN_ROW_COUNT;
 						}
 					}
-					if (last->count==0 && !exactMatch(entry->path, FAUX_RECENT_PATH) && !(!exactMatch(entry->path, COLLECTIONS_PATH) && prefixMatch(COLLECTIONS_PATH, entry->path))) break; // don't show contents of auto-launch dirs
+					if (last->count==0 && !exactMatch(entry->path, FAUX_RECENT_PATH) && !exactMatch(entry->path, FAUX_FAVORITE_PATH) && !(!exactMatch(entry->path, COLLECTIONS_PATH) && prefixMatch(COLLECTIONS_PATH, entry->path))) break; // don't show contents of auto-launch dirs (the faux lists ARE the destination)
 				
 					if (entry->type==ENTRY_DIR) {
 						openDirectory(entry->path, 0);
@@ -1715,7 +1785,8 @@ int main (int argc, char *argv[]) {
 			// first and rejected on-device: api.c shows the brightness HUD whenever the MENU modifier
 			// is held 250ms (tg5040/h700/MMP Plus). SELECT and START are plain buttons there; only the
 			// original Miyoo Mini uses them as modifiers, where this flashes its HUD briefly (D66).
-			if (exactMatch(top->path, SDCARD_PATH) && flagExists(HIDE_TOOLS_PATH)
+			if (exactMatch(top->path, SDCARD_PATH) && !simple_mode // simple mode is the lockdown: no hatch (D66)
+				&& flagExists(HIDE_TOOLS_PATH)
 				&& ((PAD_isPressed(BTN_SELECT) && PAD_justPressed(BTN_START)) || (PAD_isPressed(BTN_START) && PAD_justPressed(BTN_SELECT)))) {
 				char* tp = SDCARD_PATH "/Tools/" PLATFORM;
 				if (exists(tp)) {
@@ -1971,7 +2042,7 @@ int main (int argc, char *argv[]) {
 				}
 				else {
 					// TODO: for some reason screen's dimensions end up being 0x0 in GFX_blitMessage...
-					GFX_blitMessage(font.large, exactMatch(top->path, FAUX_RECENT_PATH) ? "No recently played games" : "Empty folder", screen, &(SDL_Rect){0,0,screen->w,screen->h});
+					GFX_blitMessage(font.large, exactMatch(top->path, FAUX_RECENT_PATH) ? "No recently played games" : exactMatch(top->path, FAUX_FAVORITE_PATH) ? "No favorites" : "Empty folder", screen, &(SDL_Rect){0,0,screen->w,screen->h});
 				}
 			
 				// buttons
@@ -1981,9 +2052,9 @@ int main (int argc, char *argv[]) {
 					else GFX_blitButtonGroup((char*[]){ "Y","CLEAR", NULL }, 0, screen, 0);
 				}
 				else if (can_resume) GFX_blitButtonGroup((char*[]){ "X","RESUME",  NULL }, 0, screen, 0);
-				else GFX_blitButtonGroup((char*[]){ 
+				else GFX_blitButtonGroup((char*[]){
 					BTN_SLEEP==BTN_POWER?"POWER":"MENU",
-					BTN_SLEEP==BTN_POWER||simple_mode?"SLEEP":"INFO",  
+					BTN_SLEEP==BTN_POWER||simple_mode?"SLEEP":"INFO",
 					NULL }, 0, screen, 0);
 			
 				if (total==0) {

@@ -129,6 +129,26 @@ build:
 	make build -f makefile.toolchain PLATFORM=$(PLATFORM)
 	# ----------------------------------------------------
 
+# DEV LOOP (2026-09-16): a full, deployable tg5040 payload WITHOUT recompiling the cores, for
+# launcher/minarch/tool iteration on a device. Same staging chain as `make tg5040` (setup, system,
+# cores copy, special, package), so build/latest.txt is refreshed, deploy-device.sh accepts it, and
+# check-payload still gates the staged core set. The only difference is the container step runs
+# `make frontend` instead of `make`, reusing workspace/tg5040/cores/output/*.so from the last full
+# build. `-o build` tells make the order-only `build` prerequisite of system/cores is up to date, so
+# it does not trigger the full core rebuild. Never use this for a release: `make tg5040` rebuilds
+# and re-verifies every core from its pin.
+#   make tg5040-frontend     ~2 min, then: sh tools/deploy-device.sh tg5040 root@<ip> -i ~/.ssh/tg5040_dev
+build-frontend:
+	make build-frontend -f makefile.toolchain PLATFORM=$(PLATFORM)
+
+tg5040-frontend:
+	make setup && make build-frontend PLATFORM=tg5040 && make -o build system PLATFORM=tg5040 && make -o build cores PLATFORM=tg5040 && make special && make package && make done
+
+# Same loop for the Miyoo (2026-09-16): setup/special/package key off PLATFORMS, so it is set for
+# the whole chain. Deploy: sh tools/deploy-miyoomini.sh (ssh, dev cards) or drop MinUI.zip on the card.
+miyoomini-frontend:
+	export PLATFORMS=miyoomini && make setup && make build-frontend PLATFORM=miyoomini && make -o build system PLATFORM=miyoomini && make -o build cores PLATFORM=miyoomini && make special && make package && make done
+
 # h700 (Anbernic RG35XX Plus/H) does NOT ship as a zip like the other platforms: it is an OWNED OS,
 # so the release artifact is a flashable SD-card image built by stripping a muOS donor rootfs. See
 # docs/h700-release.md for the donor requirement (the one input that is not in this repo).
@@ -156,7 +176,8 @@ system:
 	cp ./workspace/all/syncsettings/build/$(PLATFORM)/syncsettings.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/say/build/$(PLATFORM)/say.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/confirm/build/$(PLATFORM)/confirm.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/EXTRAS/Tools/$(PLATFORM)/Clock.pak/
+	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/SYSTEM/$(PLATFORM)/bin/ # Settings > Date & Time (was Tools > Clock.pak until 2026-09-16)
 	cp ./workspace/all/minput/build/$(PLATFORM)/minput.elf ./build/EXTRAS/Tools/$(PLATFORM)/Input.pak/
 	# The miyoomini libSDL2 is NOT stock: it carries SDL2's OSS backend so audio routes through the
 	# vendor audioserver, which is what keeps the codec powered and removes the game-boundary pops
@@ -204,13 +225,14 @@ system:
 		find ./build/SYSTEM/$(PLATFORM) ./build/EXTRAS/Tools/$(PLATFORM) -name 'as_preload.so' 2>/dev/null; \
 		exit 1; \
 	fi
-	# Tune Voltage harness binaries -> the pak (tg5040 only)
+	# Tune Voltage harness binaries -> the pak (tg5040 only). The pak lives in .system/tg5040/paks
+	# since 2026-09-16: Settings > Optimize CPU is its entry, so it is no longer a Tools row.
 	if [ "$(PLATFORM)" = "tg5040" ]; then \
-		mkdir -p "./build/EXTRAS/Tools/tg5040/Optimize CPU.pak/bin"; \
-		cp ./workspace/tg5040/undervolt/build/uvtool "./build/EXTRAS/Tools/tg5040/Optimize CPU.pak/bin/"; \
-		cp ./workspace/tg5040/undervolt/build/stress "./build/EXTRAS/Tools/tg5040/Optimize CPU.pak/bin/"; \
-		cp ./workspace/tg5040/undervolt/build/deadman "./build/EXTRAS/Tools/tg5040/Optimize CPU.pak/bin/"; \
-		cp ./workspace/tg5040/undervolt/uvmap.sh "./build/EXTRAS/Tools/tg5040/Optimize CPU.pak/bin/"; \
+		mkdir -p "./build/SYSTEM/tg5040/paks/Optimize CPU.pak/bin"; \
+		cp ./workspace/tg5040/undervolt/build/uvtool "./build/SYSTEM/tg5040/paks/Optimize CPU.pak/bin/"; \
+		cp ./workspace/tg5040/undervolt/build/stress "./build/SYSTEM/tg5040/paks/Optimize CPU.pak/bin/"; \
+		cp ./workspace/tg5040/undervolt/build/deadman "./build/SYSTEM/tg5040/paks/Optimize CPU.pak/bin/"; \
+		cp ./workspace/tg5040/undervolt/uvmap.sh "./build/SYSTEM/tg5040/paks/Optimize CPU.pak/bin/"; \
 	fi
 
 cores: # TODO: can't assume every platform will have the same stock cores (platform should be responsible for copy too)

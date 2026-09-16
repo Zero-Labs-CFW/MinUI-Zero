@@ -401,7 +401,7 @@ keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 # code before the user opens Optimize CPU. Copy failure disarms and marks the campaign
 # invalid rather than running mixed versions.
 _uv_dir="$USERDATA_PATH/undervolt"
-_uv_pak="$SDCARD_PATH/Tools/$PLATFORM/Optimize CPU.pak/bin"
+_uv_pak="$SYSTEM_PATH/paks/Optimize CPU.pak/bin" # moved out of Tools/ 2026-09-16 (Settings > Optimize CPU is the entry)
 if [ -f "$_uv_dir/ARMED" ]; then
 	_uv_refresh_failed=0
 	for _uv_file in uvtool stress uvmap.sh; do
@@ -429,18 +429,15 @@ cd $(dirname "$0")
 
 #######################################
 
-# WiFi Toggle visibility (Dan, 2026-08-31): the tool appears in Tools ONLY when wifi is
-# configured — wifi.txt (on) or wifi.txt.off (toggled off; must stay visible or there is no way
-# back on). Unconfigured cards keep a clean Tools menu; the pak ships stashed in .system so
-# updates always carry it, and this block is the sole owner of the Tools copy. Deploys that
-# prune the Tools copy are self-healing: the next boot re-copies it.
-WIFI_PAK_SRC="$SYSTEM_PATH/paks/tools-stash/WiFi Toggle.pak"
-WIFI_PAK_DST="$SDCARD_PATH/Tools/tg5040/WiFi Toggle.pak"
-if [ -f "$SDCARD_PATH/wifi.txt" ] || [ -f "$SDCARD_PATH/wifi.txt.off" ]; then
-	[ -d "$WIFI_PAK_DST" ] || cp -r "$WIFI_PAK_SRC" "$WIFI_PAK_DST" 2>/dev/null
-else
-	rm -rf "$WIFI_PAK_DST" 2>/dev/null
-fi
+# Tools folded into Settings (Dan, 2026-09-16): Deep Sleep, Clock, Focus Mode, WiFi and Optimize
+# CPU are rows of Settings.pak now (Optimize CPU's pak moved to .system/tg5040/paks, refreshed
+# above). Drop the old paks from cards that had them. Those five are ours by name; the WiFi copy
+# is marker-guarded because FAT32 folds case, so "WiFi.pak" is also the community Wifi.pak, which
+# we must never delete.
+for _p in "Deep Sleep.pak" "Clock.pak" "Focus Mode.pak" "WiFi Toggle.pak" "Optimize CPU.pak"; do
+	rm -rf "$SDCARD_PATH/Tools/tg5040/$_p" 2>/dev/null
+done
+grep -q 'styled like Deep Sleep.pak' "$SDCARD_PATH/Tools/tg5040/WiFi.pak/launch.sh" 2>/dev/null && rm -rf "$SDCARD_PATH/Tools/tg5040/WiFi.pak" 2>/dev/null
 # Boot receipt, DEV CARDS ONLY (devmode.txt at the card root): kernel seconds at menu launch,
 # one ~40-byte line per boot. Measured the fleet for the README table (2026-08-31); stays as a
 # regression canary on dev cards and costs users nothing.

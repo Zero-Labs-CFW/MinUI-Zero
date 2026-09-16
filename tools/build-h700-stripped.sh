@@ -149,6 +149,11 @@ else
 echo "== extracting + stripping muOS rootfs (this takes a few minutes) =="
 cp "$REPO/tools/h700-strip/minui-frontend.sh" "$ASSETS/minui-frontend.sh"
 cp "$REPO/tools/h700-strip/expand-roms.sh" "$ASSETS/expand-roms.sh"
+# First-boot "Installing MinUI Zero..." frame for expand-roms.sh (raw fb page, panel-sized). Best
+# effort: no PIL on the host means no splash, never a failed build.
+rm -f "$ASSETS/installing.raw"
+python3 "$REPO/tools/h700-strip/make-splash.py" "$REPO/workspace/tg5040/install/installing.png" "$ASSETS/installing.raw" 640 480 \
+	|| echo "WARN: installing splash not rendered (python3 PIL missing); first boot shows the boot logo only"
 docker run --rm --platform linux/amd64 -v "$ASSETS:/a" -e P5_KB=$((P5_SECTORS / 2)) -e DEVICE="$DEVICE" -e MODE="$MODE" tg5040-toolchain /bin/bash -c '
 set -e
 R=/work/root
@@ -340,6 +345,7 @@ mkdir -p "$R/opt/minui-zero"
 cp /a/minui-frontend.sh "$R/opt/minui-zero/minui-frontend.sh"
 cp /a/expand-roms.sh "$R/opt/minui-zero/expand-roms.sh"
 chmod +x "$R/opt/minui-zero/expand-roms.sh"
+[ -f /a/installing.raw ] && cp /a/installing.raw "$R/opt/minui-zero/installing.raw"
 chmod +x "$R/opt/minui-zero/minui-frontend.sh"
 # NO wifi credentials baked into the image (privacy): WIPE muOS saved creds from the rdumped rootfs.
 # It bakes the builder network at /opt/muos/config/network/{ssid,pass} (net.sh no-ops on empty SSID),
@@ -470,7 +476,7 @@ cp "$REPO/workspace/all/minarch/build/h700/minarch.elf" "$STAGE/.system/h700/bin
 # Shared UI helpers every tool pak calls by bare name (the frontend puts this dir on PATH). Without
 # them the Deep Sleep tool, the only way to turn deep sleep OFF without ssh, now that it ships on
 # by default, dies at its first confirm.elf.
-for _h in confirm say; do
+for _h in confirm say settings clock; do
 	cp "$REPO/workspace/all/$_h/build/h700/$_h.elf" "$STAGE/.system/h700/bin/" 2>/dev/null || \
 		{ echo "ERROR: $_h.elf missing for h700, run 'make h700-build' first"; exit 1; }
 done
@@ -500,8 +506,7 @@ cp -R "$REPO"/skeleton/SYSTEM/h700/paks                 "$STAGE/.system/h700/pak
 if [ -d "$REPO/skeleton/EXTRAS/Tools/h700" ]; then
 	mkdir -p "$STAGE/Tools/h700"
 	cp -R "$REPO"/skeleton/EXTRAS/Tools/h700/* "$STAGE/Tools/h700/"
-	[ -f "$REPO/workspace/all/clock/build/h700/clock.elf" ] && \
-		cp "$REPO/workspace/all/clock/build/h700/clock.elf" "$STAGE/Tools/h700/Clock.pak/"
+	# clock.elf now ships in .system/h700/bin (Settings > Date & Time, 2026-09-16), copied above
 	[ -f "$REPO/workspace/all/minput/build/h700/minput.elf" ] && \
 		cp "$REPO/workspace/all/minput/build/h700/minput.elf" "$STAGE/Tools/h700/Input.pak/"
 	# Files ships the h700 build of DinguxCommander (same source and libs as the Brick's, which

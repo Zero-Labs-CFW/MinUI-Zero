@@ -69,3 +69,8 @@ clean:
 build: $(INIT_IF_NECESSARY)
 	$(REQUIRE_IMAGE)
 	docker run --rm --platform linux/amd64 -v $(HOST_WORKSPACE):$(GUEST_WORKSPACE) $(IMAGE) /bin/bash -c '. ~/.bashrc && cd /root/workspace && make PLATFORM=$(PLATFORM)'
+
+# Dev loop: frontend + tools only, reusing the cached cores (see `frontend` in workspace/makefile).
+build-frontend: $(INIT_IF_NECESSARY)
+	$(REQUIRE_IMAGE)
+	docker run --rm --platform linux/amd64 -v $(HOST_WORKSPACE):$(GUEST_WORKSPACE) $(IMAGE) /bin/bash -c '. ~/.bashrc && cd /root/workspace && make frontend PLATFORM=$(PLATFORM)'

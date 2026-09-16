@@ -33,7 +33,8 @@ static int root_opens; // how many times clearRecents rebuilt the root
 #include "recent_clear.inc"
 
 enum { BTN_A=1, BTN_B=2, BTN_Y=4, BTN_RESUME=8, BTN_UP=16, BTN_DOWN=32,
-	BTN_LEFT=64, BTN_RIGHT=128, BTN_L1=256, BTN_R1=512, BTN_SELECT=1024, BTN_MENU=2048 };
+	BTN_LEFT=64, BTN_RIGHT=128, BTN_L1=256, BTN_R1=512, BTN_SELECT=1024, BTN_MENU=2048, BTN_START=4096 };
+// BTN_START: the SELECT+START hidden-Tools hatch (v1.7.6) lives inside the extracted input block.
 static int pressed, released, opened, show_version, show_clear, dirty, show_setting, simple_mode;
 static int hdmi;
 static int GetHDMI(void) { return hdmi; }

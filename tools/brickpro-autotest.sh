@@ -153,7 +153,7 @@ fi
 note ""
 note "=== Tools payload freshness (the stale-binary class)"
 for f in ".system/tg5040/bin/confirm.elf" ".system/tg5040/bin/say.elf" \
-         "Tools/tg5040/Clock.pak/clock.elf" "Tools/tg5040/Input.pak/minput.elf"; do
+         ".system/tg5040/bin/settings.elf" ".system/tg5040/bin/clock.elf" "Tools/tg5040/Input.pak/minput.elf"; do
 	LOCAL=""
 	case "$f" in
 		.system/*) LOCAL="build/PAYLOAD/${f#.system/}" ; LOCAL="build/PAYLOAD/.system/${f#.system/}" ;;

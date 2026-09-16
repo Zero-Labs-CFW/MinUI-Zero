@@ -7,6 +7,7 @@
 #include <math.h>
 #include <ctype.h>
 #include <sys/time.h>
+#include <sys/stat.h>
 #include "defines.h"
 #include "utils.h"
 
@@ -219,4 +220,53 @@ uint64_t getMicroseconds(void) {
     ret += (uint64_t)tv.tv_usec;
 
     return ret;
+}
+
+///////////////////////////////////////
+// Favorites: FAVORITE_PATH holds one SD-relative rom path per line, like recent.txt. WRITTEN by
+// minarch (Y in the in-game menu toggles the running game) and READ by the launcher (the Favorites
+// row). Shared here so both binaries agree on the format and the toggle semantics.
+
+static const char* Favorites_rel(char* sd_path) {
+	// SD-relative like recent.txt ("/Roms/GB/game.gb"); a path outside the card is stored as-is
+	if (!strncmp(sd_path, SDCARD_PATH, strlen(SDCARD_PATH))) return sd_path + strlen(SDCARD_PATH);
+	return sd_path;
+}
+int Favorites_has(char* sd_path) {
+	const char* rel = Favorites_rel(sd_path);
+	FILE* file = fopen(FAVORITE_PATH, "r");
+	if (!file) return 0;
+	int found = 0;
+	char line[MAX_PATH];
+	while (fgets(line, sizeof(line), file)) {
+		normalizeNewline(line);
+		trimTrailingNewlines(line);
+		if (!strcmp(line, rel)) { found = 1; break; }
+	}
+	fclose(file);
+	return found;
+}
+void Favorites_toggle(char* sd_path) {
+	const char* rel = Favorites_rel(sd_path);
+	mkdir(SHARED_USERDATA_PATH "/.minui", 0755); // where recent.txt lives; a no-op once it exists
+	char tmp_path[MAX_PATH];
+	snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", FAVORITE_PATH);
+	FILE* out = fopen(tmp_path, "w");
+	if (!out) return;
+	int was = 0;
+	FILE* file = fopen(FAVORITE_PATH, "r");
+	if (file) {
+		char line[MAX_PATH];
+		while (fgets(line, sizeof(line), file)) {
+			normalizeNewline(line);
+			trimTrailingNewlines(line);
+			if (!line[0]) continue;
+			if (!strcmp(line, rel)) { was = 1; continue; } // present: drop it (unfavorite)
+			fputs(line, out); fputc('\n', out);
+		}
+		fclose(file);
+	}
+	if (!was) { fputs(rel, out); fputc('\n', out); } // absent: append (favorite); order stays stable
+	fclose(out);
+	rename(tmp_path, FAVORITE_PATH); // atomic swap, same discipline as the crash-safe save writes
 }

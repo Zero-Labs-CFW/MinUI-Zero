@@ -40,11 +40,11 @@ esac
 # build/PAYLOAD/Tools/<platform>, which land on the card at /mnt/SDCARD/.system/<platform> and
 # /mnt/SDCARD/Tools/<platform>. Syncing only the first is the same partial-deploy bug this script
 # was written to prevent, and it bit exactly that way on 2026-08-30: the Tools paks draw their UI
-# with their OWN binaries (Clock.pak/clock.elf, Input.pak/minput.elf, plus the confirm.elf and
+# with their OWN binaries (Input.pak/minput.elf, and the settings.elf, clock.elf, confirm.elf and
 # say.elf the others call), all of which compute geometry from platform.h. A Brick Pro therefore
 # kept rendering Tools at Smart Pro size after a "successful" deploy that reported a full match,
 # because the entire Tools half of the payload was never examined. Worse, MinUI.pak/launch.sh
-# re-arms the undervolt harness from Tools/ at every boot, so the consumer updated while the
+# re-arms the undervolt harness from the pak (then under Tools/, now .system/<platform>/paks) at every boot, so the consumer updated while the
 # producer did not. Sync every root or the "whole-tree" guarantee in the header above is a lie.
 SRC=./build/PAYLOAD/.system/$PLATFORM
 DST=/mnt/SDCARD/.system/$PLATFORM
@@ -139,11 +139,11 @@ TOTAL=$(wc -l < "$WORK/local.txt" | tr -d ' ')
 echo "files  : $N of $TOTAL differ"
 GRAND_TOTAL=$((GRAND_TOTAL + TOTAL))
 GRAND_SENT=$((GRAND_SENT + N))
+# Nothing to upload still falls through to the stale pass below: an early return here made
+# --delete a silent no-op on any re-run (found 2026-09-16, retiring the folded Tools paks).
 if [ "$N" -eq 0 ]; then
-	echo "  nothing to do for $LABEL"
-	return 0
-fi
-
+	echo "  nothing to upload for $LABEL"
+else
 echo "--- deploying ---"
 while IFS= read -r f; do
 	echo "  -> $f"
@@ -151,6 +151,7 @@ while IFS= read -r f; do
 	# ETXTBSY. mv within one filesystem is atomic, so a yanked battery leaves old or new, never half.
 	$SSH "$TARGET" "mkdir -p '$DST/$(dirname "$f")' && cat > '$DST/$f.new' && chmod 755 '$DST/$f.new' && mv -f '$DST/$f.new' '$DST/$f'" < "$SRC/$f"
 done < "$CHANGED"
+fi
 
 # Remove remote files the build no longer produces — OPT-IN via --delete. Without deletion the
 # "sync" is upload-only, so a deleted pak or renamed core lingers and can contaminate the next
@@ -168,7 +169,9 @@ if [ -n "$STALE" ]; then
 		echo "$STALE" | while IFS= read -r f; do
 			[ -n "$f" ] || continue
 			echo "  xx $f"
-			$SSH "$TARGET" "rm -f '$DST/$f'"
+			# stdin redirected: ssh otherwise swallows the rest of the list and only the first
+			# stale file is removed (seen 2026-09-16, the first real --delete run)
+			$SSH "$TARGET" "rm -f '$DST/$f'" < /dev/null
 		done
 	else
 		echo "--- stale files on device KEPT (pass --delete to remove) ---"

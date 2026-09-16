@@ -26,6 +26,10 @@ void getFile(char* path, char* buffer, size_t buffer_size);
 void putInt(char* path, int value);
 int getInt(char* path);
 
+// Favorites list (FAVORITE_PATH): toggled by minarch from the in-game menu, read by the launcher.
+int Favorites_has(char* sd_path);      // is this rom (absolute card path) in the list?
+void Favorites_toggle(char* sd_path);  // add if absent, remove if present; atomic rewrite
+
 uint64_t getMicroseconds(void);
 
 #endif

@@ -70,6 +70,16 @@ fi
 
 say "start: disk=${DISK_SECTORS}s part=${PART_START}+${PART_SIZE}s free=${FREE}s (~$(( FREE / 2048 ))MB)"
 
+# Tell the user: the copy-format-copy below takes minutes on a big card with only the boot logo
+# on screen (Dan, 2026-09-16). A pre-rendered panel-sized XRGB frame (make-splash.py at build
+# time) written straight to fb0, which is live before the card mounts. Page 0 is what is shown.
+SPLASH=/opt/minui-zero/installing.raw
+if [ -f "$SPLASH" ] && [ -c /dev/fb0 ]; then
+	echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null
+	cat "$SPLASH" > /dev/fb0 2>/dev/null
+	say "splash shown"
+fi
+
 # ---- 1. copy the payload off the card and verify it, before anything destructive ----
 mkdir -p "$MOUNT" 2>/dev/null
 mount -t vfat -o rw,utf8,noatime,nofail "$PART" "$MOUNT" 2>>"$LOG" || { say "cannot mount the card to back it up. Skipping."; exit 0; }

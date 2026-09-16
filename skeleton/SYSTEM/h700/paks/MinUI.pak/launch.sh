@@ -119,37 +119,10 @@ WIFI_TXT="$SDCARD_PATH/wifi.txt"
 	_line=$(sed '/^#/d;/^[[:space:]]*$/d' "$WIFI_TXT" | head -1)
 	_ssid=${_line%%:*}; _psk=${_line#*:}
 	if [ -n "$_ssid" ] && [ "$_ssid" != "$_line" ]; then
-		if [ -x /opt/muos/script/system/network.sh ] && [ -f /opt/muos/script/var/func.sh ]; then
-			# muOS layer: delegate to its proven bring-up (driver load, scan, wpa_passphrase, dhcp,
-			# validate, keepalive with the rtw_power_mgnt=0 idle-drop fix). Hand-rolling this is what
-			# broke wifi repeatedly, so on that layer we do not.
-			( . /opt/muos/script/var/func.sh
-			  SET_VAR "config" "network/ssid"   "$_ssid"
-			  SET_VAR "config" "network/pass"   "$_psk"
-			  SET_VAR "config" "network/hidden" "0"
-			  SET_VAR "config" "network/type"   "0"
-			  SET_VAR "config" "settings/network/con_retry"  "3"
-			  SET_VAR "config" "settings/network/monitor"    "1" )
-			/opt/muos/script/system/network.sh connect >> "$LOG" 2>&1 &
-		else
-			# Bare OS layer: wpa_supplicant directly. The module is already loaded by rcS when
-			# wifi.txt exists, so the interface should be present; wait briefly rather than assume.
-			for _i in 1 2 3 4 5 6 7 8 9 10; do
-				[ -d /sys/class/net/wlan0 ] && break
-				sleep 1
-			done
-			ifconfig wlan0 up 2>/dev/null
-			_conf=/tmp/wpa.conf
-			{ echo "ctrl_interface=/var/run/wpa_supplicant"
-			  echo "network={"
-			  echo "	ssid=\"$_ssid\""
-			  echo "	psk=\"$_psk\""
-			  echo "}"; } > "$_conf"
-			chmod 600 "$_conf"
-			wpa_supplicant -B -i wlan0 -c "$_conf" >> "$LOG" 2>&1
-			# udhcpc, not dhcpcd: busybox provides it and it is already in the rootfs.
-			udhcpc -i wlan0 -b -q >> "$LOG" 2>&1 &
-		fi
+		# The connect itself (muOS network.sh, or wpa_supplicant + udhcpc on a bare layer) lives in
+		# bin/wifi-up.sh, moved 2026-09-16 so Tools > WiFi can run the same step on TURN ON without a
+		# reboot. The monitor below stays here: it is per boot, and it already stops when wifi.txt goes.
+		sh "$SYSTEM_PATH/bin/wifi-up.sh"
 		# RECONNECT MONITOR. The bring-up is one-shot on both layers, and one bad roll on early boot
 		# left the device offline until the next reboot (seen live 2026-08-10). NOTE: ifconfig, not
 		# `ip`: this busybox has no ip applet (verified 2026-08-27), so the old check silently
@@ -279,18 +252,14 @@ cd "$(dirname "$0")"
 # A first draft of this file used the tg5040 marker, which would have left the power-off path
 # working only by accident and dropped the fail-retry below entirely (caught 2026-08-26).
 FAILS=0
-# WiFi Toggle visibility (Dan, 2026-08-31): the tool appears in Tools ONLY when wifi is
-# configured — wifi.txt (on) or wifi.txt.off (toggled off; must stay visible or there is no way
-# back on). Unconfigured cards keep a clean Tools menu; the pak ships stashed in .system so
-# updates always carry it, and this block is the sole owner of the Tools copy. Deploys that
-# prune the Tools copy are self-healing: the next boot re-copies it.
-WIFI_PAK_SRC="$SYSTEM_PATH/paks/tools-stash/WiFi Toggle.pak"
-WIFI_PAK_DST="$SDCARD_PATH/Tools/h700/WiFi Toggle.pak"
-if [ -f "$SDCARD_PATH/wifi.txt" ] || [ -f "$SDCARD_PATH/wifi.txt.off" ]; then
-	[ -d "$WIFI_PAK_DST" ] || cp -r "$WIFI_PAK_SRC" "$WIFI_PAK_DST" 2>/dev/null
-else
-	rm -rf "$WIFI_PAK_DST" 2>/dev/null
-fi
+# Tools folded into Settings (Dan, 2026-09-16): Deep Sleep, Clock, Focus Mode and WiFi are rows
+# of Settings.pak now. Drop the old paks from cards that had them. Deep Sleep, Clock and Focus
+# Mode are ours by name; the WiFi copy is marker-guarded because FAT32 folds case, so "WiFi.pak"
+# is also the community Wifi.pak, which we must never delete.
+for _p in "Deep Sleep.pak" "Clock.pak" "Focus Mode.pak" "WiFi Toggle.pak"; do
+	rm -rf "$SDCARD_PATH/Tools/h700/$_p" 2>/dev/null
+done
+grep -q 'styled like Deep Sleep.pak' "$SDCARD_PATH/Tools/h700/WiFi.pak/launch.sh" 2>/dev/null && rm -rf "$SDCARD_PATH/Tools/h700/WiFi.pak" 2>/dev/null
 while : ; do
 	rm -f /tmp/next /tmp/poweroff
 	minui.elf >> "$LOG" 2>&1

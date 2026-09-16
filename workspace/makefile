@@ -29,6 +29,7 @@ endif
 	cd ./all/syncsettings/ && make
 	cd ./all/say/ && make
 	cd ./all/confirm/ && make
+	cd ./all/settings/ && make
 	# Tune Voltage harness binaries (undervolt calibration) — build inside the mount;
 	# the top makefile copies them into the pak host-side (build/ is outside the container).
 	# tg5040-only: the TCS4838 PMIC engine and its aarch64 compiler path don't exist elsewhere.
@@ -47,6 +48,35 @@ ifneq (h700,$(PLATFORM))
 endif
 	cd ./$(PLATFORM) && make
 
+# DEV LOOP: everything `all` builds EXCEPT the cores. The core step above (`make verify && make
+# clean && make`) recompiles all eleven emulators with LTO on every run, ~20 min and enough VM memory
+# to get the build killed on a busy Mac (2026-09-16: two launcher-only builds died that way). A
+# launcher/minarch/tool change does not touch a core, so this reuses cores/output/*.so as-is. The
+# host-side `cores` target still copies them and `check-payload` still gates the staged set, so a
+# missing or foreign core fails the build exactly as before. Releases keep using `all`.
+.PHONY: frontend
+frontend:
+	cd ./$(PLATFORM)/libmsettings && make
+	cd ./$(PLATFORM) && make early
+ifneq (h700,$(PLATFORM))
+	cd ./$(PLATFORM)/keymon && make
+endif
+	cd ./all/minui/ && make clean && make
+	cd ./all/minarch/ && make clean && make
+	cd ./all/clock/ && make
+	cd ./all/minput/ && make
+	cd ./all/syncsettings/ && make
+	cd ./all/say/ && make
+	cd ./all/confirm/ && make
+	cd ./all/settings/ && make
+ifeq (tg5040,$(PLATFORM))
+	mkdir -p ./tg5040/undervolt/build
+	/opt/aarch64-linux-gnu/bin/aarch64-linux-gnu-gcc -O2 -o ./tg5040/undervolt/build/uvtool ./tg5040/undervolt/uvtool.c
+	/opt/aarch64-linux-gnu/bin/aarch64-linux-gnu-gcc -O2 -o ./tg5040/undervolt/build/stress ./tg5040/undervolt/stress.c -lpthread
+	/opt/aarch64-linux-gnu/bin/aarch64-linux-gnu-gcc -O2 -o ./tg5040/undervolt/build/deadman ./tg5040/undervolt/deadman.c
+endif
+	cd ./$(PLATFORM) && make
+
 clean:
 	cd ./$(PLATFORM)/libmsettings && make clean
 ifneq (h700,$(PLATFORM))
@@ -59,4 +89,5 @@ endif
 	cd ./all/syncsettings/ && make clean
 	cd ./all/say/ && make clean
 	cd ./all/confirm/ && make clean
+	cd ./all/settings/ && make clean
 	cd ./$(PLATFORM) && make clean
