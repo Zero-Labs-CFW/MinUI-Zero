@@ -57,28 +57,42 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 
 **Anbernic** *is* the operating system: flash the `.img.xz` for your exact device with Raspberry Pi Imager, balenaEtcher, or `dd`. Flashing erases the card, and the Plus and H images are not interchangeable.
 
-## Flags
+## Settings
 
-MinUI Zero has no settings menu. Behavior is set by small files, most of them empty. Card-root flags go at the top of the SD card and work with or without a `.txt` extension; delete the file to undo.
+Tools > Settings is the one screen for everything you can change, drawn like the in-game Options: a value on each row and a line under the list saying what it does.
+
+| Row | Values | What it does |
+|---|---|---|
+| Recents | On / Off | Recently Played on the main menu |
+| Favorites | Off / On / Focus | favorite a game with Y in its in-game menu; On lists them on the main menu, Focus replaces the consoles with them |
+| Tools | Shown / Hidden | SELECT + START at the main menu opens Tools even when hidden |
+| Deep Sleep | On / Off | suspend to RAM when idle (TrimUI, Anbernic) |
+| Optimize CPU | Stock / Optimized | per-chip undervolting; A runs or manages it (TrimUI) |
+| WiFi | On / Off | shown once `wifi.txt` exists; On also starts SSH |
+| Date & Time | | A opens the clock setter, which also owns the menu clock |
+
+Every setting is also a small file on the card, so you can set it from a computer, and a few things are files only. Card-root files go at the top of the SD card and work with or without a `.txt` extension; delete the file to undo.
 
 **Card root**
 
-| File | Effect |
-|---|---|
-| `no-recents` | hides Recently Played and stops recording plays |
-| `hide-tools` | hides Tools (SELECT + START at the main menu opens it anyway) |
-| `wifi.txt` | one network per line as `SSID:password`; adds a WiFi Toggle tool |
-| `timezone` | an IANA name like `America/New_York`, for the clock and DST (TrimUI) |
-| `devmode` | stays awake and starts SSH; for development, costs idle battery |
-| `authorized_keys` | your SSH public key (Anbernic; SSH never starts without it) |
+| File | Settings row | Effect |
+|---|---|---|
+| `no-recents` | Recents: Off | hides Recently Played and stops recording plays |
+| `no-favorites` | Favorites: Off | hides Favorites; the in-game Y does nothing |
+| `focus` | Favorites: Focus | the main menu shows your Favorites instead of the consoles |
+| `hide-tools` | Tools: Hidden | hides Tools (SELECT + START at the main menu opens it anyway) |
+| `wifi.txt` | WiFi | one network per line as `SSID:password`; file only, the password is yours to type |
+| `timezone` | | an IANA name like `America/New_York`, for the clock and DST (TrimUI) |
+| `devmode` | | stays awake and starts SSH; for development, costs idle battery |
+| `authorized_keys` | | your SSH public key (Anbernic; SSH never starts without it) |
 
-**Set by Tools** (they live in `.userdata/shared/`; you can also create them by hand)
+**In `.userdata/shared/`**
 
-| File | Effect |
-|---|---|
-| `disable-deep-sleep` | Tools > Deep Sleep: sleep works like stock instead of suspending to RAM |
-| `show-clock` | Tools > Clock: shows a clock in the menu |
-| `enable-simple-mode` | hides Tools and replaces Options with Reset in the game menu; no escape hatch, meant for a locked-down or kid's device |
+| File | Settings row | Effect |
+|---|---|---|
+| `disable-deep-sleep` | Deep Sleep: Off | sleep works like stock instead of suspending to RAM |
+| `show-clock` | Date & Time | shows a clock in the menu |
+| `enable-simple-mode` | | hides Tools and replaces Options with Reset in the game menu; no escape hatch and no Settings row on purpose, for a locked-down or kid's device |
 
 ## Devices
 

@@ -166,6 +166,8 @@ gcc minui.c -o build/macos/minui -I. -I../common/ -I../../macos/platform/ \
 **Flashable Brick build (needs Docker running):**
 ```bash
 make tg5040                 # builds tg5040 in MinUI's docker toolchain; zip → ./releases/
+make tg5040-frontend        # dev loop, ~1 min: launcher/tools only, cached cores (never for a release)
+make miyoomini-frontend     # same loop for the Miyoo
 make shell PLATFORM=tg5040  # drop into the toolchain container
 ```
 **On-device iteration:** MinUI runs from SD + SSH, so no reflashing per change. ALWAYS deploy with
@@ -190,7 +192,8 @@ Shipped + on-device-validated (2026-07-01, on `integration`, build `MinUI-202607
   (2.0 GHz OC dropped). **Race-to-idle** (`DECISIONS` D14): the ceiling must not force `schedutil` below
   the clock where it finishes-the-frame-and-idles. ~4-5°C cooler than stock, validated GBC→PS1.
 - **Deep sleep** — validated on-device (33→27°C, clean resume). **ON by default** (2026-07-01); opt-out
-  via the Deep Sleep tool (`disable-deep-sleep` flag).
+  via Settings > Deep Sleep (`disable-deep-sleep` flag; the toggle tools folded into one Settings
+  screen on 2026-09-16, Tools = Files + Settings).
 - **Radios + LEDs off** by default (`boot.sh`); **QoL** #4 (bail on failed `core.load_game`) + #6
   (`SET_SYSTEM_AV_INFO`/`SET_GEOMETRY` re-sync) in `minarch.c`; `-O3` pinned cores; drift-free pacer.
 - **Measured:** **~7.7h** battery on GB/GBC post-optimization (2026-07-02 re-baseline: 390 units/h,
