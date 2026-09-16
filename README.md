@@ -34,7 +34,7 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 
 *Nothing to configure. Just play.*
 
-Reasoning and numbers: [`docs/DECISIONS.md`](docs/DECISIONS.md) · [`docs/nextui-comparison.md`](docs/nextui-comparison.md) · [`docs/bench/README.md`](docs/bench/README.md)
+[Decisions](docs/DECISIONS.md) · [NextUI Comparison](docs/nextui-comparison.md) · [Benchmarks](docs/bench/README.md)
 
 ## Consoles
 
