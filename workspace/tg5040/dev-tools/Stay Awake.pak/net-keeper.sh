@@ -6,6 +6,10 @@
 FAILS=0
 LOGF=/mnt/SDCARD/.userdata/tg5040/logs/net-keeper.txt
 while [ -f /mnt/SDCARD/.userdata/shared/dev-stay-awake ]; do
+	# Device Sync deliberately drops home wifi to join a peer hotspot, then restores it. While that is in
+	# flight the gateway is gone ON PURPOSE; bouncing wlan0 here tore down the join and then the restore
+	# and stranded the Brick off wifi three times on 2026-09-05. Stand down while the flag exists.
+	if [ -f /tmp/dsync-radio-busy ]; then FAILS=0; sleep 20; continue; fi
 	GW=$(ip route 2>/dev/null | awk '/default/ {print $3; exit}')
 	[ -z "$GW" ] && GW=$(route -n 2>/dev/null | awk '$1=="0.0.0.0" {print $2; exit}')
 	if [ -n "$GW" ] && ping -c 1 -W 2 "$GW" >/dev/null 2>&1; then

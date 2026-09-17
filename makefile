@@ -55,7 +55,7 @@ name:
 	@echo $(RELEASE_NAME)
 
 # host-side unit tests (no device, no toolchain)
-.PHONY: test-governor test-telemetry test-save-io test-ff-audio test-undervolt test-reproducibility test-wakeup test-gov-memory test-dupskip test-snd-pacing test-shellquote test-install-safety test-cfg-migrate check-parity check-threading-policy
+.PHONY: test-governor test-telemetry test-save-io test-ff-audio test-undervolt test-reproducibility test-wakeup test-gov-memory test-dupskip test-devicesync test-snd-pacing test-shellquote test-install-safety test-cfg-migrate check-parity check-threading-policy
 test-governor:
 	sh ./workspace/all/common/run-governor-tests.sh
 .PHONY: test-recents
@@ -98,6 +98,8 @@ test-dupskip:
 	sh ./workspace/all/common/run-dupskip-tests.sh
 test-audioservo:
 	sh ./workspace/all/common/run-audioservo-tests.sh
+test-devicesync:
+	sh ./workspace/all/common/run-devicesync-tests.sh
 test-snd-pacing:
 	sh ./workspace/all/common/run-snd-pacing-tests.sh
 check-threading-policy:
@@ -178,6 +180,8 @@ system:
 	cp ./workspace/all/confirm/build/$(PLATFORM)/confirm.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/SYSTEM/$(PLATFORM)/bin/ # Settings > Date & Time (was Tools > Clock.pak until 2026-09-16)
+	cp ./workspace/all/status/build/$(PLATFORM)/status.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	cp ./workspace/all/pick/build/$(PLATFORM)/pick.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/minput/build/$(PLATFORM)/minput.elf ./build/EXTRAS/Tools/$(PLATFORM)/Input.pak/
 	# The miyoomini libSDL2 is NOT stock: it carries SDL2's OSS backend so audio routes through the
 	# vendor audioserver, which is what keeps the codec powered and removes the game-boundary pops
