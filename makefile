@@ -181,7 +181,6 @@ system:
 	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/SYSTEM/$(PLATFORM)/bin/ # Settings > Date & Time (was Tools > Clock.pak until 2026-09-16)
 	cp ./workspace/all/status/build/$(PLATFORM)/status.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/all/pick/build/$(PLATFORM)/pick.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/minput/build/$(PLATFORM)/minput.elf ./build/EXTRAS/Tools/$(PLATFORM)/Input.pak/
 	# The miyoomini libSDL2 is NOT stock: it carries SDL2's OSS backend so audio routes through the
 	# vendor audioserver, which is what keeps the codec powered and removes the game-boundary pops

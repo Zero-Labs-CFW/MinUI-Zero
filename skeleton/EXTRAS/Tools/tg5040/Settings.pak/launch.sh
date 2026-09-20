@@ -106,7 +106,7 @@ while :; do
 	if [ -f "$USERDATA_PATH/show_24hour" ]; then NOW=$(date '+%H:%M'); else NOW=$(date '+%l:%M %p' | sed 's/^ *//'); fi
 	set -- "$@" datetime "Date & Time" "" "$NOW" "Press A to set. The clock can also\nshow on the main menu."
 
-	OUT=$(settings.elf "$@")
+	OUT=$(settings.elf --title "Settings" "$@")
 	AGAIN=0
 	for line in $OUT; do # KEY=VALUE tokens; a value never contains a space
 		case "$line" in
