@@ -94,6 +94,16 @@ Every setting is also a small file on the card, so you can set it from a compute
 | `show-clock` | Date & Time | shows a clock in the menu |
 | `enable-simple-mode` | | hides Tools and replaces Options with Reset in the game menu; no escape hatch and no Settings row on purpose, for a locked-down or kid's device |
 
+## Device Sync
+
+Tools > Device Sync copies your saves between two handhelds directly over a hotspot one of them opens: no computer, no internet, no account. Open it on both devices and press X Sync on each. One device (the one you are holding) shows the list of games whose saves differ; press A and both sides copy in one stream, then return to Tools by themselves.
+
+* **What it syncs**: Saves (on by default: save files, save states and their thumbnails, Favorites, Recently Played), Games and Game Configs (off by default). Each device chooses; a category copies only when both have it on.
+* **Nothing is ever lost**: a game is never overwritten or deleted, and any save that is replaced is backed up first. Backups (Y on the Device Sync screen) lists them, restores one, or deletes old ones to free space.
+* **Newest wins**: when a save changed on both devices, the newer copy is kept and the older one backed up; clocks are compared across devices so a device without a clock does not win by accident.
+* **No setup**: the hotspot needs no `wifi.txt`. The Miyoo Mini Plus always hosts (it cannot scan), the others join or host as needed. Both devices must run the same Zero version; if they differ, Device Sync says which one to update.
+* If a sync is interrupted (battery, a device walking out of range) nothing is half-written: reopen Device Sync and it finishes what it started.
+
 ## Devices
 
 * **TrimUI (Brick, Brick Pro, Smart Pro)**: the primary platform, where Zero is tuned and measured.
