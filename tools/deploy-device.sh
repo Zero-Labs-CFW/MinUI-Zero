@@ -32,6 +32,11 @@ DELETE_STALE=0
 for arg in "$@"; do [ "$arg" = "--delete" ] && DELETE_STALE=1; done
 if [ "${3:-}" = "-i" ] && [ -n "${4:-}" ]; then IDENT="-i $4"; fi
 PORT=22
+# h700 (an owned OS on /mnt/mmc, no zip payload) reuses this script through three overrides set by
+# tools/deploy-h700.sh: PAYLOAD (a staged tree), DEVROOT (the card mount) and LATEST (its stamp).
+PAYLOAD=${PAYLOAD:-./build/PAYLOAD}
+DEVROOT=${DEVROOT:-/mnt/SDCARD}
+LATEST=${LATEST:-./build/latest.txt}
 case "$TARGET" in
 	*:*) PORT=${TARGET##*:}; TARGET=${TARGET%:*} ;;
 esac
@@ -46,33 +51,33 @@ esac
 # because the entire Tools half of the payload was never examined. Worse, MinUI.pak/launch.sh
 # re-arms the undervolt harness from the pak (then under Tools/, now .system/<platform>/paks) at every boot, so the consumer updated while the
 # producer did not. Sync every root or the "whole-tree" guarantee in the header above is a lie.
-SRC=./build/PAYLOAD/.system/$PLATFORM
-DST=/mnt/SDCARD/.system/$PLATFORM
-SRC2=./build/PAYLOAD/Tools/$PLATFORM
-DST2=/mnt/SDCARD/Tools/$PLATFORM
+SRC=$PAYLOAD/.system/$PLATFORM
+DST=$DEVROOT/.system/$PLATFORM
+SRC2=$PAYLOAD/Tools/$PLATFORM
+DST2=$DEVROOT/Tools/$PLATFORM
 # .tmp_update is the BOOT DISPATCH (tg5040.sh, updater, the boot artwork). It is not per-platform:
 # the staged directory is shared, and it is what runs before the launcher on every boot. Omitting
 # it meant a change to install/boot.sh could never reach a device, which is precisely how the
 # LED-timing fix appeared to do nothing after a "successful" deploy (2026-08-30). Third root.
-SRC3=./build/PAYLOAD/.tmp_update
-DST3=/mnt/SDCARD/.tmp_update
+SRC3=$PAYLOAD/.tmp_update
+DST3=$DEVROOT/.tmp_update
 # .system/res is the SHARED asset root -- the sprite sheets, the font, the grid/line art. It sits
 # beside .system/<platform>, not inside it, so the per-platform root above walks straight past it.
 # That was invisible while the sheets never changed; the Brick Pro's assets@2.5x.png broke the
 # assumption, and a binary that selects a sheet its card does not carry does not degrade, it
 # segfaults (api.c calls IMG_Load then hands the result to SDLX_SetAlpha). Fourth root.
-SRC4=./build/PAYLOAD/.system/res
-DST4=/mnt/SDCARD/.system/res
+SRC4=$PAYLOAD/.system/res
+DST4=$DEVROOT/.system/res
 
 [ -d "$SRC" ] || { echo "no build payload at $SRC — run: make PLATFORMS=$PLATFORM $PLATFORM"; exit 1; }
-[ -f ./build/latest.txt ] || { echo "no build/latest.txt — build did not complete"; exit 1; }
+[ -f "$LATEST" ] || { echo "no $LATEST — build did not complete"; exit 1; }
 
 # Refuse to deploy a build older than the working tree. A deploy that silently ships yesterday's
 # binaries is worse than no deploy: the device test then certifies the wrong code.
 # Watch EVERY input that can change the payload, not just sources: cfgs, makefiles, core patches and
 # shipped assets all alter what gets built, and an earlier version of this gate watched only
 # .c/.h/launch.sh so a changed default.cfg could deploy from a stale build.
-NEWER=$(find workspace skeleton -newer ./build/latest.txt -type f \
+NEWER=$(find workspace skeleton -newer "$LATEST" -type f \
 	! -path '*/cores/src/*' ! -name '*.o' ! -name '*.d' -print -quit 2>/dev/null || true)
 [ -z "$NEWER" ] || {
 	echo "STALE BUILD: $NEWER is newer than build/latest.txt"
@@ -90,7 +95,7 @@ NEWER=$(find workspace skeleton -newer ./build/latest.txt -type f \
 SSH="ssh -p $PORT -o ConnectTimeout=8 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR $IDENT"
 
 echo "target : $TARGET:$PORT  ($PLATFORM)"
-echo "build  : $(cat ./build/latest.txt)"
+echo "build  : $(cat "$LATEST")"
 
 $SSH "$TARGET" true 2>/dev/null || {
 	echo "device unreachable at $TARGET:$PORT"
@@ -200,15 +205,15 @@ return 0
 # that let the Tools half go unexamined for a whole day.
 sync_root "$SRC"  "$DST"  ".system"     || exit 1
 sync_root "$SRC2" "$DST2" "Tools"       || exit 1
-sync_root "$SRC3" "$DST3" ".tmp_update" || exit 1
-sync_root "$SRC4" "$DST4" ".system/res" || exit 1
+[ -d "$SRC3" ] && { sync_root "$SRC3" "$DST3" ".tmp_update" || exit 1; }   # h700 stages neither of these
+[ -d "$SRC4" ] && { sync_root "$SRC4" "$DST4" ".system/res" || exit 1; }
 # version.txt (and commits.txt) live at the .system ROOT, in none of the four synced roots -- the
 # same blind-spot class as .system/res. Left unsynced, a dev card reports the version of whatever
 # zip it was FIRST installed from forever (this one said v1.5.5 through twelve deploys of v1.6.1).
 for VF in version.txt commits.txt; do
-	[ -f "./build/PAYLOAD/.system/$VF" ] || continue
-	if ! $SSH "$TARGET" "md5sum /mnt/SDCARD/.system/$VF 2>/dev/null" | grep -q "$(md5 -q "./build/PAYLOAD/.system/$VF" 2>/dev/null || md5sum "./build/PAYLOAD/.system/$VF" | cut -d" " -f1)"; then
-		$SSH "$TARGET" "cat > /mnt/SDCARD/.system/$VF" < "./build/PAYLOAD/.system/$VF" && echo "  sent .system/$VF ($(head -1 "./build/PAYLOAD/.system/$VF"))"
+	[ -f "$PAYLOAD/.system/$VF" ] || continue
+	if ! $SSH "$TARGET" "md5sum $DEVROOT/.system/$VF 2>/dev/null" | grep -q "$(md5 -q "$PAYLOAD/.system/$VF" 2>/dev/null || md5sum "$PAYLOAD/.system/$VF" | cut -d" " -f1)"; then
+		$SSH "$TARGET" "cat > $DEVROOT/.system/$VF" < "$PAYLOAD/.system/$VF" && echo "  sent .system/$VF ($(head -1 "$PAYLOAD/.system/$VF"))"
 	fi
 done
 
@@ -220,7 +225,7 @@ fi
 
 cat <<EOF
 
-deployed $(cat ./build/latest.txt)
+deployed $(cat "$LATEST")
 
 TWO DIFFERENT RESTARTS — they do not pick up the same things.
 

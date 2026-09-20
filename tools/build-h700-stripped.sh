@@ -476,11 +476,15 @@ cp "$REPO/workspace/all/minarch/build/h700/minarch.elf" "$STAGE/.system/h700/bin
 # Shared UI helpers every tool pak calls by bare name (the frontend puts this dir on PATH). Without
 # them the Deep Sleep tool, the only way to turn deep sleep OFF without ssh, now that it ships on
 # by default, dies at its first confirm.elf.
-for _h in confirm say settings clock; do
+for _h in confirm say settings clock status; do
 	cp "$REPO/workspace/all/$_h/build/h700/$_h.elf" "$STAGE/.system/h700/bin/" 2>/dev/null || \
 		{ echo "ERROR: $_h.elf missing for h700, run 'make h700-build' first"; exit 1; }
 done
 cp "$REPO/workspace/h700/libmsettings/libmsettings.so"  "$STAGE/.system/h700/lib/"
+# card-side libs (2026-09-17): libnl-tiny.so for hostapd (both lifted from the TrimUI firmware,
+# same aarch64 glibc; Device Sync hosts its hotspot with hostapd, wpa_supplicant AP mode dies
+# on the RTL8821CS when a client associates)
+for _l in "$REPO"/skeleton/SYSTEM/h700/lib/*; do [ -f "$_l" ] && cp "$_l" "$STAGE/.system/h700/lib/"; done
 cp "$REPO/skeleton/SYSTEM/tg5040/bin/dropbearmulti"     "$STAGE/.system/h700/bin/dropbearmulti"  # ssh (openssh stripped); aarch64, shared with tg5040
 chmod +x "$STAGE/.system/h700/bin/dropbearmulti"
 # Shipped shell helpers from the skeleton, notably `suspend`, the deep-sleep choreography that
