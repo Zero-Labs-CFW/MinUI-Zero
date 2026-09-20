@@ -226,7 +226,7 @@ static void Directory_index(Directory* self) {
 		FILE* file = fopen(map_path, "r");
 		if (file) {
 			map = Hash_new();
-			char line[256];
+			char line[MAX_PATH];
 			while (fgets(line,256,file)!=NULL) {
 				normalizeNewline(line);
 				trimTrailingNewlines(line);
@@ -395,7 +395,7 @@ static int hasEmu(char* emu_name);
 static Recent* Recent_new(char* path, char* alias) {
 	Recent* self = malloc(sizeof(Recent));
 
-	char sd_path[256]; // only need to get emu name
+	char sd_path[MAX_PATH]; // only need to get emu name
 	sprintf(sd_path, "%s%s", SDCARD_PATH, path);
 
 	char emu_name[256];
@@ -566,7 +566,7 @@ static int hasRecents(void) {
 	
 	Array* parent_paths = Array_new();
 	if (exists(CHANGE_DISC_PATH)) {
-		char sd_path[256];
+		char sd_path[MAX_PATH];
 		getFile(CHANGE_DISC_PATH, sd_path, 256);
 		if (exists(sd_path)) {
 			char* disc_path = sd_path + strlen(SDCARD_PATH); // makes path platform agnostic
@@ -585,7 +585,7 @@ static int hasRecents(void) {
 	
 	FILE* file = fopen(RECENT_PATH, "r"); // newest at top
 	if (file) {
-		char line[256];
+		char line[MAX_PATH];
 		while (fgets(line,256,file)!=NULL) {
 			normalizeNewline(line);
 			trimTrailingNewlines(line);
@@ -601,7 +601,7 @@ static int hasRecents(void) {
 				alias = tmp+1;
 			}
 			
-			char sd_path[256];
+			char sd_path[MAX_PATH];
 			sprintf(sd_path, "%s%s", SDCARD_PATH, path);
 			if (exists(sd_path)) {
 				if (recents->count<MAX_RECENTS) {
@@ -758,7 +758,7 @@ static Array* getRoot(void) {
 		FILE* file = fopen(map_path, "r");
 		if (file) {
 			Hash* map = Hash_new();
-			char line[256];
+			char line[MAX_PATH];
 			while (fgets(line,256,file)!=NULL) {
 				normalizeNewline(line);
 				trimTrailingNewlines(line);
@@ -831,7 +831,7 @@ static Array* getRecents(void) {
 		Recent* recent = recents->items[i];
 		if (!recent->available) continue;
 		
-		char sd_path[256];
+		char sd_path[MAX_PATH];
 		sprintf(sd_path, "%s%s", SDCARD_PATH, recent->path);
 		int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM; // ???
 		Entry* entry = Entry_new(sd_path, type);
@@ -851,12 +851,12 @@ static int hasFavorites(void) {
 	FILE* file = fopen(FAVORITE_PATH, "r");
 	if (!file) return 0;
 	int has = 0;
-	char line[256];
+	char line[MAX_PATH];
 	while (fgets(line,256,file)!=NULL) {
 		normalizeNewline(line);
 		trimTrailingNewlines(line);
 		if (strlen(line)==0) continue;
-		char sd_path[256];
+		char sd_path[MAX_PATH];
 		sprintf(sd_path, "%s%s", SDCARD_PATH, line);
 		if (exists(sd_path)) { has = 1; break; }
 	}
@@ -867,12 +867,12 @@ static Array* getFavorites(void) {
 	Array* entries = Array_new();
 	FILE* file = fopen(FAVORITE_PATH, "r");
 	if (file) {
-		char line[256];
+		char line[MAX_PATH];
 		while (fgets(line,256,file)!=NULL) {
 			normalizeNewline(line);
 			trimTrailingNewlines(line);
 			if (strlen(line)==0) continue;
-			char sd_path[256];
+			char sd_path[MAX_PATH];
 			sprintf(sd_path, "%s%s", SDCARD_PATH, line);
 			if (exists(sd_path)) {
 				int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM;
@@ -888,13 +888,13 @@ static Array* getCollection(char* path) {
 	Array* entries = Array_new();
 	FILE* file = fopen(path, "r");
 	if (file) {
-		char line[256];
+		char line[MAX_PATH];
 		while (fgets(line,256,file)!=NULL) {
 			normalizeNewline(line);
 			trimTrailingNewlines(line);
 			if (strlen(line)==0) continue; // skip empty lines
 			
-			char sd_path[256];
+			char sd_path[MAX_PATH];
 			sprintf(sd_path, "%s%s", SDCARD_PATH, line);
 			if (exists(sd_path)) {
 				int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM; // ???
@@ -925,7 +925,7 @@ static Array* getDiscs(char* path){
 	// TODO: limit number of discs supported (to 9?)
 	FILE* file = fopen(path, "r");
 	if (file) {
-		char line[256];
+		char line[MAX_PATH];
 		int disc = 0;
 		while (fgets(line,256,file)!=NULL) {
 			normalizeNewline(line);
@@ -959,7 +959,7 @@ static int getFirstDisc(char* m3u_path, char* disc_path) { // based on getDiscs(
 	
 	FILE* file = fopen(m3u_path, "r");
 	if (file) {
-		char line[256];
+		char line[MAX_PATH];
 		while (fgets(line,256,file)!=NULL) {
 			normalizeNewline(line);
 			trimTrailingNewlines(line);
@@ -1222,7 +1222,7 @@ static int autoResume(void) {
 	sync();
 	
 	// make sure rom still exists
-	char sd_path[256];
+	char sd_path[MAX_PATH];
 	sprintf(sd_path, "%s%s", SDCARD_PATH, path);
 	if (!exists(sd_path)) return 0;
 	
@@ -1269,7 +1269,7 @@ static void openPak(char* path) {
 static void openRom(char* path, char* last) {
 	LOG_info("openRom(%s,%s)\n", path, last);
 	
-	char sd_path[256];
+	char sd_path[MAX_PATH];
 	strcpy(sd_path, path);
 	
 	char m3u_path[256];
