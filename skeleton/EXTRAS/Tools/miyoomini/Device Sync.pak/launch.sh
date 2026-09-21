@@ -127,10 +127,10 @@ status(){ [ "$SCANCEL" = 1 ] && status_off
 status_b(){ status_off; smsg "$1"; : > "$SPROG"; SCANCEL=1
 	status.elf "$SMSG" "$SPROG" --cancel-b >/dev/null 2>&1 & SPID=$!; }
 status_sync(){ status_b "$1"; }                                       # the long-lived one: B stops (resumable)
-# ONE screen for the whole pairing sequence: a 3-dot progress row (Searching -> Connecting -> Comparing)
+# ONE screen for the whole pairing sequence: a 3-dot progress row (Searching -> Connecting -> Connected)
 # that advances in place, instead of a flurry of separate text screens (Dan, 2026-09-19). The message
 # file holds the current step number, optionally followed by a caption line. B stops, like status_b.
-STEPLABELS="Searching|Connecting|Comparing"
+STEPLABELS="Searching|Connecting|Connected"
 status_steps(){ status_off; smsg "${1:-1}"; : > "$SPROG"; SCANCEL=1
 	status.elf "$SMSG" --steps "$STEPLABELS" --cancel-b --cancel-label "Stop" --options-y >/dev/null 2>&1 & SPID=$!; }
 step(){ smsg "$1"; }                                                  # advance the live stepper
@@ -1287,13 +1287,13 @@ done)
 Nothing was lost.
 Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 	fi
-	# Synced is not a screen you have to dismiss: show the summary on the same status surface for a
-	# moment and drop back to Tools (Dan, 2026-09-20: fewer states, fewer presses).
+	# The summary STAYS until a button (Dan, 2026-09-21: the 3 s auto-dismiss flashed past); only then
+	# does teardown reconnect WiFi and return to Tools.
 	[ -n "$DONE_TEXT" ] || DONE_TEXT="Synced!
 
 $GOT item(s) copied to
 this device."
-	status_off; status "$DONE_TEXT"; sleep 3; status_off
+	tell "$DONE_TEXT"
 	exit 0 ;;
 
 resume)

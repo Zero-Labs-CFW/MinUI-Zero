@@ -240,6 +240,7 @@ echo "########## SCENARIO 6: Customize categories (saves conflict-protected; con
 NET="$ROOT/skeleton/EXTRAS/Tools/tg5040/Device Sync.pak/sync-net.sh"
 # classify the real card paths the Customize picker will export
 check "classify: save state -> save"  "$(E classify '.userdata/shared/GB-gambatte/Mario.st0')"    "save"
+check "classify: Syncthing conflict copy -> other" "$(E classify 'Saves/GBA/x.sav.sync-conflict-20250910-155402-GE6CEHW')" "other"
 check "classify: recent.txt -> other (never synced)" "$(E classify '.userdata/shared/.minui/recent.txt')"       "other"
 check "classify: favorites.txt -> favorite" "$(E classify '.userdata/shared/.minui/favorites.txt')" "favorite"
 check "classify: game cfg -> config"  "$(E classify '.userdata/tg5040/GB-gambatte/Mario.cfg')"    "config"

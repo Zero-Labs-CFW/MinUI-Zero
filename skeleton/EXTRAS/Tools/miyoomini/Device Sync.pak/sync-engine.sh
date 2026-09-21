@@ -127,6 +127,7 @@ sweep_tmp() { # <dir>
 # _classify sets CLS with no fork (manifest() calls it once per file); classify is the echoing/CLI form.
 _classify() {
 	case "$1" in
+		*.sync-conflict-*)   CLS=other ;;      # Syncthing conflict copies on a card: never ours to sync (Dan, 2026-09-21)
 		Roms/*)              CLS=rom ;;
 		Saves/*)             CLS=save ;;
 		*.st[0-9]|*.st[0-9].*) CLS=save ;;      # save states + their sidecars (.st0, .st0.png thumbnail, ...) in .userdata/shared/<tag>-<core>/ -- all save data
