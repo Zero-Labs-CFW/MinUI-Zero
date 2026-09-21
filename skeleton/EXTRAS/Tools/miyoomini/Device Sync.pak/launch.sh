@@ -1028,7 +1028,7 @@ Nothing to copy."; exit 0
 			set --
 			while IFS="$TAB" read -r st sn sc sk; do
 				cur=Sync; in_csv "$st" "$GSKIP" && cur=Skip
-				set -- "$@" "sys_$st" "$sn ($sc, $(fmt_kb "$sk"))" "Sync|Skip" "$cur" ""
+				set -- "$@" "sys_$st" "$sn ($sc games, $(fmt_kb "$sk"))" "Sync|Skip" "$cur" ""
 			done < "$W/sys"
 			menu --title "Games to sync" --x-label "Continue" "$@" > "$W/out"
 			if ! grep -q '^ACTION=x$' "$W/out"; then
@@ -1089,7 +1089,7 @@ Nothing was copied."; exit 0
 	done < "$W/names"
 	# the ONE confirmation: a scrollable list of exactly WHAT will sync, by name -- "4 files (3 saves)"
 	# told the user nothing they could act on (Dan, 2026-09-19). Y = sync, B = back. Nothing moved yet.
-	if menu --wide --title "Sync $NN items" --a-label SYNC "$@" | grep -q '^ACTION=a$'; then
+	if menu --wide --title "Sync $NN items, $(fmt_kb $((PK + MK)))" --a-label SYNC "$@" | grep -q '^ACTION=a$'; then
 		bundle_out "$W/plan.peer"
 		cp "$W/plan.me" "$SERVE/_dsync_want"
 		cp "$W/plan.peer" "$SERVE/_dsync_plan"
