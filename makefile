@@ -193,6 +193,8 @@ system:
 	@if [ "$(PLATFORM)" = "miyoomini" ]; then \
 		test -f ./build/SYSTEM/miyoomini/lib/modules/8188fu.ko || { echo "ERROR: miyoomini artifact is missing lib/modules/8188fu.ko — wifi would be dead on-device"; exit 1; }; \
 		grep -q 'wifi.txt' ./build/SYSTEM/miyoomini/paks/MinUI.pak/launch.sh || { echo "ERROR: miyoomini launch.sh lost the wifi.txt bring-up"; exit 1; }; \
+		for l in libEGL.so libGLESv2.so libneon.so; do test -f ./build/SYSTEM/miyoomini/lib/$$l || \
+			{ echo "ERROR: miyoomini artifact is missing lib/$$l: the vendor libSDL2 NEEDs it and stock firmware has no copy, minui.elf would not load (bare *.so is gitignored; see .gitignore)"; exit 1; }; done; \
 	fi
 	if [ "$(PLATFORM)" = "miyoomini" ]; then \
 		strings ./build/SYSTEM/miyoomini/lib/libSDL2-2.0.so.0 | grep -q "OSS /dev/dsp standard audio" || \

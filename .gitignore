@@ -7,6 +7,12 @@
 # but shipped runtime libs under the payload MUST be tracked (a bare *.so like libnl-tiny.so was
 # silently dropped from fresh clones/CI, so the h700 hostapd shipped without its library)
 !skeleton/SYSTEM/h700/lib/libnl-tiny.so
+# miyoomini: the vendor libSDL2 NEEDs these three and the stock firmware ships none of them (checked on a
+# Plus 2026-09-20: only the card copy exists). Lifted from the MyMinUI miyoomini zip. A clean clone without
+# them builds a launcher that cannot load; the makefile now refuses such an artifact.
+!skeleton/SYSTEM/miyoomini/lib/libEGL.so
+!skeleton/SYSTEM/miyoomini/lib/libGLESv2.so
+!skeleton/SYSTEM/miyoomini/lib/libneon.so
 
 build
 releases
