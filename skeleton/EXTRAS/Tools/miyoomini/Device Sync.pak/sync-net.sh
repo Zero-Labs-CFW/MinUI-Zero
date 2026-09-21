@@ -59,7 +59,13 @@ urlenc() {
 build_export() { # <cardroot> <servedir> <scope-relpath>...  |  <cardroot> <servedir> --list FILE (one rel per line)
 	card="$1"; sv="$2"; shift 2
 	rm -rf "$sv"; mkdir -p "$sv"
-	_link() { [ -e "$card/$1" ] || return 0; mkdir -p "$sv/$(dirname "$1")"; ln -s "$card/$1" "$sv/$1"; }  # nested rels need their parent first
+	# List files (Favorites, Collections) are MERGED on both sides, so the first device to apply rewrites
+	# its own copy while the other is still pulling it: served through a live symlink, the peer got a
+	# file that no longer matched the plan and "Connection lost" (Brick<>MMP, 2026-09-21). They are
+	# tiny, so serve a SNAPSHOT copy (-p keeps the mtime the manifest and the merge rely on).
+	_link() { [ -e "$card/$1" ] || return 0; mkdir -p "$sv/$(dirname "$1")"
+		case "$1" in */favorites.txt|Collections|Collections/*) cp -pR "$card/$1" "$sv/$1" 2>/dev/null || ln -s "$card/$1" "$sv/$1" ;;
+		*) ln -s "$card/$1" "$sv/$1" ;; esac; }  # nested rels need their parent first
 	if [ "$1" = "--list" ]; then
 		# per-game scopes carry spaces and parens in every path, so they arrive as a file, never as words
 		while IFS= read -r d; do [ -n "$d" ] && _link "$d"; done < "$2"

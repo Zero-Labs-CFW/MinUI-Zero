@@ -578,8 +578,9 @@ bundle_out(){ # <plan> -> 0 when chunks are linked into $SERVE
 	need=$((need + ${MNEED:-0}))     # plus the incoming apply this device already approved (Codex 2026-09-21)
 	[ "${free:-0}" -gt "$need" ] 2>/dev/null || { dbg "bundle: skipped, ${free:-0} KB free < $need KB"; return 1; }
 	mkdir -p "$bo" 2>/dev/null || return 1
-	bundle_plan "$1" "$bo/_dsync_bundle.tar" || { rm -rf "$bo"; return 1; }
-	for bf in "$bo"/_dsync_bundle.tar*; do [ -f "$bf" ] && ln -s "$bf" "$SERVE/${bf##*/}"; done; return 0; }
+	bundle_plan "$1" "$bo/_dsync_bundle.tar" || { dbg "bundle: tar failed for $(plan_count "$1") files"; rm -rf "$bo"; return 1; }
+	bn=0; for bf in "$bo"/_dsync_bundle.tar*; do [ -f "$bf" ] && { ln -s "$bf" "$SERVE/${bf##*/}"; bn=$((bn+1)); }; done
+	dbg "bundle: $bn chunk(s) linked, $(file_bytes "$bo/_dsync_bundle.tar") bytes first"; return 0; }
 pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 	# One stream first (see bundle_plan). A truncated or missing archive is harmless: whatever it did not
 	# deliver at the right size is exactly what the resume split below fetches file by file.
@@ -1218,7 +1219,10 @@ nothing was half-copied." "SYNC AGAIN"; then STATE=find; continue; else exit 0; 
 		if [ "$rc" != 0 ]; then
 			# STATE=sync, NOT find: re-entering sync re-reads the _dsync_applied marker already in our
 			# log and goes straight back to the pull, leaving the joiner's wait undisturbed.
-			if [ "$rc" = 2 ]; then MM="Stopped."; else MM="Connection lost."; fi
+			# say what happened: a peer that still answers means some ITEMS failed, not the link
+			if [ "$rc" = 2 ]; then MM="Stopped."
+			elif ping -c1 -W2 "$PEER_IP" >/dev/null 2>&1; then MM="Could not copy everything."
+			else MM="Connection lost."; fi
 			if oops "$MM
 
 $PEER is up to date.
