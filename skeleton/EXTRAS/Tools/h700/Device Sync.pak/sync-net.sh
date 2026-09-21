@@ -233,7 +233,7 @@ ap_up() { # <ssid> <psk> : raise AP on wlan1 at wlan0's channel; leaves wlan0 al
   # this and keeps home WiFi, because it has a genuine second radio. Channel was read ABOVE, while the
   # station was still associated.
   if [ "${DSYNC_CONCURRENT:-0}" != 1 ]; then
-    save_home_wifi
+    save_home_wifi; muos_pause
     # dhcpcd (muOS) restarts the station supplicant on any wlan0 change; stop it for the run.
     kill_named dhcpcd
     kill_named wpa_supplicant
@@ -328,6 +328,28 @@ scan() {
 # ---- receiver: leave home wifi to join the sender AP, then restore. The launch.sh trap calls
 # restore_wifi on EXIT so home wifi always comes back. HOME_CONF is captured before joining. ----
 HOME_CONF_FLAG=/tmp/dsync-home-conf
+# muOS (h700) runs two WiFi keepers that fight a sync: /opt/muos/script/web/keepalive.sh pings the home DNS
+# every 60 s and on failure disconnects + reconnects home WiFi (killing our join supplicant: the Plus dropped
+# the Brick Pro hotspot 30 s in, link test 2026-09-21), and our own frontend monitor re-runs the connect
+# after 90 s without an IPv4 on wlan0 (which a Plus HOST has none). Pause both for the session: kill the
+# keepalive (restarted at restore), freeze the monitor subshell (the parent of its `sleep 45`) with SIGSTOP
+# and thaw it at restore. Nothing here runs on a device without muOS.
+MUOS_MON=/tmp/dsync-muos-monitor
+muos_pause() {
+	[ -x /opt/muos/script/system/network.sh ] || return 0
+	killall -9 keepalive.sh 2>/dev/null
+	for p in $(pidof sleep 2>/dev/null); do
+		case "$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null)" in "sleep 45 "*|"sleep 45") 
+			pp=$(awk '{print $4}' /proc/$p/stat 2>/dev/null)
+			case "$(tr '\0' ' ' < /proc/$pp/cmdline 2>/dev/null)" in *minui-frontend.sh*) kill -STOP "$pp" 2>/dev/null && printf '%s\n' "$pp" >> "$MUOS_MON" ;; esac ;;
+		esac
+	done
+}
+muos_resume() {
+	[ -x /opt/muos/script/system/network.sh ] || return 0
+	for pp in $(cat "$MUOS_MON" 2>/dev/null); do kill -CONT "$pp" 2>/dev/null; done; rm -f "$MUOS_MON"
+	pidof keepalive.sh >/dev/null 2>&1 || [ ! -x /opt/muos/script/web/keepalive.sh ] || (/opt/muos/script/web/keepalive.sh >/dev/null 2>&1 </dev/null &)
+}
 save_home_wifi() {
 	# NEVER overwrite a good capture. On a retry our own join supplicant is the one running (or none is),
 	# so a second call would fall through to the generic fallback below and lose the device-specific
@@ -360,6 +382,7 @@ join() { # <ssid> <psk> : leave home wifi, join the receiver AP BY NAME (no manu
 	# stdout too, NOT just stderr: wpa_supplicant prints "Successfully initialized wpa_supplicant"
 	# on stdout, and the stdout of this function IS its return value (the IP). Redirecting only
 	# stderr handed every caller a two-line answer (2026-09-18).
+	muos_pause
 	"$WPA" -B -Dnl80211 -i"$STA_IF" -c /tmp/dsync-join.conf >/dev/null 2>&1
 	i=0
 	while [ "$i" -lt 90 ]; do
@@ -393,6 +416,7 @@ restore_wifi() { # bring STA_IF back onto the saved home network
 	# muOS (h700) manages the station through dhcpcd; we killed it to join, and without it the Plus
 	# came back with no address management at all. Put it back exactly as the firmware runs it.
 	if command -v dhcpcd >/dev/null 2>&1 && ! pidof dhcpcd >/dev/null 2>&1; then dhcpcd "$STA_IF" >/dev/null 2>&1; fi
+	muos_resume
 	# Last resort against the single-radio STRAND: if the saved relaunch did not put home WiFi back,
 	# re-run the platform's OWN proven bring-up rather than a hand-rolled reconnect. Only the MMP ships
 	# wifi-up.sh (the stock axp_test + /customer/app/wpa_supplicant + /appconfigs sequence), so the
@@ -403,6 +427,7 @@ restore_wifi() { # bring STA_IF back onto the saved home network
 	esac
 }
 wifi_off() { # take the radio down and leave it off (as it was) -- do NOT reconnect to anything
+	muos_resume
 	kill_named wpa_supplicant
 	ip addr flush dev "$STA_IF" 2>/dev/null
 	ifconfig "$STA_IF" down 2>/dev/null

@@ -484,6 +484,7 @@ kill $MUOS_INHIBIT_PID 2>/dev/null"
 rm -f /tmp/stay_awake"
 DS_GUARD="$DS_GUARD
 killall status.elf 2>/dev/null
+for pp in $(cat /tmp/dsync-muos-monitor 2>/dev/null); do kill -CONT $pp 2>/dev/null; done; rm -f /tmp/dsync-muos-monitor
 rm -rf $SERVE $DS_DIR/out; rm -f $BUSY"
 # setsid puts it in its own session so a group-wide kill does not take the cleanup with it
 if command -v setsid >/dev/null 2>&1; then setsid sh -c "$DS_GUARD" >/dev/null 2>&1 &
