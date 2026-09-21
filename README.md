@@ -100,6 +100,7 @@ Tools > Device Sync copies your saves between two handhelds directly over a hots
 
 * **What it syncs**: Saves (on by default: save files, save states and their thumbnails, Favorites, Collections), Games and Game Configs (off by default). Each device chooses; a category copies only when both have it on. Recently Played stays per device, and device settings never sync.
 * **Lists are merged**: Favorites and Collections end up as the union of both devices, so an entry added on either side is never lost.
+* **Games by system**: with Games on, the device you are holding first shows the systems that would move, each with a count and size. Set any to Skip (say, PlayStation) and it is remembered on that device; a skipped system moves in neither direction.
 * **Nothing is ever lost**: a game is never overwritten or deleted, and any save that is replaced is backed up first. Backups (Y on the Device Sync screen) lists them, restores one, or deletes old ones to free space.
 * **Newest wins**: when a save changed on both devices, the newer copy is kept and the older one backed up; clocks are compared across devices so a device without a clock does not win by accident.
 * **No setup**: the hotspot needs no `wifi.txt`. The Miyoo Mini Plus always hosts (it cannot scan), the others join or host as needed, so two Miyoo Mini Plus cannot sync with each other directly. Any two devices running Device Sync can pair, whatever their Zero version; if one is too old to talk to the other, Device Sync says which one to update.
