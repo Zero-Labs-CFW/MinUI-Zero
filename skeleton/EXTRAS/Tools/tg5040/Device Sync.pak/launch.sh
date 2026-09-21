@@ -62,6 +62,11 @@ PORT=8145; PSK=minuizerosync; SSID=MinUI-Sync
 # the handshake files change incompatibly; a peer on a different number is told to update instead of
 # syncing by luck (two Zero builds, or a Zero and a NextUI port, can otherwise disagree silently).
 DSYNC_PROTO=2
+# Fork + build, INFORMATIONAL only (never a gate: a Zero 1.7 and a Zero 1.8, or a Zero and a NextUI port,
+# on the same protocol number sync fine). They make the mismatch message say WHICH build to update.
+DSYNC_FORK=zero
+# version.txt line 1 is "v1.7.6 (20260920-15)" on a zip build and "MinUI Zero (dev-20260920)" on an h700 image
+DSYNC_VER=$(head -1 "$SDCARD/.system/version.txt" 2>/dev/null | sed 's/^MinUI Zero //' | tr -d '()' | cut -d' ' -f1); [ -n "$DSYNC_VER" ] || DSYNC_VER=dev
 SERVE=/tmp/dsync-serve; W=/tmp/dsync-work
 TAB=$(printf '\t')
 
@@ -841,7 +846,7 @@ compare)
 	net build-export "$LOCAL" "$SERVE" --list "$W/scope" >/dev/null 2>&1
 	printf '%s' "$NAME" > "$SERVE/_dsync_name"
 	date +%s > "$SERVE/_dsync_now"        # our clock, so the peer can correct our mtimes into ITS time
-	printf 'S=%s G=%s C=%s P=%s\n' "$PS" "$PG" "$PC" "$DSYNC_PROTO" > "$SERVE/_dsync_prefs"   # our toggles + protocol, for the both-on rule
+	printf 'S=%s G=%s C=%s P=%s F=%s V=%s\n' "$PS" "$PG" "$PC" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label)
 	df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}' > "$SERVE/_dsync_free"
 	cp "$SERVE/_dsync_manifest" "$W/my.mf" 2>/dev/null
 	if ! net serve "$SERVE" "$PORT" >/dev/null 2>&1; then
@@ -900,7 +905,12 @@ Found $PEER"   # Comparing (building the delta)
 	if [ -n "$PP" ] && [ "${PPROTO:-0}" != "$DSYNC_PROTO" ]; then
 		printf 'ABORT\n' > "$SERVE/_dsync_totals"
 		if [ "${PPROTO:-0}" -lt "$DSYNC_PROTO" ] 2>/dev/null; then WHO="$PEER"; else WHO="this device"; fi
+		PFORK=$(printf '%s\n' "$PP" | sed -n 's/.*F=\([^ ]*\).*/\1/p' | head -1)
+		PVER=$(printf '%s\n' "$PP" | sed -n 's/.*V=\([^ ]*\).*/\1/p' | head -1)
 		tell "Device Sync versions differ.
+
+$PEER: ${PFORK:-unknown} ${PVER:-build} (sync v${PPROTO:-1})
+This device: $DSYNC_FORK $DSYNC_VER (sync v$DSYNC_PROTO)
 
 Update $WHO, then try again.
 Nothing was copied."; exit 0
