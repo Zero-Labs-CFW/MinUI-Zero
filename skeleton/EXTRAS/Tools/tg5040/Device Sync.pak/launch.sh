@@ -49,7 +49,7 @@ export LOGS_PATH="${LOGS_PATH:-$SDCARD/.userdata/$PLATFORM/logs}"
 export LD_LIBRARY_PATH="$SYSTEM_PATH/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:/lib:/config/lib:/customer/lib"
 # A fresh launch must never act on a PREVIOUS launch's saved home-WiFi config: a stale flag makes
 # restore_wifi kill the live station supplicant on exit and drop the device off the network.
-rm -f /tmp/dsync-home-conf
+rm -f /tmp/dsync-home-conf /tmp/dsync-scan-nonblocking
 export AP_IF=wlan1 STA_IF=wlan0 AP_IP=192.168.42.1 AP_PORT=8145
 # The Brick's tg5040 has a TRUE second radio. The Miyoo (8188fu) shares ONE radio but its driver DOES
 # hold an AP on wlan1 while wlan0 stays associated, on wlan0's channel -- VERIFIED on-device 2026-09-19
@@ -439,7 +439,16 @@ teardown(){
 	net ap-down >/dev/null 2>&1
 	# restore-wifi is a no-op unless join/ap-up actually saved the home config, so a run that never
 	# touched the radio leaves it exactly as it was (knocking a Brick off its network, 2026-09-05).
-	if [ "$HAD_WIFI" = 1 ]; then net restore-wifi >/dev/null 2>&1; else net wifi-off >/dev/null 2>&1; fi
+	# Reconnecting takes 5-30 s (association poll + lease): SHOW it instead of a black panel, and never
+	# hold the menu hostage: after 40 s the menu comes back while the reconnect finishes on its own
+	# (the Plus sat on a black screen for good here, 2026-09-21).
+	if [ "$HAD_WIFI" = 1 ]; then
+		status "Reconnecting WiFi..."
+		( net restore-wifi >/dev/null 2>&1 ) & rp=$!
+		i=0; while kill -0 "$rp" 2>/dev/null && [ "$i" -lt 40 ]; do sleep 1; i=$((i+1)); done
+		[ "$i" -ge 40 ] && dbg "teardown: restore-wifi still running after 40 s, menu returns"
+		status_off
+	else net wifi-off >/dev/null 2>&1; fi
 	rm -rf "$SERVE" "$DS_DIR/out"; rm -f "$BUSY"
 	stay_off; }
 # Dev cards run a net-keeper that bounces wlan0 when the gateway is unreachable for 60 s; our join

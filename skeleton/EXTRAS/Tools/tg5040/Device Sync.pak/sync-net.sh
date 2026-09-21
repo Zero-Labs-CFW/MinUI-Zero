@@ -301,7 +301,29 @@ ap_down() {
 	done
 	ip addr flush dev "$AP_IF" 2>/dev/null; ifconfig "$AP_IF" down 2>/dev/null
 }
-scan() { iw dev "$STA_IF" scan 2>/dev/null | sed -n 's/.*SSID: \(MinUI-Sync-.*\)/\1/p'; }
+# NEVER block in a scan. On the RTL8821CS (Anbernic Plus) `iw dev wlan0 scan` hangs for good while the
+# station is associated (25 s timeout, no output, 2026-09-21): the tool sat in it, B could not break it,
+# and the Plus never paired. The blocking scan is freshest where it works (Brick), so it gets an 8 s
+# cap; if it hangs, the non-blocking trigger + cache dump is used instead (verified on the Plus: results
+# in ~4 s), and a flag makes every later scan in this run skip straight to it. Only entries seen in the
+# last 15 s count, so a hotspot from an earlier run that stopped beaconing is not chased.
+SCAN_NB=/tmp/dsync-scan-nonblocking
+scan() {
+	t=$(mktemp "${TMPDIR:-/tmp}/dsync.XXXXXX")
+	if [ ! -e "$SCAN_NB" ]; then
+		iw dev "$STA_IF" scan > "$t" 2>/dev/null & sp=$!
+		k=0; while kill -0 "$sp" 2>/dev/null && [ "$k" -lt 8 ]; do sleep 1; k=$((k+1)); done
+		if kill -0 "$sp" 2>/dev/null; then kill -9 "$sp" 2>/dev/null; wait "$sp" 2>/dev/null; : > "$SCAN_NB"; fi
+	fi
+	if [ -e "$SCAN_NB" ]; then
+		# right after a killed blocking scan the cache can still be empty at 4 s: one more dump at 7 s
+		iw dev "$STA_IF" scan trigger >/dev/null 2>&1; sleep 4
+		iw dev "$STA_IF" scan dump > "$t" 2>/dev/null
+		grep -q 'SSID: MinUI-Sync-' "$t" || { sleep 3; iw dev "$STA_IF" scan dump > "$t" 2>/dev/null; }
+	fi
+	awk '/^BSS /{ls=-1} /last seen:/{ls=$3+0} /SSID: MinUI-Sync-/{ if (ls < 0 || ls < 15000) { sub(/.*SSID: /,""); print } }' "$t"
+	rm -f "$t"
+}
 
 # ---- receiver: leave home wifi to join the sender AP, then restore. The launch.sh trap calls
 # restore_wifi on EXIT so home wifi always comes back. HOME_CONF is captured before joining. ----
