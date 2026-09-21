@@ -290,12 +290,12 @@ staged_ok(){ [ -f "$STAGE/$1" ] || return 1
 # 1000-file library, which is what keeps the snapshot fast. The plan then also drops any category the
 # PEER has off (the both-on rule), so an asymmetric pair still never pushes a game onto a device that
 # turned games off.
-#   Saves    -> Saves/, save states + thumbs (.userdata/shared/<tag>-<core>/), collections, recents
+#   Saves    -> Saves/, save states + thumbs (.userdata/shared/<tag>-<core>/), collections, favorites
 #   Games    -> Roms/  (existence by name; never overwritten, never deleted)
 #   Configs  -> per-game / per-console .cfg dirs (.userdata/$PLATFORM/<tag>-<core>/)
 scope_list(){
 	if [ "$PS" = 1 ]; then
-		printf '%s\n' Saves Collections ".userdata/shared/.minui/recent.txt" ".userdata/shared/.minui/favorites.txt"
+		printf '%s\n' Saves Collections ".userdata/shared/.minui/favorites.txt"   # Recently Played stays per device
 		for d in "$LOCAL"/.userdata/shared/*-*/; do [ -d "$d" ] || continue; d=${d%/}; printf '%s\n' "${d#"$LOCAL"/}"; done
 	fi
 	[ "$PG" = 1 ] && printf '%s\n' Roms
@@ -311,7 +311,7 @@ scope_list(){
 	return 0; }
 # the classes to SKIP because a category is off on EITHER device: <peerS> <peerG> <peerC> -> csv
 skip_classes(){ sc=""
-	{ [ "$PS" = 1 ] && [ "$1" = 1 ]; } || sc="save,recent,favorite,collection"
+	{ [ "$PS" = 1 ] && [ "$1" = 1 ]; } || sc="save,favorite,collection"
 	{ [ "$PG" = 1 ] && [ "$2" = 1 ]; } || sc="${sc:+$sc,}rom"
 	{ [ "$PC" = 1 ] && [ "$3" = 1 ]; } || sc="${sc:+$sc,}config,map"
 	printf '%s' "$sc"; }
@@ -326,8 +326,7 @@ plan_break(){ out=""
 plan_names(){ # <plan.me> <plan.peer> -> deduped "Name<TAB>Type", most useful first (what the user reviews)
   awk -F"$TAB" -v OFS="$TAB" '
     { rel=$4; cls=$2; n=rel; sub(/.*\//,"",n)
-      if (rel ~ /recent\.txt$/)         { name="Recently played"; type="Recent";  ord=5 }
-      else if (rel ~ /favorites\.txt$/) { name="Favorites";       type="Favorite"; ord=4 }
+      if (rel ~ /favorites\.txt$/)      { name="Favorites";       type="Favorite"; ord=4 }
       else {
         sub(/\.[^.]*$/,"",n); sub(/\.st[0-9]$/,"",n); name=n
         if (cls=="save")            { type="Save";       ord=1 }

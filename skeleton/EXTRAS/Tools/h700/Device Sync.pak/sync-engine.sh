@@ -131,7 +131,7 @@ _classify() {
 		Saves/*)             CLS=save ;;
 		*.st[0-9]|*.st[0-9].*) CLS=save ;;      # save states + their sidecars (.st0, .st0.png thumbnail, ...) in .userdata/shared/<tag>-<core>/ -- all save data
 		Collections/*)       CLS=collection ;;
-		*/recent.txt)        CLS=recent ;;      # the recently-played list (.userdata/shared/.minui/recent.txt)
+		*/recent.txt)        CLS=other ;;       # Recently Played is per-device activity: never synced (Dan, 2026-09-21)
 		*/favorites.txt)     CLS=favorite ;;    # the favorites list, beside recent.txt -- syncs with the save bundle
 		map.txt|*/map.txt)   CLS=map ;;
 		*.cfg)               CLS=config ;;
@@ -347,6 +347,9 @@ merge_manifests(){ # <A-manifest> <B-manifest> [A-clock minus B-clock] [B boot, 
 		  # 1 s window, not equality: FAT32 stores mtime to 2 s, so a stamped odd second reads back one lower
 		  # and an exFAT/FAT32 pair re-copied every odd save on every sync (QA 2026-09-20)
 		  else if (asz[rel]==bsz && amt[rel]-bmt <= 1 && bmt-amt[rel] <= 1) { print "skip", bc, bsz, rel; next }
+		  # list files (Favorites, a Collection) are MERGED, not replaced: both sides take the other copy and
+		  # apply unions the lines, so an entry added on either device ends up on both (Dan, 2026-09-21)
+		  if (bc=="favorite" || bc=="collection") { print "to-a", bc, bsz, rel; print "to-b", bc, asz[rel], rel; next }
 		  if (bc=="save") { print "conflict", bc, bsz, rel; next }          # differing save: ask
 		  # the offset is only known for THIS session on each side: a file older than the boot of its own device -> raw
 		  bm = ((pboot > 0 && (bmt+0) < pboot) || (aboot > 0 && (amt[rel]+0) < aboot)) ? bmt+0 : bmt+0+off
@@ -428,7 +431,7 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 			if (rel in done) next
 			if (seen[rel]++) next          # a rel listed twice would "back up" its own freshly-applied bytes
 			print act, (rel in bk ? bk[rel] : "-"), (rel in bs && bs[rel] != "" ? bs[rel] : "-"), \
-			      ($6 == "" ? 0 : $6), ($3 == "" ? 0 : $3), ($5 == "" ? "-" : $5), rel
+			      ($6 == "" ? 0 : $6), ($3 == "" ? 0 : $3), ($5 == "" ? "-" : $5), ($2 == "" ? "-" : $2), rel
 		}
 		END { if (rec+0 == 0) exit 3 }
 	' "$jl" "$plan" > "$t.work"; then
@@ -436,7 +439,7 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 	fi
 	rc=0
 	# fed by a FILE, not a pipe: a pipe would run the loop in a subshell and lose rc
-	while IFS="$TAB" read -r action bkstate bksz mtime psize phash rel; do
+	while IFS="$TAB" read -r action bkstate bksz mtime psize phash pcls rel; do
 		[ -n "$rel" ] || continue
 		printf 'BEGIN\t%s\n' "$rel" >> "$jl"
 		if [ "$bkstate" = "-" ]; then
@@ -511,6 +514,23 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 			printf 'MISS\t%s (staged copy is not the planned %s bytes)\n' "$rel" "$psize" >&2; rc=1; continue
 		fi
 		mkdir -p "$dst/$(dirname "$rel")"
+		if { [ "$pcls" = favorite ] || [ "$pcls" = collection ]; } && [ -f "$dst/$rel" ]; then
+			# a LIST file: write the union of both sides, one entry per line, sorted (the launcher sorts these
+			# lists itself, so file order carries nothing). Both devices compute the same bytes and stamp the
+			# later of the two mtimes, so the pair reads identical on the next sync. The pre-union file is
+			# already backed up above, so Restore still puts it back (Dan, 2026-09-21).
+			lm=$(file_mtime "$dst/$rel"); case "$lm" in ''|*[!0-9]*) lm=0 ;; esac
+			{ cat "$dst/$rel"; echo; cat "$staging/$rel"; echo; } | grep -v '^$' | sort -u > "$dst/$rel.dsync.tmp" 2>/dev/null
+			[ "$lm" -gt "${mtime:-0}" ] 2>/dev/null && mtime=$lm
+			if [ "$(file_size "$dst/$rel.dsync.tmp")" -gt 0 ] 2>/dev/null; then
+				mv "$dst/$rel.dsync.tmp" "$dst/$rel"; set_mtime "$dst/$rel" "${mtime:-0}"
+				printf 'UPDATE\t%s\t%s\n' "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"
+				printf 'DONE\t%s\t%s\n' "$action" "$rel" >> "$jl"
+			else
+				rm -f "$dst/$rel.dsync.tmp"; printf 'FAIL\t%s (union)\n' "$rel" >&2; rc=1
+			fi
+			continue
+		fi
 		cp "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
 		if [ "$(file_size "$staging/$rel")" = "$(file_size "$dst/$rel.dsync.tmp")" ]; then
 			mv "$dst/$rel.dsync.tmp" "$dst/$rel"

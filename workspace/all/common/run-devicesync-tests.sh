@@ -240,7 +240,7 @@ echo "########## SCENARIO 6: Customize categories (saves conflict-protected; con
 NET="$ROOT/skeleton/EXTRAS/Tools/tg5040/Device Sync.pak/sync-net.sh"
 # classify the real card paths the Customize picker will export
 check "classify: save state -> save"  "$(E classify '.userdata/shared/GB-gambatte/Mario.st0')"    "save"
-check "classify: recent.txt -> recent" "$(E classify '.userdata/shared/.minui/recent.txt')"       "recent"
+check "classify: recent.txt -> other (never synced)" "$(E classify '.userdata/shared/.minui/recent.txt')"       "other"
 check "classify: favorites.txt -> favorite" "$(E classify '.userdata/shared/.minui/favorites.txt')" "favorite"
 check "classify: game cfg -> config"  "$(E classify '.userdata/tg5040/GB-gambatte/Mario.cfg')"    "config"
 
@@ -256,7 +256,7 @@ P6=$(DS_MODE=ask sh "$ENGINE" plan-net "$MF6" "$B6"); printf '%s\n' "$P6" | sed 
 has   "CONFLICT${TAB}Saves/GBC/Mario Golf.sav" "$P6"                       # save differs -> conflict (protected)
 has   "CONFLICT${TAB}.userdata/shared/GB-gambatte/Mario.st0" "$P6"         # state differs -> conflict (protected)
 has   "UPDATE${TAB}.userdata/tg5040/GB-gambatte/Mario.cfg" "$P6"           # config differs -> sender wins, no prompt
-has   "UPDATE${TAB}.userdata/shared/.minui/recent.txt" "$P6"              # recents differ -> sender wins, no prompt
+nohas "recent.txt" "$P6"                                                  # Recently Played never syncs
 nohas "CONFLICT${TAB}.userdata/tg5040/GB-gambatte/Mario.cfg" "$P6"        # a config is NEVER a conflict prompt
 
 # apply keeping mine on all save conflicts (empty DS_TAKE): saves+states untouched; config+recents replaced
@@ -267,7 +267,7 @@ BK6="$WORK/s6/bk"; DS_MODE=ask DS_TAKE="$TAKE6" sh "$ENGINE" apply-net "$MF6" "$
 check "cat: save conflict kept mine"    "$(cat "$B6/Saves/GBC/Mario Golf.sav")"                 "B-CHAR"
 check "cat: state conflict kept mine"   "$(cat "$B6/.userdata/shared/GB-gambatte/Mario.st0")"   "B-STATE"
 check "cat: config took the sender"     "$(cat "$B6/.userdata/tg5040/GB-gambatte/Mario.cfg")"   "A-CFG"
-check "cat: recents took the sender"    "$(cat "$B6/.userdata/shared/.minui/recent.txt")"       "A-RECENT"
+check "cat: recents untouched (per device)" "$(cat "$B6/.userdata/shared/.minui/recent.txt")"    "B-RECENT"
 check "cat: replaced config backed up"  "$(cat "$BK6/.userdata/tg5040/GB-gambatte/Mario.cfg")"  "B-CFG"
 
 # build_export: nested paths are symlinked; our own backups / card root are NEVER exposed
@@ -275,9 +275,10 @@ CARD6="$WORK/s6card"; SV6="$WORK/s6serve"
 mk "$CARD6" "Saves/GBC/x.sav" "S"
 mk "$CARD6" ".userdata/shared/GB-gambatte/x.st0" "ST"
 mk "$CARD6" ".userdata/shared/.minui/recent.txt" "R"
+mk "$CARD6" ".userdata/shared/.minui/favorites.txt" "F"
 mk "$CARD6" ".userdata/tg5040/devicesync/backups/old/junk" "OUR-BACKUP"   # must NEVER leave the device
 mk "$CARD6" "wifi.txt" "SSID+PSK"                                          # must NEVER be exported
-sh "$NET" build-export "$CARD6" "$SV6" "Saves" ".userdata/shared/GB-gambatte" ".userdata/shared/.minui/recent.txt" >/dev/null 2>&1
+sh "$NET" build-export "$CARD6" "$SV6" "Saves" ".userdata/shared/GB-gambatte" ".userdata/shared/.minui/recent.txt" ".userdata/shared/.minui/favorites.txt" >/dev/null 2>&1
 check "export: nested state symlinked"     "$([ -e "$SV6/.userdata/shared/GB-gambatte/x.st0" ] && echo yes || echo no)"   "yes"
 check "export: recent.txt symlinked"       "$([ -e "$SV6/.userdata/shared/.minui/recent.txt" ] && echo yes || echo no)"  "yes"
 check "export: our backups NOT reachable"  "$([ -e "$SV6/.userdata/tg5040/devicesync/backups/old/junk" ] && echo LEAK || echo safe)" "safe"
@@ -290,7 +291,8 @@ nohas "wifi.txt" "$MANI6"
 # the link. On 2026-09-05 ls -ln (no -L) emitted "recent.txt -> /card/..." with the link's own size, so
 # the receiver requested a URL that did not exist and that one file failed every time.
 nohas " -> " "$MANI6"
-RLINE=$(printf '%s\n' "$MANI6" | grep "^.userdata/shared/.minui/recent.txt${TAB}")
+nohas "recent.txt" "$MANI6"   # exported by an explicit list, but classified other: never in a manifest
+RLINE=$(printf '%s\n' "$MANI6" | grep "^.userdata/shared/.minui/favorites.txt${TAB}")
 check "symlinked file: exact rel present"       "$(printf '%s\n' "$RLINE" | grep -c .)" "1"
 check "symlinked file: size is the target's (1)" "$(printf '%s\n' "$RLINE" | cut -f2)" "1"
 check "symlinked file: hash column is '-' (hashless)" "$(printf '%s\n' "$RLINE" | cut -f5)" "-"
@@ -787,6 +789,30 @@ E apply-plan "$PLANT" "$STT" "$LT" "$BKT" >/dev/null 2>&1; trc=$?
 check "T: apply refuses (rc 1)"                 "$trc" "1"
 check "T: the live save is untouched"          "$(cat "$LT/Saves/GBA/z.srm")" "LIVE-25-BYTES-OF-PROGRESS"
 check "T: journal is NOT complete"             "$(E journal-status "$BKT" | cut -d"$TAB" -f1)" "INCOMPLETE"
+
+######################################################################
+echo "########## SCENARIO U: Favorites and Collections are MERGED, not replaced ##########"
+SU="$WORK/su"; UA="$SU/a"; UB="$SU/b"; mkdir -p "$UA" "$UB"
+FAV=".userdata/shared/.minui/favorites.txt"; COL="Collections/Best.txt"
+mkdir -p "$UA/.userdata/shared/.minui" "$UB/.userdata/shared/.minui" "$UA/Collections" "$UB/Collections"
+printf 'Roms/GBA/b.gba\nRoms/GBA/a.gba\n' > "$UA/$FAV"; printf 'Roms/GBA/c.gba\nRoms/GBA/a.gba\n' > "$UB/$FAV"
+printf 'Roms/GB/x.gb\n' > "$UA/$COL"; printf 'Roms/GB/y.gb\n' > "$UB/$COL"
+TZ=UTC touch -t 202601011200 "$UA/$FAV" "$UA/$COL"; TZ=UTC touch -t 202601021200 "$UB/$FAV" "$UB/$COL"
+E manifest "$UA" > "$SU/a.mf"; E manifest "$UB" > "$SU/b.mf"
+MU=$(E merge "$SU/a.mf" "$SU/b.mf")
+check "U: favorites go BOTH ways" "$(printf '%s\n' "$MU" | awk -F"$TAB" '$4 ~ /favorites/ {print $1}' | sort | tr '\n' ' ')" "to-a to-b "
+check "U: collection goes BOTH ways" "$(printf '%s\n' "$MU" | awk -F"$TAB" '$4 ~ /Best/ {print $1}' | sort | tr '\n' ' ')" "to-a to-b "
+# apply on A with B's copies staged, and on B with A's
+STA="$SU/sta"; STB="$SU/stb"; mkdir -p "$STA" "$STB"; cp -R "$UB/." "$STA/"; cp -R "$UA/." "$STB/"
+PLA="$SU/plan.a"; { planln "$STA" favorite "$FAV" 1767355200; planln "$STA" collection "$COL" 1767355200; } > "$PLA"
+PLB="$SU/plan.b"; { planln "$STB" favorite "$FAV" 1767268800; planln "$STB" collection "$COL" 1767268800; } > "$PLB"
+E apply-plan "$PLA" "$STA" "$UA" "$SU/bk/a" >/dev/null 2>&1; E apply-plan "$PLB" "$STB" "$UB" "$SU/bk/b" >/dev/null 2>&1
+check "U: A favorites = union, sorted" "$(cat "$UA/$FAV" | tr '\n' ' ')" "Roms/GBA/a.gba Roms/GBA/b.gba Roms/GBA/c.gba "
+check "U: B favorites = the same bytes"  "$(cat "$UB/$FAV" | tr '\n' ' ')" "Roms/GBA/a.gba Roms/GBA/b.gba Roms/GBA/c.gba "
+check "U: collection union on both" "$(cat "$UA/$COL" | tr '\n' ' ')/$(cat "$UB/$COL" | tr '\n' ' ')" "Roms/GB/x.gb Roms/GB/y.gb /Roms/GB/x.gb Roms/GB/y.gb "
+check "U: pre-union favorites are backed up on A" "$(cat "$SU/bk/a/$FAV" | tr '\n' ' ')" "Roms/GBA/b.gba Roms/GBA/a.gba "
+E manifest "$UA" > "$SU/a2.mf"; E manifest "$UB" > "$SU/b2.mf"
+check "U: after the merge both sides read identical (skip)" "$(E merge "$SU/a2.mf" "$SU/b2.mf" | awk -F"$TAB" '{print $1}' | sort -u | tr '\n' ' ')" "skip "
 
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"
