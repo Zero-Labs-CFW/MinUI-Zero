@@ -85,15 +85,15 @@ mkdir -p "$(dirname "$LOGF")" "$DS_DIR" "$RES" "$STAGE" "$W" 2>/dev/null
 # only Saves on -- that is what "keep my saves up to date" means, and it is small and fast. Games OFF
 # (a whole missing library is 24 GB / hours over WiFi) and Game Configs OFF (Dan 2026-09-19); opt either
 # in per device.
-PREFS="$DS_DIR/prefs"; PS=1; PG=0; PC=0
+PREFS="$DS_DIR/prefs"; PS=1; PG=0; PC=0; GSKIP=""
 if [ -f "$PREFS" ]; then
-	while IFS='=' read -r k v; do case "$k" in SAVES) PS=$v ;; GAMES) PG=$v ;; CONFIGS) PC=$v ;; esac; done < "$PREFS"
+	while IFS='=' read -r k v; do case "$k" in SAVES) PS=$v ;; GAMES) PG=$v ;; CONFIGS) PC=$v ;; GAMES_SKIP) GSKIP=$v ;; esac; done < "$PREFS"
 fi
 # normalize to EXACTLY 0 or 1: a damaged/legacy prefs file (empty or stray value) must not leave PS/PG/PC
 # as "" -- that reads as off on screen but slips past the all-off guard and serves an ambiguous "S=" the
 # peer treats as on (Codex, 2026-09-18). Anything that is not literal 1 becomes 0.
 [ "$PS" = 1 ] || PS=0; [ "$PG" = 1 ] || PG=0; [ "$PC" = 1 ] || PC=0
-save_prefs(){ printf 'SAVES=%s\nGAMES=%s\nCONFIGS=%s\n' "$PS" "$PG" "$PC" > "$PREFS.tmp" && mv "$PREFS.tmp" "$PREFS"; }
+save_prefs(){ printf 'SAVES=%s\nGAMES=%s\nCONFIGS=%s\nGAMES_SKIP=%s\n' "$PS" "$PG" "$PC" "$GSKIP" > "$PREFS.tmp" && mv "$PREFS.tmp" "$PREFS"; }
 onoff(){ [ "$1" = 1 ] && printf On || printf Off; }
 
 # human-friendly model name (Trimui Brick / Brick Pro / Smart Pro) -- how the fork already detects it
@@ -269,6 +269,25 @@ plan_count(){ awk 'END{print NR+0}' "$1"; }
 plan_kb(){ awk -F"$TAB" '{b+=$3} END{printf "%d", int((b+1023)/1024)}' "$1"; }
 # what the user chose NOT to copy, for the Done screen's honesty ("3 skipped" vs "up to date")
 skipped_count(){ awk -F"$TAB" '$1!="skip"{t++} END{print t+0}' "$1"; }
+
+# Games are chosen per SYSTEM on the host (the device you hold), from the systems the merge would move,
+# and remembered by tag as a SKIP list, so a new system syncs by default ("all minus PS1", Dan 2026-09-21).
+# A skipped system moves in neither direction. The tag is the last parenthesised group of the console
+# folder ("6) PlayStation (PS)" -> PS), the same identity MinUI itself uses, so it survives renamed folders.
+sys_rows(){ # <merge> -> TAG \t NAME \t games \t KB, one line per system with a game to move
+	awk -F"$TAB" -v OFS="$TAB" '$1!="skip" && $2=="rom" && $4 ~ /^Roms\// {
+		f=$4; sub(/^Roms\//,"",f); sub(/\/.*/,"",f)
+		tag=f; if (match(f,/\([^()]*\)[^()]*$/)) { tag=substr(f,RSTART+1); sub(/\).*/,"",tag) }
+		name=f; sub(/^[0-9]+\) /,"",name); sub(/ *\([^()]*\)[^()]*$/,"",name)
+		n[tag]++; kb[tag]+=$3; nm[tag]=name }
+		END { for (t in n) print t, nm[t], n[t], int(kb[t]/1024) }' "$1" | sort -t"$TAB" -k2,2; }
+drop_systems(){ # <merge> <skip csv> -> the merge without the skipped systems (either direction)
+	awk -F"$TAB" -v skip=",$2," '$2=="rom" && $4 ~ /^Roms\// {
+		f=$4; sub(/^Roms\//,"",f); sub(/\/.*/,"",f)
+		tag=f; if (match(f,/\([^()]*\)[^()]*$/)) { tag=substr(f,RSTART+1); sub(/\).*/,"",tag) }
+		if (index(skip, "," tag ",")) next }
+		{ print }' "$1"; }
+in_csv(){ case ",$2," in *",$1,"*) return 0 ;; esac; return 1; }
 
 # <<< pure logic
 # ===================================================================================================
@@ -1001,6 +1020,32 @@ review)
 Nothing to copy."; exit 0
 	fi
 	auto_resolve "$W/my.mf" "$W/peer.mf" "$W/merge" > "$DEC"
+	# per-system choice for Games: a 25 GB library all-or-nothing was unusable (Dan, 2026-09-21). Shown on
+	# the host only (it owns the plan), B here cancels like B on the item list.
+	if [ "$PG" = 1 ] && [ "$QG" = 1 ]; then
+		sys_rows "$W/merge" > "$W/sys"
+		if [ -s "$W/sys" ]; then
+			set --
+			while IFS="$TAB" read -r st sn sc sk; do
+				cur=Sync; in_csv "$st" "$GSKIP" && cur=Skip
+				set -- "$@" "sys_$st" "$sn ($sc, $(fmt_kb "$sk"))" "Sync|Skip" "$cur" ""
+			done < "$W/sys"
+			menu --title "Games to sync" --x-label "Continue" "$@" > "$W/out"
+			if ! grep -q '^ACTION=x$' "$W/out"; then
+				printf 'ABORT\n' > "$SERVE/_dsync_totals"; status "Cancelling..."; sleep 3
+				dbg "review: cancelled at the system picker"; exit 0
+			fi
+			# rows the user left untouched are not echoed back, so start from the remembered list
+			nskip=""
+			while IFS="$TAB" read -r st sn sc sk; do
+				v=$(sed -n "s/^sys_$st=//p" "$W/out" | tail -1)
+				case "$v" in Skip) nskip="${nskip:+$nskip,}$st" ;; Sync) ;; *) in_csv "$st" "$GSKIP" && nskip="${nskip:+$nskip,}$st" ;; esac
+			done < "$W/sys"
+			GSKIP=$nskip; save_prefs
+			drop_systems "$W/merge" "$GSKIP" > "$W/merge.f" && mv "$W/merge.f" "$W/merge"
+			dbg "review: games skip=[$GSKIP]"
+		fi
+	fi
 	# the both-on rule: drop any category that is off on EITHER device, in BOTH directions
 	SKIPCLS=$(skip_classes "$QS" "$QG" "$QC")
 	dbg "review: skipcls=[$SKIPCLS] mine=S$PS/G$PG/C$PC peer=S$QS/G$QG/C$QC"
