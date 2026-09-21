@@ -213,13 +213,13 @@ done_text(){ # <A received> <B received> <skipped> <A name> <B name>
 	if [ "${3:-0}" -gt 0 ]; then t="$3 item(s) skipped."; else t="Both devices are up to date."; fi
 	printf 'Synced!\n\n%s received %s.\n%s received %s.\n\n%s' "$4" "$1" "$5" "$2" "$t"; }
 
-# Free space a device must have to RECEIVE <kb>. Saves/configs can be REPLACED, and apply stages the
-# incoming copy AND backs up the one it overwrites, so the honest worst case is about twice the transfer
-# plus a little slack. This is safe now that the multi-GB ROM library is out of scope (a 2x estimate on
-# kilobytes of saves is still kilobytes); it was only ever a problem when it doubled a 24 GB library.
+# Free space a device must have to RECEIVE <kb>: the transfer once (apply MOVES staged files into place,
+# same card), a 10% margin for backups of replaced saves, and one bundle chunk (200 MB cap) of slack
+# for the archive that sits beside the extracted files. The old 2x budget refused a 25 GB library on a
+# 29 GB card (2026-09-21).
 need_kb(){ [ "${1:-0}" -gt 0 ] || { printf 0; return 0; }
-	h=$(( $1 + 10240 )); [ "$h" -gt 51200 ] && h=51200
-	printf '%s' "$(( $1 * 2 + $1 / 10 + h ))"; }
+	h=$1; [ "$h" -gt 204800 ] && h=204800
+	printf '%s' "$(( $1 + $1 / 10 + h + 10240 ))"; }
 
 # A 4-hex token keeps the SSID short and makes the election a plain string compare. The first half comes
 # from the radio MAC (different by construction on two devices), the second is rolled fresh each run so
@@ -560,15 +560,17 @@ bundle_plan(){ # <plan> <out.tar> -> 0 when the archive was written
 	bp="$1"; bo="$2"   # `set --` below discards $1/$2, so hold them first
 	n=$(plan_count "$bp"); [ "$n" -gt 0 ] || return 1
 	# chunks of 400 paths keep every tar arg list far under ARG_MAX; chunk k>1 is <out>.k
-	rm -f "$bo" "$bo".[0-9]*; k=1; c=0; set --
+	rm -f "$bo" "$bo".[0-9]*; k=1; c=0; cb=0; set --
 	while IFS="$TAB" read -r act cls sz rel hash mtime; do
 		[ -n "$rel" ] || continue
 		[ -f "$LOCAL/$rel" ] || continue     # gone since the manifest: one missing path failed the whole tar (QA 2026-09-20)
-		set -- "$@" "$rel"; c=$((c+1))
-		if [ "$c" -ge 400 ]; then
+		set -- "$@" "$rel"; c=$((c+1)); cb=$((cb + ${sz:-0}))
+		# a chunk closes at 400 paths OR 200 MB: the receiver holds one chunk beside its extracted files,
+		# so the cap bounds the card space a Games sync needs above the transfer itself
+		if [ "$c" -ge 400 ] || [ "$cb" -ge 209715200 ]; then
 			out="$bo"; [ "$k" -gt 1 ] && out="$bo.$k"
 			tar -cf "$out" -C "$LOCAL" "$@" 2>/dev/null || { rm -f "$bo" "$bo".[0-9]*; return 1; }
-			k=$((k+1)); c=0; set --
+			k=$((k+1)); c=0; cb=0; set --
 		fi
 	done < "$bp"
 	if [ "$c" -gt 0 ]; then

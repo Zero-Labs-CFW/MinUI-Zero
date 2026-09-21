@@ -532,8 +532,12 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 			fi
 			continue
 		fi
-		cp "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
-		if [ "$(file_size "$staging/$rel")" = "$(file_size "$dst/$rel.dsync.tmp")" ]; then
+		# MOVE, not copy: staging and the card are one filesystem, so the transfer needs its own size
+		# once, not twice (a 25 GB library asked a 29 GB card for 52 GB, 2026-09-21). cp only if the
+		# move is refused (a staging dir on another mount).
+		ssz=$(file_size "$staging/$rel")
+		mv "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null || cp "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
+		if [ "$ssz" = "$(file_size "$dst/$rel.dsync.tmp")" ]; then
 			mv "$dst/$rel.dsync.tmp" "$dst/$rel"
 			set_mtime "$dst/$rel" "${mtime:-0}"
 			op=UPDATE; [ "$bkstate" = none ] && op=ADD
@@ -618,7 +622,7 @@ plan_need() { # <planfile> [dst] : KB that must be free on the receiving card
 	awk -F"$TAB" '
 		FILENAME==ARGV[1] { i=index($0," ./"); if (i) { split($0,a," "); bk += a[5] } next }   # files that will be backed up
 		$1=="take" && $4 != "" && !seen[$4]++ { pl += $3 }
-		END { print int((2*pl + bk + 1023) / 1024) }
+		END { sl = pl; if (sl > 209715200) sl = 209715200; print int((pl + bk + sl + 1023) / 1024) }   # plan + backups + one bundle chunk (apply moves, never copies)
 	' "$nt.sz" "$pn"
 	rm -f "$nt" "$nt.rels" "$nt.sz"
 }

@@ -350,7 +350,7 @@ check "7b: a reused backup dir is refused" "$([ "$RC7B" != 0 ] && echo refused |
 echo "== 7c: restore is backup-first -- neither of the two undo data-loss bugs can exist =="
 printf 'PLAYED-AFTER!' > "$L7/Saves/GBA/fresh.srm"          # bug 1: a played save, SAME SIZE as the synced one
 check "7c: the played save is the same size as the synced one (the bug's shape)" \
-      "$(szof "$L7/Saves/GBA/fresh.srm")" "$(szof "$ST7/Saves/GBA/fresh.srm")"
+      "$(szof "$L7/Saves/GBA/fresh.srm")" "13"   # PEER-NEW-SAVE is 13 bytes (the staged copy was MOVED into place)
 printf 'PLAYED-AFTER-THE-SYNC' > "$L7/Saves/GBA/keep.srm"   # bug 2: progress made after the sync
 SNAP7=$(E restore "$L7" "$BK7")
 check "7c: restore put the pre-sync file back"   "$(cat "$L7/Saves/GBA/keep.srm")"   "LOCAL-PRE-SYNC"
@@ -602,7 +602,7 @@ E apply-plan "$PLAN9C" "$ST9B" "$C9" "$S9C" >/dev/null 2>&1
 check "9: sweep is plan-scoped (unplanned dir left alone)" "$([ -e "$C9/Saves/PS/Other.srm.dsync.tmp" ] && echo present || echo swept)" "present"
 
 ######################################################################
-echo "########## SCENARIO 10: plan-need budgets BOTH copies (staging + applied + backups) ##########"
+echo "########## SCENARIO 10: plan-need budgets the transfer once (moved into place) + backups + chunk slack ##########"
 # Every planned byte lands twice before staging is cleared, so the old "plan bytes + 10%" check offered
 # Sync for transfers that could not fit and filled the card mid-apply.
 S10N="$WORK/s10n"; L10N="$S10N/local"; ST10N="$S10N/staging"; mkdir -p "$L10N" "$ST10N"
@@ -612,8 +612,8 @@ mkdir -p "$L10N"; printf '%s' "$BIG" > "$L10N/big.bin"     # the file it replace
 PLAN10N="$S10N/plan"; printf 'take\tother\t%s\tbig.bin\t-\t0\n' "$(szof "$ST10N/big.bin")" > "$PLAN10N"
 NEED_NO_DST=$(E plan-need "$PLAN10N")
 NEED_DST=$(E plan-need "$PLAN10N" "$L10N")
-check "10: without dst = staged + applied (2 x 128 KB)"        "$NEED_NO_DST" "256"
-check "10: with dst    = staged + applied + the backup copy"   "$NEED_DST"    "384"
+check "10: without dst = the plan once + chunk slack (2 x 128 KB)" "$NEED_NO_DST" "256"
+check "10: with dst    = plan + slack + the backup copy"       "$NEED_DST"    "384"
 printf 'skip\tother\t10\tx\n' > "$S10N/p0"
 check "10: a plan with nothing to copy needs nothing"          "$(E plan-need "$S10N/p0" "$L10N")" "0"
 
