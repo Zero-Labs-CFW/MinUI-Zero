@@ -434,6 +434,7 @@ TORN=0
 teardown(){
 	[ "$TORN" = 1 ] && return 0
 	TORN=1
+	dbg "teardown: begin (role=${ROLE:-?} had_wifi=$HAD_WIFI)"
 	status_off
 	net stop-serve >/dev/null 2>&1
 	net ap-down >/dev/null 2>&1
@@ -450,7 +451,7 @@ teardown(){
 		status_off
 	else net wifi-off >/dev/null 2>&1; fi
 	rm -rf "$SERVE" "$DS_DIR/out"; rm -f "$BUSY"
-	stay_off; }
+	stay_off; dbg "teardown: done"; }
 # Dev cards run a net-keeper that bounces wlan0 when the gateway is unreachable for 60 s; our join
 # removes the gateway on purpose. This flag tells it to stand down until teardown clears it.
 BUSY=/tmp/dsync-radio-busy
@@ -581,15 +582,17 @@ bundle_plan(){ # <plan> <out.tar> -> 0 when the archive was written
 # it, and a Games bundle would pin hundreds of MB on a 1 GB Brick (QA 2026-09-20). Skipped when the
 # card cannot hold a second copy of the plan bytes; the per-file path then does the work.
 bundle_out(){ # <plan> -> 0 when chunks are linked into $SERVE
-	bo="$DS_DIR/out"; rm -rf "$bo"; rm -f "$SERVE"/_dsync_bundle.tar*
+	# bod, not bo: bundle_plan uses bo for ITS output path and clobbered ours (no local in busybox sh),
+	# so this loop looked inside the tar for chunks and linked none: every bundle 404 today (2026-09-21)
+	bod="$DS_DIR/out"; rm -rf "$bod"; rm -f "$SERVE"/_dsync_bundle.tar*
 	need=$(( $(plan_kb "$1") * 11 / 10 + 2048 ))
 	free=$(df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}')
 	need=$((need + ${MNEED:-0}))     # plus the incoming apply this device already approved (Codex 2026-09-21)
 	[ "${free:-0}" -gt "$need" ] 2>/dev/null || { dbg "bundle: skipped, ${free:-0} KB free < $need KB"; return 1; }
-	mkdir -p "$bo" 2>/dev/null || return 1
-	bundle_plan "$1" "$bo/_dsync_bundle.tar" || { dbg "bundle: tar failed for $(plan_count "$1") files"; rm -rf "$bo"; return 1; }
-	bn=0; for bf in "$bo"/_dsync_bundle.tar*; do [ -f "$bf" ] && { ln -s "$bf" "$SERVE/${bf##*/}"; bn=$((bn+1)); }; done
-	dbg "bundle: $bn chunk(s) linked, $(file_bytes "$bo/_dsync_bundle.tar") bytes first"; return 0; }
+	mkdir -p "$bod" 2>/dev/null || return 1
+	bundle_plan "$1" "$bod/_dsync_bundle.tar" || { dbg "bundle: tar failed for $(plan_count "$1") files"; rm -rf "$bod"; return 1; }
+	bn=0; for bf in "$bod"/_dsync_bundle.tar*; do [ -f "$bf" ] && { ln -s "$bf" "$SERVE/${bf##*/}"; bn=$((bn+1)); }; done
+	dbg "bundle: $bn chunk(s) linked, $(file_bytes "$bod/_dsync_bundle.tar") bytes first"; return 0; }
 pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 	# One stream first (see bundle_plan). A truncated or missing archive is harmless: whatever it did not
 	# deliver at the right size is exactly what the resume split below fetches file by file.
@@ -925,6 +928,7 @@ Found $PEER"
 Nothing was copied."; exit 0
 	fi
 	if [ "$rc" != 0 ]; then
+		dbg "lost: rc=$rc at ${STATE}"
 		if oops "Lost the other device.
 
 Try again?"; then STATE=find; continue; else exit 0; fi
@@ -1076,7 +1080,7 @@ to start the sync."
 Nothing was copied."; exit 0
 	fi
 	case "$TOTALS" in
-		"")        if oops "Lost the other device.
+		"")        dbg "lost: no totals after the wait (${STATE})"; if oops "Lost the other device.
 
 Try again?"; then STATE=find; continue; else exit 0; fi ;;
 		NOTHING*)  tell "Already in sync.
@@ -1093,6 +1097,7 @@ Nothing was copied."; exit 0 ;;
 Nothing was copied."; exit 0
 	fi
 	if [ "$rc" != 0 ]; then
+		dbg "lost: rc=$rc at ${STATE}"
 		if oops "Lost the other device.
 
 Try again?"; then STATE=find; continue; else exit 0; fi
