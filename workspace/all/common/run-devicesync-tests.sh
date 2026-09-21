@@ -486,9 +486,9 @@ PLAN8E="$S8E/plan"; planln "$ST8E" save "Saves/GBA/x.srm" 1700000000 > "$PLAN8E"
 printf 'BEGIN\tSaves/GBA/x.srm\nBACKUP\tnone\t0\tSaves/GBA/x.srm\n' > "$BK8E/journal.log"; : > "$BK8E/ops.log"
 mk "$L8E" "Saves/GBA/x.srm" "TWENTY-HOURS-OF-PROGRESS"     # created AFTER the interruption
 E resume-apply "$PLAN8E" "$ST8E" "$L8E" "$BK8E" >/dev/null 2>&1
-check "8e: the resumed write still landed"        "$(cat "$L8E/Saves/GBA/x.srm")"  "PEER-SAVE-FROM-THE-INTERRUPTED-SYNC"
-check "8e: the 20 hours were copied first, not lost" "$(cat "$BK8E/Saves/GBA/x.srm")" "TWENTY-HOURS-OF-PROGRESS"
-check "8e: the ADD was demoted to an UPDATE"      "$(awk -F"$TAB" '$3=="Saves/GBA/x.srm"{print $1}' "$BK8E/ops.log")" "UPDATE"
+check "8e: the save created after the interruption is KEPT (stale write skipped)" "$(cat "$L8E/Saves/GBA/x.srm")" "TWENTY-HOURS-OF-PROGRESS"
+check "8e: no ops.log line, so restore cannot touch it" "$(awk -F"$TAB" '$3=="Saves/GBA/x.srm"{print $1}' "$BK8E/ops.log")" ""
+check "8e: transaction completes" "$(E journal-status "$BK8E")" "COMPLETE"
 check "8e: journal COMPLETE"                      "$(E journal-status "$BK8E")" "COMPLETE"
 E restore "$L8E" "$BK8E" >/dev/null 2>&1
 check "8e: so restore puts the 20 hours BACK instead of deleting the file" \
@@ -524,9 +524,9 @@ PLAN8H="$S8H/plan"; printf 'take\tsave\t%s\tSaves/GBA/z.srm\t-\t1700000000\n' "$
 printf 'BEGIN\tSaves/GBA/z.srm\nBACKUP\tnone\t0\tSaves/GBA/z.srm\n' > "$BK8H/journal.log"; : > "$BK8H/ops.log"
 mk "$L8H" "Saves/GBA/z.srm" "USER-EDIT" 202601010000                 # SAME 9 bytes, different content + mtime
 E resume-apply "$PLAN8H" "$ST8H" "$L8H" "$BK8H" >/dev/null 2>&1
-check "8h: the resumed peer save landed"                  "$(cat "$L8H/Saves/GBA/z.srm")"  "PEER-SAVE"
-check "8h: the same-size user edit was copied first, NOT lost" "$(cat "$BK8H/Saves/GBA/z.srm")" "USER-EDIT"
-check "8h: the ADD was demoted to an UPDATE"              "$(awk -F"$TAB" '$3=="Saves/GBA/z.srm"{print $1}' "$BK8H/ops.log")" "UPDATE"
+check "8h: the same-size user edit is KEPT (stale write skipped)" "$(cat "$L8H/Saves/GBA/z.srm")" "USER-EDIT"
+check "8h: no ops.log line for it"                        "$(awk -F"$TAB" '$3=="Saves/GBA/z.srm"{print $1}' "$BK8H/ops.log")" ""
+check "8h: transaction completes"                         "$(E journal-status "$BK8H")" "COMPLETE"
 E restore "$L8H" "$BK8H" >/dev/null 2>&1
 check "8h: restore puts the user edit back, not deletes it" "$(cat "$L8H/Saves/GBA/z.srm" 2>/dev/null)" "USER-EDIT"
 
@@ -709,13 +709,13 @@ check "merge-summary: to-b TOTAL items = 3" "$(printf '%s\n' "$MSUM" | awk -F"$T
 check "merge-summary: to-a TOTAL items = 2" "$(printf '%s\n' "$MSUM" | awk -F"$TAB" '$1=="to-a"&&$2=="TOTAL"{print $3}')" "2"
 
 ######################################################################
-echo "########## SCENARIO W: wire format is FROZEN at DSYNC_PROTO=2 ##########"
+echo "########## SCENARIO W: wire format is FROZEN at DSYNC_PROTO=3 ##########"
 # Everything a peer reads off the wire, pinned byte-for-byte: manifest lines, merge lines, the shared
 # plan lines and the prefs line. If one of these checks fails, the wire SHAPE changed:
 #   1. bump DSYNC_PROTO in launch.sh (all three platform copies stay byte-identical), and
 #   2. update the expected strings AND the WIRE_PROTO below in the same commit.
 # A shape change without a bump would let two builds sync by luck; the number is the only gate.
-WIRE_PROTO=2
+WIRE_PROTO=3
 LAUNCH_W="$ROOT/skeleton/EXTRAS/Tools/tg5040/Device Sync.pak/launch.sh"
 check "W: launch.sh publishes DSYNC_PROTO=$WIRE_PROTO" "$(sed -n 's/^DSYNC_PROTO=\([0-9]*\)$/\1/p' "$LAUNCH_W")" "$WIRE_PROTO"
 check "W: prefs line carries S G C P F V" "$(grep -c "printf 'S=%s G=%s C=%s P=%s F=%s V=%s\\\\n'" "$LAUNCH_W")" "1"
@@ -767,6 +767,10 @@ printf 'Saves/GBA/f.srm\t8\t1767268800\tsave\t-\n' > "$SK/fb.mf"
 check "K: same size, mtime 1 s apart -> skip (FAT 2 s window)" "$(E merge "$SK/fa.mf" "$SK/fb.mf" | cut -f1)" "skip"
 printf 'Saves/GBA/f.srm\t8\t1767268803\tsave\t-\n' > "$SK/fc.mf"
 check "K: same size, mtime 3 s apart -> conflict" "$(E merge "$SK/fc.mf" "$SK/fb.mf" | cut -f1)" "conflict"
+printf 'Saves/GBA/f.srm\t8\t1767268802\tsave\t-\n' > "$SK/fd.mf"
+check "K: same size, mtime 2 s apart -> conflict (only the FAT round-down is tolerated)" "$(E merge "$SK/fd.mf" "$SK/fb.mf" | cut -f1)" "conflict"
+# aboot: A's own file predates A's boot -> raw (the Miyoo hosts as A, so its lag matters on this side too)
+check "K: off=-200, A file older than A boot -> raw -> to-a" "$(E merge "$SK/a.mf" "$SK/b.mf" -200 0 1767268850 | cut -f1)" "to-a"
 # pboot: B booted (B clock) AFTER this file was written, so its lag is unknown: compared raw -> to-a
 check "K: off=-200 but file predates B boot -> raw -> to-a" "$(E merge "$SK/a.mf" "$SK/b.mf" -200 1767268950 | cut -f1)" "to-a"
 check "K: off=-200, file written after B boot -> corrected -> to-b" "$(E merge "$SK/a.mf" "$SK/b.mf" -200 1767268000 | cut -f1)" "to-b"

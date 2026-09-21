@@ -105,7 +105,7 @@ _is_plan_copy() { # <file> <plan size> <plan hash> [plan mtime]
 	if [ -n "$3" ] && [ "$3" != "-" ]; then [ "$(file_hash "$1")" = "$3" ]; return; fi
 	[ -n "$4" ] && [ "$4" != 0 ] 2>/dev/null || return 0   # no hash AND no mtime (bare ROM): size is all there is
 	m=$(file_mtime "$1"); case "$m" in ''|*[!0-9]*) return 1 ;; esac
-	d=$((m - $4)); [ "$d" -ge -2 ] && [ "$d" -le 2 ]   # FAT32 2 s mtime resolution (see merge_manifests)
+	d=$((m - $4)); [ "$d" -eq 0 ] || [ "$d" -eq -1 ]   # FAT32 rounds an odd stamped second DOWN: 0 or -1 only
 }
 # sweep our own half-written scratch. A power cut between the tmp write and the atomic mv strands a
 # <save>.dsync.tmp on the card forever; manifest() no longer sees them, this clears the dead bytes.
@@ -330,13 +330,13 @@ plan_summary(){ # <manifest> <dst>
 #   save: differs on both = conflict (never auto-picked; the two-version picker resolves it).
 #   config/recent/collection/other: newer mtime wins (tie -> to-b); identical hash = skip.
 # The clock is advisory, so a save is never auto-resolved by mtime -- only non-precious files are.
-merge_manifests(){ # <A-manifest> <B-manifest> [A-clock minus B-clock, seconds] [B boot time, B clock]
+merge_manifests(){ # <A-manifest> <B-manifest> [A-clock minus B-clock] [B boot, B clock] [A boot, A clock]
 	# pboot: a device with no RTC restores its clock at boot, so its lag is only known for files written
 	# THIS session; an older file carries a smaller lag and would be pushed into the future by the full
 	# offset (a week-old Miyoo save beating three-day-old Brick progress, QA 2026-09-20). Older: raw.
 	# off corrects B's mtimes into A's clock for the NEWEST-WINS direction only. Identity (size+mtime)
 	# stays raw on purpose: apply stamps the source mtime, so a synced pair matches without any offset.
-	awk -F"$TAB" -v OFS="$TAB" -v off="${3:-0}" -v pboot="${4:-0}" '
+	awk -F"$TAB" -v OFS="$TAB" -v off="${3:-0}" -v pboot="${4:-0}" -v aboot="${5:-0}" '
 		FILENAME==ARGV[1] { a[$1]=1; ac[$1]=$4; asz[$1]=$2; amt[$1]=$3; ah[$1]=$5; next }
 		{ rel=$1; bsz=$2; bmt=$3; bc=$4; bh=$5; b[rel]=1
 		  if (!(rel in a)) { print "to-a", bc, bsz, rel; next }             # only on B -> send to A
@@ -344,11 +344,12 @@ merge_manifests(){ # <A-manifest> <B-manifest> [A-clock minus B-clock, seconds] 
 		  # identical? use the hashes if BOTH manifests carry them (test fixtures), otherwise size+mtime
 		  # (the real, hashless snapshots -- a synced file shares the stamped source mtime, so it matches)
 		  if (ah[rel]!="-" && bh!="-") { if (ah[rel]==bh) { print "skip", bc, bsz, rel; next } }
-		  # 2 s window, not equality: FAT32 stores mtime to 2 s, so a stamped odd second reads back one lower
+		  # 1 s window, not equality: FAT32 stores mtime to 2 s, so a stamped odd second reads back one lower
 		  # and an exFAT/FAT32 pair re-copied every odd save on every sync (QA 2026-09-20)
-		  else if (asz[rel]==bsz && amt[rel]-bmt <= 2 && bmt-amt[rel] <= 2) { print "skip", bc, bsz, rel; next }
+		  else if (asz[rel]==bsz && amt[rel]-bmt <= 1 && bmt-amt[rel] <= 1) { print "skip", bc, bsz, rel; next }
 		  if (bc=="save") { print "conflict", bc, bsz, rel; next }          # differing save: ask
-		  bm = (pboot > 0 && (bmt+0) < pboot) ? bmt+0 : bmt+0+off               # B in A time (see pboot)
+		  # the offset is only known for THIS session on each side: a file older than the boot of its own device -> raw
+		  bm = ((pboot > 0 && (bmt+0) < pboot) || (aboot > 0 && (amt[rel]+0) < aboot)) ? bmt+0 : bmt+0+off
 		  if ((amt[rel]+0) >= bm) { print "to-b", bc, asz[rel], rel }         # newer wins (tie -> A)
 		  else { print "to-a", bc, bsz, rel }
 		}
@@ -451,11 +452,17 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 				   && ! _is_plan_copy "$dst/$rel" "$psize" "$phash" "$mtime"; then
 					# The live file does not match the plan, so this file's write never landed and the live
 					# file IS the pre-sync original -- which this mismatched leftover therefore is not a
-					# copy of (a pre-fix build could strand a SHORT one here). Redo the backup, verified, but
-					# KEEP the leftover beside it: if the user played on after the cut, the live file is the
-					# edit and this leftover is the only pre-sync copy left anywhere (QA 2026-09-20).
-					mv -f "$bdir/$rel" "$bdir/$rel.dsync.prev" 2>/dev/null || rm -f "$bdir/$rel"
-					if _backup_one "$dst" "$bdir" "$rel"; then bkstate=have; else bkstate=fail; fi
+					# copy of. Two cases. A TORN stub from a pre-fix build (an interrupted cp) is a shorter PREFIX of
+					# the live original: redo the backup, verified, and apply. Anything else means the user played
+					# on after the cut (this build mv's whole copies only): the live file is the newest state, so
+					# KEEP it, skip this write, and leave the leftover as the pre-sync copy (Codex 2026-09-21).
+					lsz=$(file_size "$bdir/$rel"); dsz=$(file_size "$dst/$rel")
+					if [ "$lsz" -lt "$dsz" ] 2>/dev/null && head -c "$lsz" "$dst/$rel" 2>/dev/null | cmp -s - "$bdir/$rel" 2>/dev/null; then
+						rm -f "$bdir/$rel"
+						if _backup_one "$dst" "$bdir" "$rel"; then bkstate=have; else bkstate=fail; fi
+					else
+						printf 'DONE\tkeep\t%s\n' "$rel" >> "$jl"; printf 'KEEP\t%s (edited after the interruption)\n' "$rel" >&2; continue
+					fi
 				else
 					bkstate=have                   # a faithful copy of the live file, or the write already landed
 				fi
@@ -480,15 +487,9 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 			# with only a stale (or no) copy behind it. Live bytes are never overwritten uncopied.
 			if [ "$bkstate" = none ]; then
 				# journalled "nothing was here" -- there is now, so the user CREATED it after the interruption.
-				# Back it up (none means no copy was taken, so there is nothing to clobber) and journal the new
-				# state: that also turns the ops.log ADD into an UPDATE, so restore puts this file back instead
-				# of deleting it. An ADD that is no longer new is an UPDATE.
-				if _backup_one "$dst" "$bdir" "$rel"; then
-					bkstate=have; bksz=$(file_size "$bdir/$rel")
-					printf 'BACKUP\t%s\t%s\t%s\n' "$bkstate" "$bksz" "$rel" >> "$jl"
-				else
-					bkstate=fail
-				fi
+				# That is the newest state: KEEP it and skip the stale staged write (it used to be backed up and
+				# then replaced, Codex review 2026-09-21). No ops.log line, so restore leaves it alone.
+				printf 'DONE\tkeep\t%s\n' "$rel" >> "$jl"; printf 'KEEP\t%s (created after the interruption)\n' "$rel" >&2; continue
 			elif ! _same_bytes "$dst/$rel" "$bdir/$rel"; then
 				# the live file changed AFTER the backup was taken: the user played on. The plan was newest-wins
 				# when it was computed, and the live bytes are the newest now, so KEEP them and skip this write.

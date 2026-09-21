@@ -61,7 +61,7 @@ PORT=8145; PSK=minuizerosync; SSID=MinUI-Sync
 # Wire-protocol version, published with our prefs. Bump it whenever the manifest/plan/bundle shape or
 # the handshake files change incompatibly; a peer on a different number is told to update instead of
 # syncing by luck (two Zero builds, or a Zero and a NextUI port, can otherwise disagree silently).
-DSYNC_PROTO=2
+DSYNC_PROTO=3
 # Fork + build, INFORMATIONAL only (never a gate: a Zero 1.7 and a Zero 1.8, or a Zero and a NextUI port,
 # on the same protocol number sync fine). They make the mismatch message say WHICH build to update.
 DSYNC_FORK=zero
@@ -195,10 +195,10 @@ cat_label(){ case "$1" in
 # only ever decides saves and states, and the loser is ALWAYS backed up before it is replaced, so a
 # wrong guess under clock skew is recoverable from Restore. mtime is field 3 of each manifest.
 auto_resolve(){ # <my.mf> <peer.mf> <merge> -> decisions (REL \t a|b) on stdout
-	awk -F"$TAB" -v OFS="$TAB" -v off="${CLK_OFF:-0}" -v pboot="${PEER_BOOT:-0}" '
+	awk -F"$TAB" -v OFS="$TAB" -v off="${CLK_OFF:-0}" -v pboot="${PEER_BOOT:-0}" -v aboot="${MY_BOOT:-0}" '
 		FILENAME==ARGV[1] { amt[$1]=$3; next }
 		FILENAME==ARGV[2] { bmt[$1]=$3; next }
-		FILENAME==ARGV[3] && $1=="conflict" { rel=$4; bm = (pboot > 0 && (bmt[rel]+0) < pboot) ? bmt[rel]+0 : bmt[rel]+0+off; print rel, ((amt[rel]+0) >= bm ? "a" : "b") }
+		FILENAME==ARGV[3] && $1=="conflict" { rel=$4; bm = ((pboot > 0 && (bmt[rel]+0) < pboot) || (aboot > 0 && (amt[rel]+0) < aboot)) ? bmt[rel]+0 : bmt[rel]+0+off; print rel, ((amt[rel]+0) >= bm ? "a" : "b") }
 	' "$1" "$2" "$3"; }
 
 # Two devices of the same model report the same name, and the review screen names both sides, so make
@@ -475,7 +475,7 @@ kill $MUOS_INHIBIT_PID 2>/dev/null"
 rm -f /tmp/stay_awake"
 DS_GUARD="$DS_GUARD
 killall status.elf 2>/dev/null
-rm -rf $SERVE; rm -f $BUSY"
+rm -rf $SERVE $DS_DIR/out; rm -f $BUSY"
 # setsid puts it in its own session so a group-wide kill does not take the cleanup with it
 if command -v setsid >/dev/null 2>&1; then setsid sh -c "$DS_GUARD" >/dev/null 2>&1 &
 else sh -c "$DS_GUARD" >/dev/null 2>&1 & fi
@@ -576,6 +576,7 @@ bundle_out(){ # <plan> -> 0 when chunks are linked into $SERVE
 	bo="$DS_DIR/out"; rm -rf "$bo"; rm -f "$SERVE"/_dsync_bundle.tar*
 	need=$(( $(plan_kb "$1") * 11 / 10 + 2048 ))
 	free=$(df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}')
+	need=$((need + ${MNEED:-0}))     # plus the incoming apply this device already approved (Codex 2026-09-21)
 	[ "${free:-0}" -gt "$need" ] 2>/dev/null || { dbg "bundle: skipped, ${free:-0} KB free < $need KB"; return 1; }
 	mkdir -p "$bo" 2>/dev/null || return 1
 	bundle_plan "$1" "$bo/_dsync_bundle.tar" || { rm -rf "$bo"; return 1; }
@@ -886,7 +887,7 @@ compare)
 	# and when this session's clock started: a no-RTC device restores its clock at boot, so only files
 	# written since then carry the lag the peer measures now (older ones are compared raw)
 	NB=$(now); UP=$(cut -d. -f1 /proc/uptime 2>/dev/null); case "$UP" in ''|*[!0-9]*) UP=0 ;; esac
-	[ "$NB" != 0 ] && printf '%s\n' "$((NB - UP))" > "$SERVE/_dsync_boot"
+	MY_BOOT=0; [ "$NB" != 0 ] && { MY_BOOT=$((NB - UP)); printf '%s\n' "$MY_BOOT" > "$SERVE/_dsync_boot"; }
 	printf 'S=%s G=%s C=%s P=%s F=%s V=%s\n' "$PS" "$PG" "$PC" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label)
 	df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}' > "$SERVE/_dsync_free"
 	cp "$SERVE/_dsync_manifest" "$W/my.mf" 2>/dev/null
@@ -974,7 +975,7 @@ review)
 	# conflict screen: the whole flow is snapshot, compare, sync (Dan, 2026-09-18: "KEEP IT SIMPLE").
 	# Games are never touched destructively -- a ROM on both devices is skip-by-name, a ROM on one is
 	# copied to the other, nothing is ever overwritten or deleted, so a game can never be lost.
-	eng merge "$W/my.mf" "$W/peer.mf" "${CLK_OFF:-0}" "${PEER_BOOT:-0}" > "$W/merge"   # skew-corrected newest-wins for every class
+	eng merge "$W/my.mf" "$W/peer.mf" "${CLK_OFF:-0}" "${PEER_BOOT:-0}" "${MY_BOOT:-0}" > "$W/merge"   # skew-corrected newest-wins for every class
 	if [ "$(awk -F"$TAB" '$1!="skip"{n++} END{print n+0}' "$W/merge")" -eq 0 ]; then
 		# the peer is still waiting on us, so say WHY we are finishing (a "cancelled" here would be a lie)
 		printf 'NOTHING\n' > "$SERVE/_dsync_totals"
@@ -1283,7 +1284,7 @@ resume)
 	status "Finishing the interrupted sync..."
 	eng resume-apply "$RES_PLAN" "$STAGE" "$LOCAL" "$RESUME_BK" >> "$LOGF" 2>&1
 	case "$(eng journal-status "$RESUME_BK" 2>/dev/null)" in
-		COMPLETE*) n=$(awk '/^DONE/{n++} END{print n+0}' "$RESUME_BK/journal.log" 2>/dev/null)
+		COMPLETE*) n=$(awk -F"$TAB" '$1=="DONE" && $2!="keep" {n++} END{print n+0}' "$RESUME_BK/journal.log" 2>/dev/null)
 		           rm -f "$RES_BK" "$RES_PLAN"; rm -rf "$STAGE"; mkdir -p "$STAGE"
 		           tell "Finished.
 
