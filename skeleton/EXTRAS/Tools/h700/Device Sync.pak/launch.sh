@@ -195,10 +195,10 @@ cat_label(){ case "$1" in
 # only ever decides saves and states, and the loser is ALWAYS backed up before it is replaced, so a
 # wrong guess under clock skew is recoverable from Restore. mtime is field 3 of each manifest.
 auto_resolve(){ # <my.mf> <peer.mf> <merge> -> decisions (REL \t a|b) on stdout
-	awk -F"$TAB" -v OFS="$TAB" -v off="${CLK_OFF:-0}" '
+	awk -F"$TAB" -v OFS="$TAB" -v off="${CLK_OFF:-0}" -v pboot="${PEER_BOOT:-0}" '
 		FILENAME==ARGV[1] { amt[$1]=$3; next }
 		FILENAME==ARGV[2] { bmt[$1]=$3; next }
-		FILENAME==ARGV[3] && $1=="conflict" { rel=$4; print rel, ((amt[rel]+0) >= (bmt[rel]+0+off) ? "a" : "b") }
+		FILENAME==ARGV[3] && $1=="conflict" { rel=$4; bm = (pboot > 0 && (bmt[rel]+0) < pboot) ? bmt[rel]+0 : bmt[rel]+0+off; print rel, ((amt[rel]+0) >= bm ? "a" : "b") }
 	' "$1" "$2" "$3"; }
 
 # Two devices of the same model report the same name, and the review screen names both sides, so make
@@ -369,6 +369,17 @@ hget(){ secs=$1; shift
 	while kill -0 "$wpid" 2>/dev/null && [ "$k" -lt "$lim" ]; do nap; k=$((k+1)); done
 	if kill -0 "$wpid" 2>/dev/null; then kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 1; fi
 	wait "$wpid"; }
+# hget that honours B: for the long bundle pulls, where fetch_file's rule (never a download the user
+# cannot stop) was bypassed and a 700 MB bundle ran to its deadline behind a blank panel (QA 2026-09-20)
+hget_c(){ # <secs> <dst> <url>; 0 done, 1 deadline, 3 stopped by the user
+	wget -q -O "$2" "$3" 2>/dev/null & wpid=$!
+	k=0
+	while kill -0 "$wpid" 2>/dev/null && [ "$k" -lt "$1" ]; do
+		stopped && { kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 3; }
+		sleep 1; k=$((k+1))
+	done
+	if kill -0 "$wpid" 2>/dev/null; then kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 1; fi
+	wait "$wpid"; }
 
 # poll for a file the peer may still be writing (it builds its export while we build ours)
 fetch(){ i=0; while [ "$i" -lt "$3" ]; do
@@ -417,6 +428,9 @@ radio_up(){ command -v rfkill >/dev/null 2>&1 && rfkill unblock wifi 2>/dev/null
 
 HOMEIP=$(ip -4 addr show "$STA_IF" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)
 case "$HOMEIP" in 192.168.42.*|"") HAD_WIFI=0 ;; *) HAD_WIFI=1 ;; esac
+# no lease yet is not "no WiFi": a supplicant or dhcpcd already running means the home network was
+# configured and merely associating, and wifi-off at teardown would have killed it (QA 2026-09-20)
+pidof wpa_supplicant >/dev/null 2>&1 && HAD_WIFI=1; pidof dhcpcd >/dev/null 2>&1 && HAD_WIFI=1
 TORN=0
 teardown(){
 	[ "$TORN" = 1 ] && return 0
@@ -427,7 +441,7 @@ teardown(){
 	# restore-wifi is a no-op unless join/ap-up actually saved the home config, so a run that never
 	# touched the radio leaves it exactly as it was (knocking a Brick off its network, 2026-09-05).
 	if [ "$HAD_WIFI" = 1 ]; then net restore-wifi >/dev/null 2>&1; else net wifi-off >/dev/null 2>&1; fi
-	rm -rf "$SERVE"; rm -f "$BUSY"
+	rm -rf "$SERVE" "$DS_DIR/out"; rm -f "$BUSY"
 	stay_off; }
 # Dev cards run a net-keeper that bounces wlan0 when the gateway is unreachable for 60 s; our join
 # removes the gateway on purpose. This flag tells it to stand down until teardown clears it.
@@ -472,6 +486,10 @@ fi   # end: skipped in library mode
 # failed: the host gave up, re-elected as MinUI-Sync-91ff, and the Brick Pro sat holding a lease from
 # MinUI-Sync-9160 (2026-09-18).
 TOKEN=$(mk_token "$(cat "/sys/class/net/$STA_IF/address" 2>/dev/null)" "$$$(date +%s 2>/dev/null)")
+# A device with no scanner (no iw: the Miyoo) can never see a rival, so it always elects host and can
+# never join. Give it the LOWEST possible token so every scanning peer yields to it instead of both
+# hosting for ten minutes when the Brick happened to draw the lower number (QA 2026-09-20).
+command -v iw >/dev/null 2>&1 || TOKEN=0000
 # The hotspot name CARRIES the device name, so a joiner knows WHO it found the instant a scan sees the
 # SSID ("Found Brick Pro" on the stepper), not seconds later after connecting. The token stays right
 # after the prefix so peer_ssid/yield_to still order by token. 32-char SSID: prefix+token is 16, so
@@ -548,6 +566,19 @@ bundle_plan(){ # <plan> <out.tar> -> 0 when the archive was written
 	fi
 	[ -s "$bo" ]
 }
+# The outgoing archive lives on the CARD and is served through a symlink in $SERVE (build-export already
+# serves every card file through symlinks, so httpd following them is proven on all three devices).
+# $SERVE is /tmp, which is RAM: 49 MB on the Miyoo, where a handful of PS1 states already overflowed
+# it, and a Games bundle would pin hundreds of MB on a 1 GB Brick (QA 2026-09-20). Skipped when the
+# card cannot hold a second copy of the plan bytes; the per-file path then does the work.
+bundle_out(){ # <plan> -> 0 when chunks are linked into $SERVE
+	bo="$DS_DIR/out"; rm -rf "$bo"; rm -f "$SERVE"/_dsync_bundle.tar*
+	need=$(( $(plan_kb "$1") * 11 / 10 + 2048 ))
+	free=$(df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}')
+	[ "${free:-0}" -gt "$need" ] 2>/dev/null || { dbg "bundle: skipped, ${free:-0} KB free < $need KB"; return 1; }
+	mkdir -p "$bo" 2>/dev/null || return 1
+	bundle_plan "$1" "$bo/_dsync_bundle.tar" || { rm -rf "$bo"; return 1; }
+	for bf in "$bo"/_dsync_bundle.tar*; do [ -f "$bf" ] && ln -s "$bf" "$SERVE/${bf##*/}"; done; return 0; }
 pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 	# One stream first (see bundle_plan). A truncated or missing archive is harmless: whatever it did not
 	# deliver at the right size is exactly what the resume split below fetches file by file.
@@ -559,9 +590,11 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 		k=1
 		while :; do
 			bu="$1/_dsync_bundle.tar"; [ "$k" -gt 1 ] && bu="$1/_dsync_bundle.tar.$k"
-			hget "$bdl" -O "$BT" "$bu" && [ -s "$BT" ] || break
+			hget_c "$bdl" "$BT" "$bu"; hrc=$?
+			[ "$hrc" = 3 ] && { rm -f "$BT"; stop_ui; dbg "pull: stopped by user during bundle $k"; return 2; }
+			[ "$hrc" = 0 ] && [ -s "$BT" ] || break
 			mkdir -p "$STAGE" 2>/dev/null; tar -xf "$BT" -C "$STAGE" 2>/dev/null
-			PULL_BUNDLED=1; dbg "pull: bundle $k $(wc -c < "$BT" 2>/dev/null) bytes extracted"
+			PULL_BUNDLED=1; dbg "pull: bundle $k $(file_bytes "$BT") bytes extracted"
 			rm -f "$BT"; k=$((k+1)); [ "$k" -le 64 ] || break
 		done
 		rm -f "$BT"
@@ -615,7 +648,7 @@ apply_plan(){ # <plan>
 	eng apply-plan "$1" "$STAGE" "$LOCAL" "$BK" >> "$LOGF" 2>&1; arc=$?
 	printf '%s, %s' "$PEER" "$(date '+%b %d %H:%M' 2>/dev/null)" > "$BK/label" 2>/dev/null
 	eng prune "$BK_ROOT" 5 >/dev/null 2>&1
-	awk '/^DONE/{n++} END{print n+0}' "$BK/journal.log" 2>/dev/null
+	awk -F"$TAB" '$1=="DONE" && $2!="keep" {n++} END{print n+0}' "$BK/journal.log" 2>/dev/null   # keep = live edit kept, nothing copied
 	return "$arc"; }
 
 # ---- library mode -------------------------------------------------------------------------------
@@ -679,7 +712,7 @@ Turn on Saves, Games or
 Game Configs first."; STATE=options
 		   else STATE=find; fi ;;
 		y) STATE=backups ;;
-		*) STATE=find ;;
+		*) exit 0 ;;   # B (no ACTION line): leave. It used to fall into find and start searching (QA 2026-09-20)
 	esac ;;
 
 backups)
@@ -788,8 +821,9 @@ Found a device"   # a station associated -> Connecting
 			# every 10 s for the whole wait is what made the Brick Pro never notice the Brick that had
 			# ALREADY associated and taken a lease from it (device logs, 2026-09-18). Both-elected-host
 			# only happens when the two Sync presses land within seconds of each other, so three scans
-			# across the first ~30 s covers it; after that the radio is left alone to hold the hotspot.
-			case "$i" in 0|8|20)
+			# across the first ~30 s cover it; after that one scan every 40 s (a Miyoo opened later can
+			# only host, and we must notice it), rare enough not to break a join in progress.
+			case "$i" in 0|8|20|60|100|140|180|220|260|300|340|380|420|460|500|540|580)
 				Y=$(yield_to "$MYSSID" "$(net scan 2>/dev/null)")
 				if [ -n "$Y" ]; then
 					dbg "find: yielding to $Y (lower token)"
@@ -812,14 +846,16 @@ Nothing was copied."; exit 0
 		PN=${FOUND#MinUI-Sync-????-}; [ "$PN" = "$FOUND" ] && PN="a device"   # the name rides in the SSID
 		step "2
 Found $PN"   # found a hotspot, joining it -> Connecting
-		rm -f "$W/joinip" "$W/joinip.tmp"
-		( net join "$FOUND" "$PSK" > "$W/joinip.tmp" 2>/dev/null; mv "$W/joinip.tmp" "$W/joinip" ) & JPID=$!
+		rm -f "$W/joinip" "$W/joinip.tmp" "$W/join.pid"
+		# the join runs as a known pid inside the wrapper: killing only the wrapper left the join and its
+		# 90 s udhcpc loop running beside the restored home network (QA 2026-09-20)
+		( sh "$NET" join "$FOUND" "$PSK" > "$W/joinip.tmp" 2>/dev/null & jp=$!; printf '%s' "$jp" > "$W/join.pid"; wait "$jp"; mv "$W/joinip.tmp" "$W/joinip" ) & JPID=$!
 		j=0
 		while kill -0 "$JPID" 2>/dev/null && [ "$j" -lt 150 ]; do
 			stopped && { HALT=1; break; }
 			sleep 2; j=$((j+2))
 		done
-		kill -0 "$JPID" 2>/dev/null && kill "$JPID" 2>/dev/null
+		if kill -0 "$JPID" 2>/dev/null; then kill "$(cat "$W/join.pid" 2>/dev/null)" "$JPID" 2>/dev/null; fi
 		MYIP=$(head -1 "$W/joinip" 2>/dev/null)
 		PEER_IP="$AP_IP"; [ -n "$MYIP" ] || PEER_IP=""
 		dbg "find: joined $FOUND as $MYIP"
@@ -846,10 +882,17 @@ compare)
 	net build-export "$LOCAL" "$SERVE" --list "$W/scope" >/dev/null 2>&1
 	printf '%s' "$NAME" > "$SERVE/_dsync_name"
 	date +%s > "$SERVE/_dsync_now"        # our clock, so the peer can correct our mtimes into ITS time
+	# and when this session's clock started: a no-RTC device restores its clock at boot, so only files
+	# written since then carry the lag the peer measures now (older ones are compared raw)
+	NB=$(now); UP=$(cut -d. -f1 /proc/uptime 2>/dev/null); case "$UP" in ''|*[!0-9]*) UP=0 ;; esac
+	[ "$NB" != 0 ] && printf '%s\n' "$((NB - UP))" > "$SERVE/_dsync_boot"
 	printf 'S=%s G=%s C=%s P=%s F=%s V=%s\n' "$PS" "$PG" "$PC" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label)
 	df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}' > "$SERVE/_dsync_free"
 	cp "$SERVE/_dsync_manifest" "$W/my.mf" 2>/dev/null
-	if ! net serve "$SERVE" "$PORT" >/dev/null 2>&1; then
+	# bind to the sync interface only: a concurrent host (Brick, Miyoo) would otherwise serve its saves
+	# to the whole home LAN for the run (QA 2026-09-20). serve falls back to all interfaces if the bind fails.
+	if [ "$ROLE" = host ]; then BINDIP=$AP_IP; else BINDIP=$MYIP; fi
+	if ! net serve "$SERVE" "$PORT" "$BINDIP" >/dev/null 2>&1; then
 		if oops "This device cannot share files.
 
 Try again?"; then STATE=find; continue; else exit 0; fi
@@ -860,7 +903,7 @@ Try again?"; then STATE=find; continue; else exit 0; fi
 	# The peer NAME is a tiny request: fetch it first so the stepper says WHO was found while the (much
 	# larger) file lists exchange. Both sides publish _dsync_name before serve().
 	PEER=""; pn=0
-	while [ "$pn" -lt 6 ] && [ -z "$PEER" ]; do PEER=$(hget 6 -O - "$PEER_BASE/_dsync_name") || PEER=""; pn=$((pn+1)); [ -n "$PEER" ] || sleep 1; done
+	while [ "$pn" -lt 6 ] && [ -z "$PEER" ]; do PEER=$(hget 6 -O - "$PEER_BASE/_dsync_name" | head -c 200 | tr -cd 'A-Za-z0-9 ._()+-' | cut -c1-40) || PEER=""; pn=$((pn+1)); [ -n "$PEER" ] || sleep 1; done
 	[ -z "$PEER" ] && PEER="the other device"
 	step "3
 Found $PEER"
@@ -886,7 +929,8 @@ Found $PEER"   # Comparing (building the delta)
 	# CLOCK SKEW: newest-wins compares mtimes from two clocks, and the Miyoo has no RTC. Read the peer's
 	# clock and shift ITS mtimes into OUR time before deciding. Under 2 min is network/boot jitter: ignore.
 	PEER_NOW=$(hget 8 -O - "$PEER_BASE/_dsync_now") || PEER_NOW=""
-	case "$PEER_NOW" in ''|*[!0-9]*) CLK_OFF=0 ;; *) CLK_OFF=$(( $(date +%s) - PEER_NOW )) ;; esac
+	NOWM=$(now); case "$PEER_NOW" in ''|*[!0-9]*) CLK_OFF=0 ;; *) if [ "$NOWM" != 0 ]; then CLK_OFF=$(( NOWM - PEER_NOW )); else CLK_OFF=0; fi ;; esac
+	PEER_BOOT=$(hget 6 -O - "$PEER_BASE/_dsync_boot") || PEER_BOOT=""; case "$PEER_BOOT" in ''|*[!0-9]*) PEER_BOOT=0 ;; esac
 	[ "$CLK_OFF" -gt -120 ] && [ "$CLK_OFF" -lt 120 ] && CLK_OFF=0
 	dbg "compare: clock offset me-peer=${CLK_OFF}s"
 	# the peer's toggles. Saves/Configs are small and safe to default ON (so an OLD peer with no prefs
@@ -929,7 +973,7 @@ review)
 	# conflict screen: the whole flow is snapshot, compare, sync (Dan, 2026-09-18: "KEEP IT SIMPLE").
 	# Games are never touched destructively -- a ROM on both devices is skip-by-name, a ROM on one is
 	# copied to the other, nothing is ever overwritten or deleted, so a game can never be lost.
-	eng merge "$W/my.mf" "$W/peer.mf" > "$W/merge"
+	eng merge "$W/my.mf" "$W/peer.mf" "${CLK_OFF:-0}" "${PEER_BOOT:-0}" > "$W/merge"   # skew-corrected newest-wins for every class
 	if [ "$(awk -F"$TAB" '$1!="skip"{n++} END{print n+0}' "$W/merge")" -eq 0 ]; then
 		# the peer is still waiting on us, so say WHY we are finishing (a "cancelled" here would be a lie)
 		printf 'NOTHING\n' > "$SERVE/_dsync_totals"
@@ -983,7 +1027,7 @@ Nothing was copied."; exit 0
 	# the ONE confirmation: a scrollable list of exactly WHAT will sync, by name -- "4 files (3 saves)"
 	# told the user nothing they could act on (Dan, 2026-09-19). Y = sync, B = back. Nothing moved yet.
 	if menu --wide --title "Sync $NN items" --a-label SYNC "$@" | grep -q '^ACTION=a$'; then
-		bundle_plan "$W/plan.peer" "$SERVE/_dsync_bundle.tar" || rm -f "$SERVE/_dsync_bundle.tar"
+		bundle_out "$W/plan.peer"
 		cp "$W/plan.me" "$SERVE/_dsync_want"
 		cp "$W/plan.peer" "$SERVE/_dsync_plan"
 		printf '%s %s 0\n' "$(plan_count "$W/plan.me")" "$(plan_count "$W/plan.peer")" > "$SERVE/_dsync_totals"
@@ -1043,7 +1087,7 @@ Nothing was copied."; exit 0
 Try again?"; then STATE=find; continue; else exit 0; fi
 	fi
 	if hget 20 -O "$W/want" "$PEER_BASE/_dsync_want" && [ -s "$W/want" ]; then
-		bundle_plan "$W/want" "$SERVE/_dsync_bundle.tar" || rm -f "$SERVE/_dsync_bundle.tar"
+		bundle_out "$W/want"
 	fi
 	dbg "wait_plan: got plan $(plan_count "$W/plan.me") files, totals=$TOTALS"
 	STATE=sync ;;
@@ -1054,7 +1098,11 @@ sync)
 	# plan, but a stale same-size file left by an earlier failed sync (possibly with a different peer)
 	# would be accepted and applied as current. A resume runs in STATE=resume, never here, so clearing on
 	# entry to this state only ever wipes leftovers a fresh run must not trust (Codex, 2026-09-18).
-	rm -rf "$STAGE"; mkdir -p "$STAGE" 2>/dev/null
+	# ...but a RETRY of the same plan (connection lost, Sync again) KEEPS what already arrived: the plan
+	# file is the identity, and resume-check re-verifies every staged file by size and hash. Without
+	# this a blip at 1.9 GB of 2 GB restarted from zero (QA 2026-09-20).
+	if [ -f "$STAGE/.plan" ] && cmp -s "$STAGE/.plan" "$W/plan.me" 2>/dev/null; then dbg "sync: same plan, staging kept"
+	else rm -rf "$STAGE"; mkdir -p "$STAGE" 2>/dev/null; cp "$W/plan.me" "$STAGE/.plan" 2>/dev/null; fi
 	# ONE status process per PHASE, not per tick -- allocating the display once was the CMA fix (killing
 	# and relaunching a GFX tool per update is what fragmented the DE's contiguous memory and crashed the
 	# Plus, 2026-09-18). The apply gets its own, WITHOUT --cancel-b: it cannot be stopped half-way, and
@@ -1193,7 +1241,7 @@ Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 		printf '%s %s %s\n' "$GOT" "$PEER_GOT" "$NSKIP" > "$SERVE/_dsync_done"
 		# hold the AP up briefly so the joiner can read it before we tear the radio down
 		smsg "Syncing with $PEER..."
-		i=0; while [ "$i" -lt 30 ] && ! grep -q "url:/_dsync_done" /tmp/dsync-httpd.log 2>/dev/null; do sleep 1; i=$((i+1)); done
+		i=0; while [ "$i" -lt 30 ] && ! grep -q "_dsync_done" /tmp/dsync-httpd.log 2>/dev/null; do sleep 1; i=$((i+1)); done
 	fi
 	STATE=done ;;
 

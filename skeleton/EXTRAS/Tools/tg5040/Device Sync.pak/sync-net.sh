@@ -45,7 +45,7 @@ kill_named(){ for p in $(pidof "$1" 2>/dev/null); do kill "$p" 2>/dev/null; done
 # (spaces, parens, UTF-8 bytes -- byte-wise, so multibyte names encode correctly). Uses awk because
 # busybox on the device has no `od`. awk is present (/usr/bin/awk).
 urlenc() {
-	printf '%s' "$1" | awk 'BEGIN{for(i=0;i<256;i++)o[sprintf("%c",i)]=i}
+	printf '%s' "$1" | LC_ALL=C awk 'BEGIN{for(i=0;i<256;i++)o[sprintf("%c",i)]=i}
 		{n=length($0);for(i=1;i<=n;i++){c=substr($0,i,1);
 			if(c ~ /[a-zA-Z0-9._~\/-]/) printf "%s",c; else printf "%%%02X",o[c]}}'
 }
@@ -88,9 +88,9 @@ serve() { # <servedir> <port> : HTTP server, backgrounded, pid tracked so we nev
 		# (the peer reports progress/completion by REQUESTING /_dsync_<marker>) could never match and
 		# both devices waited forever. -vv logs "[ip]: url:/_dsync_applied_7". This same bug is why the
 		# v1 sender never showed its Done summary. darkhttpd logs the URL by default, so it needs no flag.
-		httpd -f -vv -p "$2" -h "$1" >/tmp/dsync-httpd.log 2>&1 &
+		httpd -f -vv -p "${3:+$3:}$2" -h "$1" >/tmp/dsync-httpd.log 2>&1 &   # $3 = bind address (optional)
 	elif command -v darkhttpd >/dev/null 2>&1; then
-		darkhttpd "$1" --port "$2" >/tmp/dsync-httpd.log 2>&1 &    # docroot is positional here, not -h
+		darkhttpd "$1" --port "$2" ${3:+--addr "$3"} >/tmp/dsync-httpd.log 2>&1 &    # docroot is positional here, not -h
 	else
 		# never fail silently: without this the caller waits out a peer that will never answer
 		msg="serve: no HTTP server on this device (busybox has no httpd applet and darkhttpd is missing)"
@@ -100,7 +100,10 @@ serve() { # <servedir> <port> : HTTP server, backgrounded, pid tracked so we nev
 	fi
 	echo $! > /tmp/dsync-httpd.pid
 	sleep 1
-	kill -0 "$(cat /tmp/dsync-httpd.pid)" 2>/dev/null   # 0 = up
+	kill -0 "$(cat /tmp/dsync-httpd.pid)" 2>/dev/null && return 0   # 0 = up
+	# a bind address that the interface does not hold yet: serve on every interface rather than not at all
+	if [ -n "${3:-}" ]; then serve "$1" "$2"; return; fi
+	return 1
 }
 stop_serve() {
 	[ -f /tmp/dsync-httpd.pid ] && kill "$(cat /tmp/dsync-httpd.pid)" 2>/dev/null
@@ -214,6 +217,10 @@ ap_up() { # <ssid> <psk> : raise AP on wlan1 at wlan0's channel; leaves wlan0 al
     [ -n "$fr" ] && [ "$fr" -lt 5000 ] && ch=$(( (fr - 2407) / 5 ))
   fi
   [ -z "$ch" ] && ch=6
+  # hw_mode=g below is 2.4 GHz only: a dual-band station on channel 36+ (5 GHz home WiFi) would make
+  # hostapd refuse the channel and the wpa fallback ask for a 2.5 GHz frequency. The Brick hosts on a
+  # separate radio and the single-radio devices dropped the station before this, so 6 is always free.
+  [ "$ch" -gt 14 ] 2>/dev/null && ch=6
   # A shared-radio device (Miyoo 8188fu, Anbernic RTL8821CS: DSYNC_CONCURRENT=0) cannot beacon on wlan1
   # while wlan0 is still associated -- that is the "Could not open the hotspot" on the MMP. Drop home
   # WiFi first, exactly as OnionOS does; teardown's restore_wifi brings it back. The Brick (=1) skips
@@ -364,7 +371,7 @@ restore_wifi() { # bring STA_IF back onto the saved home network
 	# file check keeps this a no-op on the Brick and h700, which reconnected above.
 	ipx=$(ip -4 addr show "$STA_IF" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)
 	case "$ipx" in 192.168.42.*|"")
-		[ -n "${SYSTEM_PATH:-}" ] && [ -x "$SYSTEM_PATH/bin/wifi-up.sh" ] && sh "$SYSTEM_PATH/bin/wifi-up.sh" >/dev/null 2>&1 ;;
+		[ -x /customer/app/axp_test ] && [ -n "${SYSTEM_PATH:-}" ] && [ -x "$SYSTEM_PATH/bin/wifi-up.sh" ] && sh "$SYSTEM_PATH/bin/wifi-up.sh" >/dev/null 2>&1 ;;
 	esac
 }
 wifi_off() { # take the radio down and leave it off (as it was) -- do NOT reconnect to anything
