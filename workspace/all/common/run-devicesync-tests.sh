@@ -506,13 +506,12 @@ printf 'BEGIN\tSaves/GBA/y.srm\nBACKUP\thave\t%s\tSaves/GBA/y.srm\n' "$(szof "$B
 : > "$BK8F/ops.log"
 printf 'PLAYED-AFTER-THE-INTERRUPTION' > "$L8F/Saves/GBA/y.srm"   # the live file moved on
 E resume-apply "$PLAN8F" "$ST8F" "$L8F" "$BK8F" >/dev/null 2>&1
-check "8f: the resumed write landed"                       "$(cat "$L8F/Saves/GBA/y.srm")"  "PEER-SAVE"
+# the live edit is the newest state: it is KEPT, the stale staged write is skipped, the transaction completes
+check "8f: the post-interruption edit stays live (staged write skipped)" "$(cat "$L8F/Saves/GBA/y.srm")" "PLAYED-AFTER-THE-INTERRUPTION"
 check "8f: the pre-sync original is STILL the restore copy" "$(cat "$BK8F/Saves/GBA/y.srm")" "PRE-SYNC-ORIGINAL"
-check "8f: the post-interruption edit was copied before the write" \
-      "$(cat "$BK8F/Saves/GBA/y.srm.dsync.kept" 2>/dev/null)" "PLAYED-AFTER-THE-INTERRUPTION"
+check "8f: journal completes with a DONE keep line"         "$(E journal-status "$BK8F")/$(grep -c "^DONE.keep" "$BK8F/journal.log")" "COMPLETE/1"
 E restore "$L8F" "$BK8F" >/dev/null 2>&1
-check "8f: restore puts the pre-sync original back"         "$(cat "$L8F/Saves/GBA/y.srm")"  "PRE-SYNC-ORIGINAL"
-check "8f: and the edit is still recoverable beside it"     "$(cat "$BK8F/Saves/GBA/y.srm.dsync.kept" 2>/dev/null)" "PLAYED-AFTER-THE-INTERRUPTION"
+check "8f: restore leaves the kept edit alone (no ops.log entry)" "$(cat "$L8F/Saves/GBA/y.srm")" "PLAYED-AFTER-THE-INTERRUPTION"
 
 echo "== 8h: HASHLESS resume -- a fixed-size save edited after the cut is copied first, not clobbered =="
 # Saves are hashless now (identity = size + mtime). The reviewer's finding: a fixed-size SRAM save the
@@ -752,6 +751,32 @@ check "W: plan to-b (A copies, ROM mtime 0)" "$(cat "$SW/plan.b")" \
 "$(printf 'take\tconfig\t3\t.userdata/tg5040/GBA-mgba/minarch.cfg\t-\t1767268800\ntake\trom\t3\tRoms/1) Game Boy Advance (GBA)/Zelda.gba\t-\t0')"
 # and the plan feeds apply-plan unchanged (the consumer side of the same contract)
 check "W: apply-plan accepts the frozen plan" "$(cp -R "$WB" "$SW/bstage"; E apply-plan "$SW/plan.a" "$SW/bstage" "$SW/adst" "$SW/bk/1" >/dev/null 2>&1 && cat "$SW/adst/Saves/GBA/Zelda.srm" "$SW/adst/Saves/GBC/Tetris.sav")" "BBBBBBCC"
+
+######################################################################
+echo "########## SCENARIO K: merge takes the clock offset for every class ##########"
+# CLK_OFF (A clock minus B clock) used to reach only save conflicts; configs/recents took the raw newest.
+SK="$WORK/sk"; mkdir -p "$SK"
+printf '.userdata/tg5040/GBA-mgba/minarch.cfg\t3\t1767268800\tconfig\t-\n' > "$SK/a.mf"
+printf '.userdata/tg5040/GBA-mgba/minarch.cfg\t4\t1767268900\tconfig\t-\n' > "$SK/b.mf"
+check "K: raw clocks: B is 100 s newer -> to-a" "$(E merge "$SK/a.mf" "$SK/b.mf" | cut -f1)" "to-a"
+check "K: A runs 200 s behind B (off=-200): B is really older -> to-b" "$(E merge "$SK/a.mf" "$SK/b.mf" -200 | cut -f1)" "to-b"
+check "K: off=+200 keeps to-a" "$(E merge "$SK/a.mf" "$SK/b.mf" 200 | cut -f1)" "to-a"
+# pboot: B booted (B clock) AFTER this file was written, so its lag is unknown: compared raw -> to-a
+check "K: off=-200 but file predates B boot -> raw -> to-a" "$(E merge "$SK/a.mf" "$SK/b.mf" -200 1767268950 | cut -f1)" "to-a"
+check "K: off=-200, file written after B boot -> corrected -> to-b" "$(E merge "$SK/a.mf" "$SK/b.mf" -200 1767268000 | cut -f1)" "to-b"
+######################################################################
+echo "########## SCENARIO T: a truncated staged file is never applied ##########"
+# FAT after a power cut leaves the last staged files zero-length; apply used to verify the tmp against
+# THAT file and wrote 0 bytes over the save with a clean COMPLETE.
+ST="$WORK/st"; LT="$ST/local"; STT="$ST/staging"; BKT="$ST/bk/20260920-2300"; mkdir -p "$LT" "$STT"
+mk "$LT"  "Saves/GBA/z.srm" "LIVE-25-BYTES-OF-PROGRESS"
+mk "$STT" "Saves/GBA/z.srm" "FULL-STAGED-COPY"
+PLANT="$ST/plan"; planln "$STT" save "Saves/GBA/z.srm" 1700000000 > "$PLANT"
+: > "$STT/Saves/GBA/z.srm"     # truncated AFTER the plan was written
+E apply-plan "$PLANT" "$STT" "$LT" "$BKT" >/dev/null 2>&1; trc=$?
+check "T: apply refuses (rc 1)"                 "$trc" "1"
+check "T: the live save is untouched"          "$(cat "$LT/Saves/GBA/z.srm")" "LIVE-25-BYTES-OF-PROGRESS"
+check "T: journal is NOT complete"             "$(E journal-status "$BKT" | cut -d"$TAB" -f1)" "INCOMPLETE"
 
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"

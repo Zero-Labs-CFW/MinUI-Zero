@@ -162,10 +162,14 @@ manifest() {
 	  # ONE pass for size AND mtime when stat -c exists (every device we ship: Brick, Miyoo, Plus): the
 	  # separate ls -lnL size pass alone cost 6 s of the Miyoo's 16 s manifest (profiled 2026-09-20).
 	  if [ "$MT" = gnu ]; then
-		find . -follow -type f ! -name '*.dsync.tmp' ! -name '*.dsync.part' ! -name '*.gov' ! -name '*.thread' -exec stat -c "%s$TAB%Y$TAB%n" {} + 2>/dev/null > "$t.st"
+		# stat -L: build-export serves recent.txt/favorites.txt as FILE symlinks, and busybox 1.27 stat without
+		# -L reported the link itself (42 bytes, export time), so the plan carried a size no download could
+		# ever match (QA 2026-09-20). NF==3 drops a name containing a tab, which would otherwise become a
+		# phantom path that fails the whole bundle.
+		find . -follow -type f ! -name '*.dsync.tmp' ! -name '*.dsync.part' ! -name '*.gov' ! -name '*.thread' -exec stat -L -c "%s$TAB%Y$TAB%n" {} + 2>/dev/null > "$t.st"
 		# same shape the old passes produced, so the join below is unchanged: sizes as a fake ls line, mtimes only for non-ROMs
-		awk -F"$TAB" '{ print "- - - - " $1 " x x x " $3 }' "$t.st" > "$t.sz"
-		awk -F"$TAB" -v OFS="$TAB" '$3 !~ /^\.\/Roms\// { print $2, $3 }' "$t.st" > "$t.mt"
+		awk -F"$TAB" 'NF==3 { print "- - - - " $1 " x x x " $3 }' "$t.st" > "$t.sz"
+		awk -F"$TAB" -v OFS="$TAB" 'NF==3 && $3 !~ /^\.\/Roms\// { print $2, $3 }' "$t.st" > "$t.mt"
 	  else
 	  find . -follow -type f ! -name '*.dsync.tmp' ! -name '*.dsync.part' ! -name '*.gov' ! -name '*.thread' -exec ls -lnL {} + 2>/dev/null > "$t.sz"
 	  # ROMs are existence-by-name (mtime never used, emitted as 0), so skip the per-file mtime fork for
@@ -325,8 +329,13 @@ plan_summary(){ # <manifest> <dst>
 #   save: differs on both = conflict (never auto-picked; the two-version picker resolves it).
 #   config/recent/collection/other: newer mtime wins (tie -> to-b); identical hash = skip.
 # The clock is advisory, so a save is never auto-resolved by mtime -- only non-precious files are.
-merge_manifests(){ # <A-manifest> <B-manifest>
-	awk -F"$TAB" -v OFS="$TAB" '
+merge_manifests(){ # <A-manifest> <B-manifest> [A-clock minus B-clock, seconds] [B boot time, B clock]
+	# pboot: a device with no RTC restores its clock at boot, so its lag is only known for files written
+	# THIS session; an older file carries a smaller lag and would be pushed into the future by the full
+	# offset (a week-old Miyoo save beating three-day-old Brick progress, QA 2026-09-20). Older: raw.
+	# off corrects B's mtimes into A's clock for the NEWEST-WINS direction only. Identity (size+mtime)
+	# stays raw on purpose: apply stamps the source mtime, so a synced pair matches without any offset.
+	awk -F"$TAB" -v OFS="$TAB" -v off="${3:-0}" -v pboot="${4:-0}" '
 		FILENAME==ARGV[1] { a[$1]=1; ac[$1]=$4; asz[$1]=$2; amt[$1]=$3; ah[$1]=$5; next }
 		{ rel=$1; bsz=$2; bmt=$3; bc=$4; bh=$5; b[rel]=1
 		  if (!(rel in a)) { print "to-a", bc, bsz, rel; next }             # only on B -> send to A
@@ -336,7 +345,8 @@ merge_manifests(){ # <A-manifest> <B-manifest>
 		  if (ah[rel]!="-" && bh!="-") { if (ah[rel]==bh) { print "skip", bc, bsz, rel; next } }
 		  else if (asz[rel]==bsz && amt[rel]==bmt) { print "skip", bc, bsz, rel; next }
 		  if (bc=="save") { print "conflict", bc, bsz, rel; next }          # differing save: ask
-		  if ((amt[rel]+0) >= (bmt+0)) { print "to-b", bc, asz[rel], rel }  # newer wins (tie -> A)
+		  bm = (pboot > 0 && (bmt+0) < pboot) ? bmt+0 : bmt+0+off               # B in A time (see pboot)
+		  if ((amt[rel]+0) >= bm) { print "to-b", bc, asz[rel], rel }         # newer wins (tie -> A)
 		  else { print "to-a", bc, bsz, rel }
 		}
 		END { for (rel in a) if (!(rel in b)) print "to-b", ac[rel], asz[rel], rel }  # only on A -> send to B
@@ -475,14 +485,12 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 					bkstate=fail
 				fi
 			elif ! _same_bytes "$dst/$rel" "$bdir/$rel"; then
-				# the remembered backup is STALE: the live file changed after that copy was taken. Keep BOTH --
-				# <bdir>/<rel> stays the pre-sync original (what restore puts back), and the newer live bytes go
-				# beside it as <rel>.dsync.kept, so the post-interruption edit is never destroyed either.
-				if _backup_copy "$dst/$rel" "$bdir/$rel.dsync.kept"; then
-					printf 'KEPT\t%s\t%s\n' "$(file_size "$bdir/$rel.dsync.kept")" "$rel" >> "$jl"
-				else
-					bkstate=fail
-				fi
+				# the live file changed AFTER the backup was taken: the user played on. The plan was newest-wins
+				# when it was computed, and the live bytes are the newest now, so KEEP them and skip this write.
+				# It used to park the edit as <rel>.dsync.kept (unreachable from any screen, pruned after five
+				# syncs) and write the stale staged bytes over it (QA 2026-09-20). No ops.log line, so restore
+				# leaves it alone; DONE keep so the transaction can complete.
+				printf 'DONE\tkeep\t%s\n' "$rel" >> "$jl"; printf 'KEEP\t%s (edited after the interruption)\n' "$rel" >&2; continue
 			fi
 		fi
 		if [ "$bkstate" = fail ]; then
@@ -490,6 +498,11 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 		fi
 		if [ ! -e "$staging/$rel" ]; then
 			printf 'MISS\t%s\n' "$rel" >&2; rc=1; continue                   # not downloaded: resume-apply retries it
+		fi
+		# the staged copy must BE the planned bytes: a power cut in the page-cache window leaves a zero-length
+		# staged file on FAT, and verifying the tmp against that file applied 0 bytes over a save (QA 2026-09-20)
+		if [ "${psize:-0}" != 0 ] && ! _is_plan_copy "$staging/$rel" "$psize" "$phash" 0; then
+			printf 'MISS\t%s (staged copy is not the planned %s bytes)\n' "$rel" "$psize" >&2; rc=1; continue
 		fi
 		mkdir -p "$dst/$(dirname "$rel")"
 		cp "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
