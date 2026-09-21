@@ -553,6 +553,7 @@ bundle_plan(){ # <plan> <out.tar> -> 0 when the archive was written
 	rm -f "$bo" "$bo".[0-9]*; k=1; c=0; set --
 	while IFS="$TAB" read -r act cls sz rel hash mtime; do
 		[ -n "$rel" ] || continue
+		[ -f "$LOCAL/$rel" ] || continue     # gone since the manifest: one missing path failed the whole tar (QA 2026-09-20)
 		set -- "$@" "$rel"; c=$((c+1))
 		if [ "$c" -ge 400 ]; then
 			out="$bo"; [ "$k" -gt 1 ] && out="$bo.$k"
@@ -643,7 +644,7 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 apply_plan(){ # <plan>
 	BK=""
 	if [ "$(plan_count "$1")" -eq 0 ]; then printf 0; return 0; fi
-	BK="$BK_ROOT/$(ts)"
+	BK="$BK_ROOT/$(ts)"; bn=1; while [ -e "$BK" ]; do bn=$((bn+1)); BK="$BK_ROOT/$(ts)-$bn"; done   # never reuse a dir (QA 2026-09-20)
 	cp "$1" "$RES_PLAN" 2>/dev/null; printf '%s\n' "$BK" > "$RES_BK"   # so a power cut can be resumed
 	eng apply-plan "$1" "$STAGE" "$LOCAL" "$BK" >> "$LOGF" 2>&1; arc=$?
 	printf '%s, %s' "$PEER" "$(date '+%b %d %H:%M' 2>/dev/null)" > "$BK/label" 2>/dev/null

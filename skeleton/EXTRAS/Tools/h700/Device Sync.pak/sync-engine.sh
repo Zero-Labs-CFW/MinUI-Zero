@@ -104,7 +104,8 @@ _is_plan_copy() { # <file> <plan size> <plan hash> [plan mtime]
 	[ "$(file_size "$1")" = "$2" ] || return 1
 	if [ -n "$3" ] && [ "$3" != "-" ]; then [ "$(file_hash "$1")" = "$3" ]; return; fi
 	[ -n "$4" ] && [ "$4" != 0 ] 2>/dev/null || return 0   # no hash AND no mtime (bare ROM): size is all there is
-	[ "$(file_mtime "$1")" = "$4" ]
+	m=$(file_mtime "$1"); case "$m" in ''|*[!0-9]*) return 1 ;; esac
+	d=$((m - $4)); [ "$d" -ge -2 ] && [ "$d" -le 2 ]   # FAT32 2 s mtime resolution (see merge_manifests)
 }
 # sweep our own half-written scratch. A power cut between the tmp write and the atomic mv strands a
 # <save>.dsync.tmp on the card forever; manifest() no longer sees them, this clears the dead bytes.
@@ -343,7 +344,9 @@ merge_manifests(){ # <A-manifest> <B-manifest> [A-clock minus B-clock, seconds] 
 		  # identical? use the hashes if BOTH manifests carry them (test fixtures), otherwise size+mtime
 		  # (the real, hashless snapshots -- a synced file shares the stamped source mtime, so it matches)
 		  if (ah[rel]!="-" && bh!="-") { if (ah[rel]==bh) { print "skip", bc, bsz, rel; next } }
-		  else if (asz[rel]==bsz && amt[rel]==bmt) { print "skip", bc, bsz, rel; next }
+		  # 2 s window, not equality: FAT32 stores mtime to 2 s, so a stamped odd second reads back one lower
+		  # and an exFAT/FAT32 pair re-copied every odd save on every sync (QA 2026-09-20)
+		  else if (asz[rel]==bsz && amt[rel]-bmt <= 2 && bmt-amt[rel] <= 2) { print "skip", bc, bsz, rel; next }
 		  if (bc=="save") { print "conflict", bc, bsz, rel; next }          # differing save: ask
 		  bm = (pboot > 0 && (bmt+0) < pboot) ? bmt+0 : bmt+0+off               # B in A time (see pboot)
 		  if ((amt[rel]+0) >= bm) { print "to-b", bc, asz[rel], rel }         # newer wins (tie -> A)
@@ -448,8 +451,10 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 				   && ! _is_plan_copy "$dst/$rel" "$psize" "$phash" "$mtime"; then
 					# The live file does not match the plan, so this file's write never landed and the live
 					# file IS the pre-sync original -- which this mismatched leftover therefore is not a
-					# copy of (a pre-fix build could strand a SHORT one here). Redo the backup, verified.
-					rm -f "$bdir/$rel"
+					# copy of (a pre-fix build could strand a SHORT one here). Redo the backup, verified, but
+					# KEEP the leftover beside it: if the user played on after the cut, the live file is the
+					# edit and this leftover is the only pre-sync copy left anywhere (QA 2026-09-20).
+					mv -f "$bdir/$rel" "$bdir/$rel.dsync.prev" 2>/dev/null || rm -f "$bdir/$rel"
 					if _backup_one "$dst" "$bdir" "$rel"; then bkstate=have; else bkstate=fail; fi
 				else
 					bkstate=have                   # a faithful copy of the live file, or the write already landed

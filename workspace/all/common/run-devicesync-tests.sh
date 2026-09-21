@@ -761,6 +761,12 @@ printf '.userdata/tg5040/GBA-mgba/minarch.cfg\t4\t1767268900\tconfig\t-\n' > "$S
 check "K: raw clocks: B is 100 s newer -> to-a" "$(E merge "$SK/a.mf" "$SK/b.mf" | cut -f1)" "to-a"
 check "K: A runs 200 s behind B (off=-200): B is really older -> to-b" "$(E merge "$SK/a.mf" "$SK/b.mf" -200 | cut -f1)" "to-b"
 check "K: off=+200 keeps to-a" "$(E merge "$SK/a.mf" "$SK/b.mf" 200 | cut -f1)" "to-a"
+# FAT32 rounding: same size, mtimes 1 s apart = the same file (a stamped odd second reads back even)
+printf 'Saves/GBA/f.srm\t8\t1767268801\tsave\t-\n' > "$SK/fa.mf"
+printf 'Saves/GBA/f.srm\t8\t1767268800\tsave\t-\n' > "$SK/fb.mf"
+check "K: same size, mtime 1 s apart -> skip (FAT 2 s window)" "$(E merge "$SK/fa.mf" "$SK/fb.mf" | cut -f1)" "skip"
+printf 'Saves/GBA/f.srm\t8\t1767268803\tsave\t-\n' > "$SK/fc.mf"
+check "K: same size, mtime 3 s apart -> conflict" "$(E merge "$SK/fc.mf" "$SK/fb.mf" | cut -f1)" "conflict"
 # pboot: B booted (B clock) AFTER this file was written, so its lag is unknown: compared raw -> to-a
 check "K: off=-200 but file predates B boot -> raw -> to-a" "$(E merge "$SK/a.mf" "$SK/b.mf" -200 1767268950 | cut -f1)" "to-a"
 check "K: off=-200, file written after B boot -> corrected -> to-b" "$(E merge "$SK/a.mf" "$SK/b.mf" -200 1767268000 | cut -f1)" "to-b"
