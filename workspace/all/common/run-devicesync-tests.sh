@@ -729,10 +729,10 @@ echo "########## SCENARIO W: wire format is FROZEN at DSYNC_PROTO=6 ##########"
 #   1. bump DSYNC_PROTO in launch.sh (all three platform copies stay byte-identical), and
 #   2. update the expected strings AND the WIRE_PROTO below in the same commit.
 # A shape change without a bump would let two builds sync by luck; the number is the only gate.
-WIRE_PROTO=6   # 6: the _dsync_done line carries five counts (got, peer got, skipped, saves held from A, from B)
+WIRE_PROTO=6   # 6: the _dsync_done line carries five counts (got, peer got, skipped, saves held from A, from B); prefs lost C (Game Configs no longer sync)
 LAUNCH_W="$ROOT/skeleton/EXTRAS/Tools/tg5040/Device Sync.pak/launch.sh"
 check "W: launch.sh publishes DSYNC_PROTO=$WIRE_PROTO" "$(sed -n 's/^DSYNC_PROTO=\([0-9]*\)$/\1/p' "$LAUNCH_W")" "$WIRE_PROTO"
-check "W: prefs line carries S G C P F V K" "$(grep -c "printf 'S=%s G=%s C=%s P=%s F=%s V=%s K=%s\\\\n'" "$LAUNCH_W")" "1"
+check "W: prefs line carries S G P F V K" "$(grep -c "printf 'S=%s G=%s P=%s F=%s V=%s K=%s\\\\n'" "$LAUNCH_W")" "1"
 for _p in miyoomini h700; do
 	check "W: $_p launch.sh byte-identical to tg5040" "$(cmp -s "$LAUNCH_W" "$ROOT/skeleton/EXTRAS/Tools/$_p/Device Sync.pak/launch.sh" && echo same || echo differs)" "same"
 	check "W: $_p sync-engine.sh byte-identical to tg5040" "$(cmp -s "$ENGINE" "$ROOT/skeleton/EXTRAS/Tools/$_p/Device Sync.pak/sync-engine.sh" && echo same || echo differs)" "same"

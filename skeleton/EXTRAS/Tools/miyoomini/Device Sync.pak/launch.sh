@@ -83,17 +83,18 @@ mkdir -p "$(dirname "$LOGF")" "$DS_DIR" "$RES" "$STAGE" "$W" 2>/dev/null
 # Per-device sync settings, remembered between runs. A category syncs only if BOTH devices have it on
 # (the intersection rule), so each device decides for itself what it will share and accept. Defaults:
 # only Saves on -- that is what "keep my saves up to date" means, and it is small and fast. Games OFF
-# (a whole missing library is 24 GB / hours over WiFi) and Game Configs OFF (Dan 2026-09-19); opt either
-# in per device.
-PREFS="$DS_DIR/prefs"; PS=1; PG=0; PC=0; GSKIP=""
+# (a whole missing library is 24 GB / hours over WiFi); opt in per device. Game settings (.cfg) never
+# sync: minarch reads exactly minarch-<device>.cfg with no fallback, so a Brick file is invisible on a
+# Brick Pro, and rewriting the tag in flight is guesswork across panels (Dan, 2026-09-22).
+PREFS="$DS_DIR/prefs"; PS=1; PG=0; GSKIP=""
 if [ -f "$PREFS" ]; then
-	while IFS='=' read -r k v; do case "$k" in SAVES) PS=$v ;; GAMES) PG=$v ;; CONFIGS) PC=$v ;; GAMES_SKIP) GSKIP=$v ;; esac; done < "$PREFS"
+	while IFS='=' read -r k v; do case "$k" in SAVES) PS=$v ;; GAMES) PG=$v ;; GAMES_SKIP) GSKIP=$v ;; esac; done < "$PREFS"
 fi
-# normalize to EXACTLY 0 or 1: a damaged/legacy prefs file (empty or stray value) must not leave PS/PG/PC
+# normalize to EXACTLY 0 or 1: a damaged/legacy prefs file (empty or stray value) must not leave PS/PG
 # as "" -- that reads as off on screen but slips past the all-off guard and serves an ambiguous "S=" the
 # peer treats as on (Codex, 2026-09-18). Anything that is not literal 1 becomes 0.
-[ "$PS" = 1 ] || PS=0; [ "$PG" = 1 ] || PG=0; [ "$PC" = 1 ] || PC=0
-save_prefs(){ printf 'SAVES=%s\nGAMES=%s\nCONFIGS=%s\nGAMES_SKIP=%s\n' "$PS" "$PG" "$PC" "$GSKIP" > "$PREFS.tmp" && mv "$PREFS.tmp" "$PREFS"; }
+[ "$PS" = 1 ] || PS=0; [ "$PG" = 1 ] || PG=0
+save_prefs(){ printf 'SAVES=%s\nGAMES=%s\nGAMES_SKIP=%s\n' "$PS" "$PG" "$GSKIP" > "$PREFS.tmp" && mv "$PREFS.tmp" "$PREFS"; }
 onoff(){ [ "$1" = 1 ] && printf On || printf Off; }
 
 # human-friendly model name (Trimui Brick / Brick Pro / Smart Pro) -- how the fork already detects it
@@ -335,7 +336,8 @@ restore_rows(){ # <ops.log> -> ORD \t NAME \t TYPE \t REL (one line per rel; row
 		else if (rel ~ /^Collections\//)     { sub(/\.[^.]*$/,"",n); name=n; type="Collection"; ord=6 }
 		else if (rel ~ /^Roms\//)            { sub(/\.[^.]*$/,"",n); name=n; type="Game"; ord=2 }
 		else if (rel ~ /\.cfg$/)             { sub(/\.[^.]*$/,"",n); name=n; type="Settings"; ord=3 }
-		else if (rel ~ /^Saves\// || rel ~ /\.st[0-9](\.[^.]*)?$/) { sub(/\.[^.]*$/,"",n); sub(/\.st[0-9]$/,"",n); if (rel ~ /^Saves\//) sub(/\.[^.]*$/,"",n); name=n; type="Save"; ord=1 }
+		else if (rel ~ /\.st[0-9](\.[^.]*)?$/) { sub(/\.st[0-9](\.[^.]*)?$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n); name=n; type="Save"; ord=1 }   # same collapse as plan_names
+		else if (rel ~ /^Saves\//) { sub(/\.[^.]*$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n); name=n; type="Save"; ord=1 }
 		else                                 { sub(/\.[^.]*$/,"",n); name=n; type="File"; ord=7 }
 		print ord, name, type, rel }' "$1" | sort -t"$TAB" -k1,1n -k2,2
 }
@@ -362,26 +364,17 @@ staged_ok(){ [ -f "$STAGE/$1" ] || return 1
 # seconds even for a 25 GB card, so exporting it unconditionally costs little.
 #   Saves    -> Saves/, save states + thumbs (.userdata/shared/<tag>-<core>/), collections, favorites
 #   Games    -> Roms/ and Bios/ (existence by name; never overwritten, never deleted)
-#   Configs  -> per-game / per-console .cfg dirs (.userdata/$PLATFORM/<tag>-<core>/)
+#   (game settings, .userdata/$PLATFORM/<tag>-<core>/*.cfg, stay per device: see the prefs note above)
 scope_list(){
 	printf '%s\n' Saves Collections ".userdata/shared/.minui/favorites.txt"   # Recently Played stays per device
 	for d in "$LOCAL"/.userdata/shared/*-*/; do [ -d "$d" ] || continue; d=${d%/}; printf '%s\n' "${d#"$LOCAL"/}"; done
 	printf '%s\n' Roms Bios   # a BIOS rides with Games
-	if :; then
-		# a real config dir has at least one .cfg -- tells it apart from app state that also has a hyphen
-		for d in "$LOCAL"/.userdata/$PLATFORM/*-*/; do
-			[ -d "$d" ] || continue; dn=${d%/}; dn=${dn##*/}
-			case "$dn" in nextui-pak-store) continue ;; esac
-			ls "$d"*.cfg >/dev/null 2>&1 || continue
-			d=${d%/}; printf '%s\n' "${d#"$LOCAL"/}"
-		done
-	fi
 	return 0; }
-# the classes a device does NOT take, from ITS OWN toggles: <S> <G> <C> -> csv (per direction)
-skip_classes(){ sc=""
-	[ "$1" = 1 ] || sc="save,favorite,collection"
-	[ "$2" = 1 ] || sc="${sc:+$sc,}rom"
-	[ "$3" = 1 ] || sc="${sc:+$sc,}config,map"
+# the classes a device does NOT take, from ITS OWN toggles: <S> <G> -> csv (per direction). Settings and
+# button maps are never taken, whatever a peer exports.
+skip_classes(){ sc="config,map"
+	[ "$1" = 1 ] || sc="$sc,save,favorite,collection"
+	[ "$2" = 1 ] || sc="$sc,rom"
 	printf '%s' "$sc"; }
 # breakdown of what will actually transfer, counted from the built plans (post-skip). class is field 2.
 plan_break(){ out=""
@@ -396,7 +389,12 @@ plan_names(){ # <plan.me> <plan.peer> -> deduped "Name<TAB>Type", most useful fi
     { rel=$4; cls=$2; n=rel; sub(/.*\//,"",n)
       if (rel ~ /favorites\.txt$/)      { name="Favorites";       type="Favorite"; ord=4 }
       else {
-        sub(/\.[^.]*$/,"",n); sub(/\.st[0-9]$/,"",n); if (rel ~ /^Saves\//) sub(/\.[^.]*$/,"",n); name=n   # Zelda.gbc.sav and Zelda.st0 are one row
+        # one row per GAME: Zelda.gbc.sav, Zelda.gbc.st0 and Zelda.gbc.st0.png all read "Zelda". The state
+        # suffix goes first, then a short rom extension (1-4 alphanumerics, so "Dr. Mario" keeps its dot)
+        if (rel ~ /\.st[0-9](\.[^.]*)?$/) { sub(/\.st[0-9](\.[^.]*)?$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n) }
+        else if (rel ~ /^Saves\//) { sub(/\.[^.]*$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n) }
+        else sub(/\.[^.]*$/,"",n)
+        name=n
         if (cls=="save")            { type="Save";       ord=1 }
         else if (cls=="rom")        { type="Game";       ord=2 }
         else if (cls=="config")     { type="Settings";   ord=3 }
@@ -819,17 +817,15 @@ Your files were not changed." ; fi ;;
 	STATE=options; continue ;;
 
 options)
-	# The settings-style options screen: three per-device toggles, remembered. B back, X backups, Y sync.
+	# The settings-style options screen: two per-device toggles, remembered. B back, X backups, Y sync.
 	# Both devices set their own; a category syncs only when BOTH have it on. Sized like the main Settings
 	# screen (natural widest-row width, no --wide); the bottom button bar takes the description row.
 	set -- saves     "Saves"        "On|Off" "$(onoff "$PS")" ""
 	set -- "$@" games   "Games"       "On|Off" "$(onoff "$PG")" ""
-	set -- "$@" configs "Game Configs" "On|Off" "$(onoff "$PC")" ""
 	menu --title "Sync Device" --x-label "Sync" --y-label "Backups" "$@" > "$W/out"
 	while IFS= read -r line; do case "$line" in
 		saves=On) PS=1 ;; saves=Off) PS=0 ;;
 		games=On) PG=1 ;; games=Off) PG=0 ;;
-		configs=On) PC=1 ;; configs=Off) PC=0 ;;
 	esac; done < "$W/out"
 	save_prefs
 	case "$(sed -n 's/^ACTION=//p' "$W/out" | head -1)" in
@@ -1004,7 +1000,7 @@ Comparing libraries"; fi
 	# written since then carry the lag the peer measures now (older ones are compared raw)
 	NB=$(now); UP=$(cut -d. -f1 /proc/uptime 2>/dev/null); case "$UP" in ''|*[!0-9]*) UP=0 ;; esac
 	MY_BOOT=0; [ "$NB" != 0 ] && { MY_BOOT=$((NB - UP)); printf '%s\n' "$MY_BOOT" > "$SERVE/_dsync_boot"; }
-	printf 'S=%s G=%s C=%s P=%s F=%s V=%s K=%s\n' "$PS" "$PG" "$PC" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" "$GSKIP" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label) + skipped systems
+	printf 'S=%s G=%s P=%s F=%s V=%s K=%s\n' "$PS" "$PG" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" "$GSKIP" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label) + skipped systems
 	df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}' > "$SERVE/_dsync_free"
 	cp "$SERVE/_dsync_manifest" "$W/my.mf" 2>/dev/null
 	# bind to the sync interface only: a concurrent host (Brick, Miyoo) would otherwise serve its saves
@@ -1056,16 +1052,15 @@ Comparing with $PEER"   # the row says Connected, the caption says why you wait
 	PEER_BOOT=$(hget 6 -O - "$PEER_BASE/_dsync_boot") || PEER_BOOT=""; case "$PEER_BOOT" in ''|*[!0-9]*) PEER_BOOT=0 ;; esac
 	[ "$CLK_OFF" -gt -120 ] && [ "$CLK_OFF" -lt 120 ] && CLK_OFF=0
 	dbg "compare: clock offset me-peer=${CLK_OFF}s"
-	# the peer's toggles. Saves/Configs are small and safe to default ON (so an OLD peer with no prefs
+	# the peer's toggles. Saves are small and safe to default ON (so an OLD peer with no prefs
 	# endpoint still syncs the common case), but Games defaults OFF: a timed-out prefs read must NEVER let
 	# the host push a 24 GB library onto a device that turned Games off (Codex, 2026-09-18). Retry the
 	# tiny file a couple of times before giving up.
-	QS=1; QG=0; QC=1
+	QS=1; QG=0
 	PP=""; ppi=0
 	while [ "$ppi" -lt 3 ]; do PP=$(hget 6 -O - "$PEER_BASE/_dsync_prefs") && [ -n "$PP" ] && break; PP=""; ppi=$((ppi+1)); done
 	case "$PP" in *S=0*) QS=0 ;; esac
 	case "$PP" in *G=1*) QG=1 ;; esac   # Games ON only when the peer EXPLICITLY says so
-	case "$PP" in *C=0*) QC=0 ;; esac
 	QK=$(printf '%s\n' "$PP" | sed -n 's/.*K=\([^ ]*\).*/\1/p' | head -1)   # systems the peer skips: honoured whoever hosts
 	# protocol check: a peer that publishes prefs but a different P (or none: a pre-v2 build) cannot be
 	# trusted to read our plan/bundle. Say which side to update, then leave cleanly (the peer sees ABORT).
@@ -1137,8 +1132,8 @@ Nothing to copy."; exit 0
 		NROM1=$(awk -F"$TAB" '$1!="skip" && $2=="rom"' "$W/merge" | wc -l | tr -d ' '); NDROP=$((NROM0 - NROM1))
 	fi
 	# per direction: what the peer takes follows the PEER toggles, what we take follows OURS
-	SKIPB=$(skip_classes "$QS" "$QG" "$QC"); SKIPA=$(skip_classes "$PS" "$PG" "$PC")
-	dbg "review: skip to-peer=[$SKIPB] to-me=[$SKIPA] mine=S$PS/G$PG/C$PC peer=S$QS/G$QG/C$QC"
+	SKIPB=$(skip_classes "$QS" "$QG"); SKIPA=$(skip_classes "$PS" "$PG")
+	dbg "review: skip to-peer=[$SKIPB] to-me=[$SKIPA] mine=S$PS/G$PG peer=S$QS/G$QG"
 	build_plan "$W/merge" "$DEC" "$SKIPB" to-b "$W/my.mf" "$W/peer.mf" "$W/held.peer" > "$W/plan.peer"
 	build_plan "$W/merge" "$DEC" "$SKIPA" to-a "$W/my.mf" "$W/peer.mf" "$W/held.me" > "$W/plan.me"
 	HELD_A=$(awk 'END{print NR+0}' "$W/held.me" 2>/dev/null); HELD_B=$(awk 'END{print NR+0}' "$W/held.peer" 2>/dev/null)
