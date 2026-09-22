@@ -180,9 +180,12 @@ stay_off(){ [ "$DS_STAY" = 1 ] && rm -f /tmp/stay_awake; [ -n "$MUOS_INHIBIT_PID
 # >>> pure logic
 
 fmt_kb(){ if [ "$1" -ge 1048576 ]; then printf '%s.%s GB' "$(( $1 / 1048576 ))" "$(( ($1 % 1048576) * 10 / 1048576 ))"; elif [ "$1" -ge 1024 ]; then printf '%s MB' "$(( $1 / 1024 ))"; else printf '%s KB' "$1"; fi; }
-# 1.2 MB/s measured Brick Pro -> Plus (2026-09-17); a hint, never a promise
-eta(){ if [ "${1:-0}" -le 1200 ]; then printf 'moments'; return 0; fi
-	s=$(( $1 / 1200 ))
+# <KB left> [KB/s measured]: the rate comes from the last ~60 s of the transfer (prog keeps samples); the old
+# fixed 1.2 MB/s said "6 h" for a copy that was moving at 3.2 MB/s (2026-09-22). Until 5 s of samples
+# exist it falls back to that constant; a hint, never a promise.
+eta(){ r=${2:-0}; [ "$r" -gt 0 ] 2>/dev/null || r=1200
+	if [ "${1:-0}" -le "$r" ]; then printf 'moments'; return 0; fi
+	s=$(( $1 / r ))
 	if [ "$s" -lt 90 ]; then printf 'about a minute'; elif [ "$s" -lt 5400 ]; then printf 'about %s min' "$(( (s + 59) / 60 ))"; else printf 'about %s h' "$(( (s + 1799) / 3600 ))"; fi; }
 # engine class -> the word the user sees, and the order the categories are listed in
 cat_label(){ case "$1" in
@@ -540,12 +543,17 @@ MYSSID="$SSID-$TOKEN${NSHORT:+-$NSHORT}"
 dbg "==== launch name=$NAME had_wifi=$HAD_WIFI ssid=$MYSSID ===="
 
 # ---- the transfer ---------------------------------------------------------------------------------
-prog(){ printf '%s/%s\n' "$DONE_KB" "$TOT_KB" > "$SPROG"
-	left=$((TOT_KB - DONE_KB)); [ "$left" -lt 0 ] && left=0   # per-file rounding can overshoot the total
+# PART_KB = bytes of the file in flight (fetch_file updates it every second), so the bar and the ETA move
+# inside a 700 MB image instead of freezing until it lands. RATE_F holds (time, KB) samples for eta.
+prog(){ PLABEL="$1"; shown=$((DONE_KB + ${PART_KB:-0})); [ "$shown" -gt "$TOT_KB" ] && shown=$TOT_KB
+	printf '%s/%s\n' "$shown" "$TOT_KB" > "$SPROG"
+	pnow=$(now); printf '%s %s\n' "$pnow" "$shown" >> "$RATE_F"
+	rate=$(awk -v n="$pnow" '$1 >= n-60 && !f { t0=$1; k0=$2; f=1 } { t1=$1; k1=$2 } END { if (f && t1-t0 >= 5 && k1 > k0) printf "%d", (k1-k0)/(t1-t0); else print 0 }' "$RATE_F" 2>/dev/null)
+	left=$((TOT_KB - shown)); [ "$left" -lt 0 ] && left=0   # per-file rounding can overshoot the total
 	smsg "$1
 
-$(fmt_kb "$DONE_KB") of $(fmt_kb "$TOT_KB"), $DONE_N of $TOT_N
-$(eta "$left") left"; }
+$(fmt_kb "$shown") of $(fmt_kb "$TOT_KB"), $DONE_N of $TOT_N
+$(eta "$left" "$rate") left"; }
 
 # B makes status.elf exit, which runs GFX_quit and blacks the panel -- so the instant we notice a stop,
 # put an UNCANCELLABLE status straight back. The script keeps working for a moment after a stop (finishing
@@ -577,8 +585,10 @@ fetch_file(){ # <url> <dst> <bytes>
 		sleep 1
 		sz=$(file_bytes "$2")
 		if [ "$sz" = "$last" ]; then stall=$((stall+1)); else stall=0; last=$sz; fi
-		[ "$stall" -ge 30 ] && { kill -9 "$wp" 2>/dev/null; return 0; }
+		PART_KB=$((sz / 1024)); [ -n "${PLABEL:-}" ] && prog "$PLABEL"
+		[ "$stall" -ge 30 ] && { PART_KB=0; kill -9 "$wp" 2>/dev/null; return 0; }
 	done
+	PART_KB=0
 	return 0; }
 
 # ONE archive instead of one HTTP fetch per file: 116 saves took minutes as 116 wget forks (each with a
@@ -595,6 +605,7 @@ bundle_plan(){ # <plan> <out.tar> -> 0 when the archive was written
 	while IFS="$TAB" read -r act cls sz rel hash mtime; do
 		[ -n "$rel" ] || continue
 		[ -f "$LOCAL/$rel" ] || continue     # gone since the manifest: one missing path failed the whole tar (QA 2026-09-20)
+		[ "${sz:-0}" -lt 4194304 ] 2>/dev/null || continue   # >= 4 MiB streams on its own (fetch_file); the bundle is for the MANY small files
 		# a chunk closes at 400 paths OR 200 MB, and BEFORE a file that would push it past the cap, so a chunk
 		# is never bigger than max(200 MB, one file): the receiver holds one chunk beside its extracted files
 		if [ "$c" -gt 0 ] && [ $((cb + ${sz:-0})) -gt 209715200 ]; then
@@ -624,7 +635,9 @@ bundle_out(){ # <plan> -> 0 when chunks are linked into $SERVE
 	# bod, not bo: bundle_plan uses bo for ITS output path and clobbered ours (no local in busybox sh),
 	# so this loop looked inside the tar for chunks and linked none: every bundle 404 today (2026-09-21)
 	bod="$DS_DIR/out"; rm -rf "$bod"; rm -f "$SERVE"/_dsync_bundle.tar*
-	need=$(( $(plan_kb "$1") * 11 / 10 + 2048 ))
+	sm=$(awk -F"$TAB" '$3 < 4194304 { b += $3 } END { printf "%d", (b + 1023) / 1024 }' "$1")   # only the small files ride in the bundle
+	[ "${sm:-0}" -gt 0 ] || { dbg "bundle: nothing under 4 MiB to bundle"; return 1; }
+	need=$(( sm * 11 / 10 + 2048 ))
 	free=$(df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}')
 	need=$((need + ${MNEED:-0}))     # plus the incoming apply this device already approved (Codex 2026-09-21)
 	[ "${free:-0}" -gt "$need" ] 2>/dev/null || { dbg "bundle: skipped, ${free:-0} KB free < $need KB"; return 1; }
@@ -633,6 +646,7 @@ bundle_out(){ # <plan> -> 0 when chunks are linked into $SERVE
 	bn=0; for bf in "$bod"/_dsync_bundle.tar*; do [ -f "$bf" ] && { ln -s "$bf" "$SERVE/${bf##*/}"; bn=$((bn+1)); }; done
 	dbg "bundle: $bn chunk(s) linked, $(file_bytes "$bod/_dsync_bundle.tar") bytes first"; return 0; }
 pull_plan(){ # <base url> <plan> <status label> : stage every planned file
+	RATE_F="$W/rate"; : > "$RATE_F"; PART_KB=0
 	# One stream first (see bundle_plan). A truncated or missing archive is harmless: whatever it did not
 	# deliver at the right size is exactly what the resume split below fetches file by file.
 	PULL_BUNDLED=0; bn=$(plan_count "$2")
