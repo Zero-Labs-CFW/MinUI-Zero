@@ -958,8 +958,14 @@ then try again."; then continue; else exit 0; fi
 	STATE=compare ;;
 
 compare)
-	step "3
-Comparing libraries"   # never a blank line under the row; the name follows once the peer answers
+	# the name stays under the row from the moment we have it (Dan, 2026-09-22): the joiner knows it from the
+	# SSID already; the host asks the joiner for it NOW, before its own 10-20 s file walk, two quick tries
+	if [ -z "${PN:-}" ] && [ -n "${PEER_IP:-}" ]; then
+		pi=0; while [ "$pi" -lt 2 ] && [ -z "${PN:-}" ]; do PN=$(hget 3 -O - "http://$PEER_IP:$PORT/_dsync_name" | head -c 200 | tr -cd 'A-Za-z0-9 ._()+-' | cut -c1-40) || PN=""; pi=$((pi+1)); done
+	fi
+	if [ -n "${PN:-}" ] && [ "$PN" != "a device" ]; then step "3
+Comparing with $PN"; else step "3
+Comparing libraries"; fi
 	scope_list > "$W/scope"
 	net build-export "$LOCAL" "$SERVE" --list "$W/scope" >/dev/null 2>&1
 	printf '%s' "$NAME" > "$SERVE/_dsync_name"
