@@ -68,7 +68,7 @@ while :; do
 	# on Favorites in a way the user had to manage). Focus with nothing favorited just waits: the
 	# launcher shows the normal menu until the first favorite exists.
 	if [ -f "$NO_FAVORITES" ]; then FAV=Off; elif [ -f "$FOCUS" ]; then FAV=Focus; else FAV=On; fi
-	set -- "$@" favorites "Favorites" "Off|On|Focus" "$FAV" "Favorite a game with Y in its in-game menu.\nOn: lists them on the main menu.\nFocus: replaces the consoles with them."
+	set -- "$@" favorites "Favorites" "Off|On|Focus" "$FAV" "Y in a game's menu makes it a favorite.\nOn: Favorites appears on the main menu.\nFocus: the main menu is only your favorites."
 	if [ -f "$HIDE_TOOLS" ]; then TOOLS=Hidden; else TOOLS=Shown; fi
 	set -- "$@" tools "Tools" "Shown|Hidden" "$TOOLS" "Hidden: SELECT + START at the main menu\nstill opens Tools."
 	# deep sleep exists on TrimUI and Anbernic; the Miyoo cannot (its bin/suspend is the faux sleep)
