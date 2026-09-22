@@ -213,7 +213,7 @@ disambiguate(){ if [ "$1" = "$2" ]; then printf '%s (this one)\n%s (other)\n' "$
 # finished line and serve it verbatim -- but the labels above are viewer-relative, so on two devices of
 # the same model the joiner's screen read "(this one) received 8" about the HOST's 8 (2026-09-18 review).
 done_text(){ # <A received> <B received> <skipped> <A name> <B name>
-	if [ "${3:-0}" -gt 0 ]; then t="$3 item(s) skipped."; else t="Both devices are up to date."; fi
+	if [ "${3:-0}" -gt 0 ]; then t="$3 game(s) in skipped systems."; else t="Both devices are up to date."; fi
 	printf 'Synced!\n\n%s received %s.\n%s received %s.\n\n%s' "$4" "$1" "$5" "$2" "$t"; }
 
 # Free space a device must have to RECEIVE <kb>: the transfer once (apply MOVES staged files into place,
@@ -1375,8 +1375,10 @@ Pick Sync again to finish this one." "SYNC AGAIN"; then STATE=sync; continue; el
 Nothing was lost.
 Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 		fi
-		NSKIP=$(( $(skipped_count "$W/merge") - PEER_GOT - GOT ))
-		[ "$NSKIP" -lt 0 ] && NSKIP=0
+		# "skipped" = games in systems the user set to Skip, nothing else. Differences a category toggle
+		# leaves alone are not skips, and counting them said "565 item(s) skipped" for a two-save sync
+		# with Games off on both (Dan, 2026-09-22).
+		NSKIP=${NDROP:-0}
 		DONE_TEXT=$(done_text "$GOT" "$PEER_GOT" "$NSKIP" "$ANAME" "$BNAME")
 		# Publish the COUNTS, never the finished sentence: ANAME/BNAME carry "(this one)"/"(other)", so a
 		# line rendered here read backwards on the joiner whenever both devices are the same model.
