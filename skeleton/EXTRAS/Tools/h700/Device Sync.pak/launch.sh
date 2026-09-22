@@ -330,12 +330,12 @@ staged_ok(){ [ -f "$STAGE/$1" ] || return 1
 # both devices to opt in, which nobody expected. Walking the library is one batched find/stat pass,
 # seconds even for a 25 GB card, so exporting it unconditionally costs little.
 #   Saves    -> Saves/, save states + thumbs (.userdata/shared/<tag>-<core>/), collections, favorites
-#   Games    -> Roms/  (existence by name; never overwritten, never deleted)
+#   Games    -> Roms/ and Bios/ (existence by name; never overwritten, never deleted)
 #   Configs  -> per-game / per-console .cfg dirs (.userdata/$PLATFORM/<tag>-<core>/)
 scope_list(){
 	printf '%s\n' Saves Collections ".userdata/shared/.minui/favorites.txt"   # Recently Played stays per device
 	for d in "$LOCAL"/.userdata/shared/*-*/; do [ -d "$d" ] || continue; d=${d%/}; printf '%s\n' "${d#"$LOCAL"/}"; done
-	printf '%s\n' Roms
+	printf '%s\n' Roms Bios   # a BIOS rides with Games
 	if :; then
 		# a real config dir has at least one .cfg -- tells it apart from app state that also has a hyphen
 		for d in "$LOCAL"/.userdata/$PLATFORM/*-*/; do

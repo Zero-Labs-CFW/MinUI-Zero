@@ -244,6 +244,7 @@ check "classify: Syncthing conflict copy -> other" "$(E classify 'Saves/GBA/x.sa
 check "classify: recent.txt -> other (never synced)" "$(E classify '.userdata/shared/.minui/recent.txt')"       "other"
 check "classify: favorites.txt -> favorite" "$(E classify '.userdata/shared/.minui/favorites.txt')" "favorite"
 check "classify: game cfg -> config"  "$(E classify '.userdata/tg5040/GB-gambatte/Mario.cfg')"    "config"
+check "classify: a BIOS -> rom (rides with Games)" "$(E classify 'Bios/PS/scph1001.bin')" "rom"
 
 A6="$WORK/s6/sender"; B6="$WORK/s6/local"; mkdir -p "$A6" "$B6"
 # identity is size+mtime now (no hash): a file changed on both devices has DISTINCT mtimes, which is
