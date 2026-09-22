@@ -744,6 +744,7 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 			dbg "pull: try $try of $rel landed $(file_bytes "$STAGE/$rel") of $sz bytes (wget ${FRC:-?})"
 			rm -f "$STAGE/$rel"
 			stopped && { halt=1; break; }     # B during a small file: give up between attempts
+			sleep "$try"                      # 1 s, then 2 s: a blip gets time to pass
 		done
 		[ "$halt" = 1 ] && { stop_ui; dbg "pull: stopped by user at $DONE_N/$TOT_N"; return 2; }
 		if [ "$okf" = 1 ]; then DONE_N=$((DONE_N+1)); DONE_KB=$((DONE_KB + (sz+1023)/1024))
@@ -1276,7 +1277,20 @@ sync)
 	status_sync "Syncing with $PEER..."
 	GOT=0; DONE_TEXT=""
 	if [ "$ROLE" = join ]; then
-		pull_plan "$PEER_BASE" "$W/plan.me" "Syncing with $PEER..."; rc=$?
+		# Retry in place, as the host does. Three syncs in a row (Plus 469/470, Brick with the Smart Pro,
+		# Brick with the Brick Pro, 2026-09-22) landed every file but the last few, then needed "Sync again"
+		# to finish: staging is kept, so a second pass fetches only what is missing, and the user never
+		# has to reconnect for a blip the pak can ride out itself.
+		try=0
+		while :; do
+			try=$((try+1))
+			pull_plan "$PEER_BASE" "$W/plan.me" "Syncing with $PEER..."; rc=$?
+			[ "$rc" = 0 ] && break
+			[ "$rc" = 2 ] && break          # the user stopped: do not retry behind their back
+			[ "$try" -ge 3 ] && break
+			dbg "sync: pull attempt $try failed, retrying in place"
+			sleep 3
+		done
 		if [ "$rc" = 2 ]; then
 			if oops "Stopped.
 
