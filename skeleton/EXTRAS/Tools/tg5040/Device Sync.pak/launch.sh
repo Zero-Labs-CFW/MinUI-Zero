@@ -813,21 +813,9 @@ backups)
 A backup is made automatically
 whenever a sync replaces a file."; STATE=entry; continue
 	fi
-	# A = restore the most recent, X = delete them all, B = back
-	ask "Backups
-
-Restore puts this device back to an
-earlier state (current files are backed
-up first). Delete frees their space." "RESTORE" "BACK" "DELETE ALL"; rc=$?
-	case "$rc" in
-		0) STATE=restore ;;
-		2) if ask "Delete all sync backups?
-
-This cannot be undone." "DELETE" "BACK"; then
-		       rm -rf "$BK_ROOT"/* 2>/dev/null; tell "Backups deleted."
-		   fi; STATE=entry ;;
-		*) STATE=entry ;;
-	esac ;;
+	# straight to the list: every backup, X on the list deletes them all (the explainer screen in
+	# between was one press too many, Dan 2026-09-22)
+	STATE=restore ;;
 
 find)
 	status_steps "1
@@ -1455,7 +1443,7 @@ restore)
 	# a LOCAL restore, not a synced undo: it puts this device back and backs up the current files first,
 	# so the restore is itself undoable and nothing is ever destroyed.
 	set --; i=0; : > "$W/bmap"
-	for b in $(ls -1 "$BK_ROOT" 2>/dev/null | sort -r | head -5); do
+	for b in $(ls -1 "$BK_ROOT" 2>/dev/null | sort -r); do
 		i=$((i+1)); printf 'b%s\t%s\n' "$i" "$b" >> "$W/bmap"
 		lbl=$(cat "$BK_ROOT/$b/label" 2>/dev/null); [ -n "$lbl" ] || lbl="$b"
 		# count ops.log, not the journal: it is one line per file actually changed and it is also what
@@ -1464,7 +1452,15 @@ restore)
 		set -- "$@" "b$i" "$lbl" "" "$n item(s)" "Put these $n file(s) back."
 	done
 	if [ "$i" = 0 ]; then tell "No backups yet."; STATE=entry; continue; fi
-	menu --title "Restore backup" "$@" > "$W/out"
+	menu --wide --title "Backups" --x-label "Delete all" "$@" > "$W/out"
+	if grep -q '^ACTION=x$' "$W/out"; then
+		if ask "Delete all sync backups?
+
+This cannot be undone." "DELETE" "BACK"; then
+			rm -rf "$BK_ROOT"/* 2>/dev/null; tell "Backups deleted."; STATE=entry
+		else STATE=restore; fi
+		continue
+	fi
 	OPEN=$(sed -n 's/^OPEN=//p' "$W/out" | head -1)
 	case "$OPEN" in
 		b*) b=$(awk -F"$TAB" -v k="$OPEN" '$1==k{print $2; exit}' "$W/bmap")
