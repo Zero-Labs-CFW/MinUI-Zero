@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 FONT = REPO / "skeleton/SYSTEM/res/BPreplayBold-unhinted.otf"
-TEXT_H_FRAC = 1 / 28  # ~17 px cap height on 480 rows; the old art was ~1/11, 1/32 read tiny (Dan, 2026-09-22)
+TEXT_H_FRAC = 1 / 25  # ~19 px cap height on 480 rows; the old art was ~1/11, 1/32 read tiny (Dan, 2026-09-22)
 
 TARGETS = {
     "workspace/tg5040/install": (640, 480),
