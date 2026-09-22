@@ -271,6 +271,8 @@ build_plan(){ # <merge> <decisions> <skipped classes csv> <to-a|to-b> <A manifes
 		function gamekey(r,   t,b) {
 			if (r ~ /^Saves\/[^\/]+\/[^\/]+\.(sav|srm)$/) { t=r; sub(/^Saves\//,"",t); sub(/\/.*/,"",t); b=r; sub(/.*\//,"",b); sub(/\.(sav|srm)$/,"",b); return t SUBSEP b }
 			if (r ~ /^\.userdata\/shared\/[^\/]+\/[^\/]+\.st[0-9]/) { t=r; sub(/^\.userdata\/shared\//,"",t); sub(/\/.*/,"",t); sub(/-.*/,"",t); b=r; sub(/.*\//,"",b); sub(/\.st[0-9].*$/,"",b); return t SUBSEP b }
+			if (r ~ /^\.userdata\/shared\/\.minui\/[^\/]+\/[^\/]+\.[0-9]+\.bmp$/) { t=r; sub(/^\.userdata\/shared\/\.minui\//,"",t); sub(/\/.*/,"",t); sub(/-.*/,"",t); b=r; sub(/.*\//,"",b); sub(/\.[0-9]+\.bmp$/,"",b); return t SUBSEP b }
+			if (r ~ /^\.userdata\/shared\/\.minui\/[^\/]+\/[^\/]+\.txt$/) { t=r; sub(/^\.userdata\/shared\/\.minui\//,"",t); sub(/\/.*/,"",t); sub(/-.*/,"",t); b=r; sub(/.*\//,"",b); sub(/\.txt$/,"",b); return t SUBSEP b }
 			return "" }
 		FILENAME==ARGV[1] { dec[$1]=$2; next }
 		# a game is indexed under its file name AND its name without the extension: MinUI saves are
@@ -337,6 +339,8 @@ restore_rows(){ # <ops.log> -> ORD \t NAME \t TYPE \t REL (one line per rel; row
 		else if (rel ~ /^Roms\//)            { sub(/\.[^.]*$/,"",n); name=n; type="Game"; ord=2 }
 		else if (rel ~ /\.cfg$/)             { sub(/\.[^.]*$/,"",n); name=n; type="Settings"; ord=3 }
 		else if (rel ~ /\.st[0-9](\.[^.]*)?$/) { sub(/\.st[0-9](\.[^.]*)?$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n); name=n; type="Save"; ord=1 }   # same collapse as plan_names
+		else if (rel ~ /^\.userdata\/shared\/\.minui\/[^\/]+\/.*\.[0-9]+\.bmp$/) { sub(/\.[0-9]+\.bmp$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n); name=n; type="Save"; ord=1 }
+		else if (rel ~ /^\.userdata\/shared\/\.minui\/[^\/]+\/.*\.txt$/) { sub(/\.txt$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n); name=n; type="Save"; ord=1 }
 		else if (rel ~ /^Saves\//) { sub(/\.[^.]*$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n); name=n; type="Save"; ord=1 }
 		else                                 { sub(/\.[^.]*$/,"",n); name=n; type="File"; ord=7 }
 		print ord, name, type, rel }' "$1" | sort -t"$TAB" -k1,1n -k2,2
@@ -362,12 +366,16 @@ staged_ok(){ [ -f "$STAGE/$1" ] || return 1
 # Games on the Plus and off on the Pro must still bring games to the Plus). The old both-on rule needed
 # both devices to opt in, which nobody expected. Walking the library is one batched find/stat pass,
 # seconds even for a 25 GB card, so exporting it unconditionally costs little.
-#   Saves    -> Saves/, save states + thumbs (.userdata/shared/<tag>-<core>/), collections, favorites
+#   Saves    -> Saves/, save states (.userdata/shared/<tag>-<core>/), their previews and last-slot pointers
+#               (.userdata/shared/.minui/<tag>-<core>/), collections, favorites
 #   Games    -> Roms/ and Bios/ (existence by name; never overwritten, never deleted)
 #   (game settings, .userdata/$PLATFORM/<tag>-<core>/*.cfg, stay per device: see the prefs note above)
 scope_list(){
 	printf '%s\n' Saves Collections ".userdata/shared/.minui/favorites.txt"   # Recently Played stays per device
 	for d in "$LOCAL"/.userdata/shared/*-*/; do [ -d "$d" ] || continue; d=${d%/}; printf '%s\n' "${d#"$LOCAL"/}"; done
+	# state previews sat in a folder the scope never named, so every synced state loaded as "No Preview"
+	# on the other device (Brick Pro, 2026-09-22)
+	for d in "$LOCAL"/.userdata/shared/.minui/*-*/; do [ -d "$d" ] || continue; d=${d%/}; printf '%s\n' "${d#"$LOCAL"/}"; done
 	printf '%s\n' Roms Bios   # a BIOS rides with Games
 	return 0; }
 # the classes a device does NOT take, from ITS OWN toggles: <S> <G> -> csv (per direction). Settings and
@@ -392,6 +400,8 @@ plan_names(){ # <plan.me> <plan.peer> -> deduped "Name<TAB>Type", most useful fi
         # one row per GAME: Zelda.gbc.sav, Zelda.gbc.st0 and Zelda.gbc.st0.png all read "Zelda". The state
         # suffix goes first, then a short rom extension (1-4 alphanumerics, so "Dr. Mario" keeps its dot)
         if (rel ~ /\.st[0-9](\.[^.]*)?$/) { sub(/\.st[0-9](\.[^.]*)?$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n) }
+        else if (rel ~ /^\.userdata\/shared\/\.minui\/[^\/]+\/.*\.[0-9]+\.bmp$/) { sub(/\.[0-9]+\.bmp$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n) }   # Zelda.gbc.3.bmp preview
+        else if (rel ~ /^\.userdata\/shared\/\.minui\/[^\/]+\/.*\.txt$/) { sub(/\.txt$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n) }   # Zelda.gbc.txt last slot
         else if (rel ~ /^Saves\//) { sub(/\.[^.]*$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n) }
         else sub(/\.[^.]*$/,"",n)
         name=n

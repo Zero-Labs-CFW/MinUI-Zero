@@ -150,6 +150,7 @@ _classify() {
 		Roms/*)              CLS=rom ;;
 		Bios/*)              CLS=rom ;;       # a BIOS travels with Games: existence by name, never overwritten (Dan, 2026-09-22)
 		Saves/*)             CLS=save ;;
+		.userdata/shared/.minui/*-*/*) CLS=save ;;   # state PREVIEWS: <game>.<slot>.bmp and the last-slot <game>.txt live here, not beside the state (Dan, 2026-09-22)
 		*.st[0-9]|*.st[0-9].*) CLS=save ;;      # save states + their sidecars (.st0, .st0.png thumbnail, ...) in .userdata/shared/<tag>-<core>/ -- all save data
 		Collections/*)       CLS=collection ;;
 		*/recent.txt)        CLS=other ;;       # Recently Played is per-device activity: never synced (Dan, 2026-09-21)
