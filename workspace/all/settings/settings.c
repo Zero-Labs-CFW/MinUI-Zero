@@ -355,6 +355,9 @@ int main(int argc, char* argv[]) {
 	}
 	if (open>=0) printf("OPEN=%s\n", rows[open].key);
 	if (action) printf("ACTION=%c\n", action);
+	// the highlighted row goes with an action, so X can mean "this one" (Backups: X deletes the
+	// highlighted backup, Y deletes all; Dan 2026-09-22)
+	if (action && nvis>0 && selected>=0 && selected<nvis) printf("CURSOR=%s\n", rows[vis[selected]].key);
 	fflush(stdout);
 
 	QuitSettings();

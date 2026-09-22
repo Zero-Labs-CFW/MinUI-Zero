@@ -1541,14 +1541,28 @@ restore)
 		set -- "$@" "b$i" "$lbl" "" "$n item(s)" "Put these $n file(s) back."
 	done
 	if [ "$i" = 0 ]; then tell "No backups yet."; STATE=entry; continue; fi
-	menu --wide --title "Backups" --x-label "Delete all" "$@" > "$W/out"
-	if grep -q '^ACTION=x$' "$W/out"; then
+	# X deletes the highlighted backup, Y deletes them all (Dan, 2026-09-22); A opens one to restore from
+	menu --wide --title "Backups" --x-label "Delete" --y-label "Delete all" "$@" > "$W/out"
+	if grep -q '^ACTION=y$' "$W/out"; then
 		if ask "Delete all sync backups?
 
 This cannot be undone." "DELETE" "BACK"; then
 			rm -rf "$BK_ROOT"/* 2>/dev/null; tell "Backups deleted."; STATE=entry
 		else STATE=restore; fi
 		continue
+	fi
+	if grep -q '^ACTION=x$' "$W/out"; then
+		ck=$(sed -n 's/^CURSOR=//p' "$W/out" | head -1)
+		cb=$(awk -F"$TAB" -v k="$ck" '$1==k{print $2; exit}' "$W/bmap")
+		if [ -n "$cb" ] && [ -d "$BK_ROOT/$cb" ]; then
+			cl=$(cat "$BK_ROOT/$cb/label" 2>/dev/null); [ -n "$cl" ] || cl="$cb"
+			if ask "Delete this backup?
+
+$cl
+
+This cannot be undone." "DELETE" "BACK"; then rm -rf "$BK_ROOT/$cb" 2>/dev/null; fi
+		fi
+		STATE=restore; continue
 	fi
 	OPEN=$(sed -n 's/^OPEN=//p' "$W/out" | head -1)
 	case "$OPEN" in
