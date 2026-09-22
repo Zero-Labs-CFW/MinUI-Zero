@@ -549,10 +549,15 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 		fi
 		# the staged copy must BE the planned bytes: a power cut in the page-cache window leaves a zero-length
 		# staged file on FAT, and verifying the tmp against that file applied 0 bytes over a save (QA 2026-09-20)
-		if [ "${psize:-0}" != 0 ] && ! _is_plan_copy "$staging/$rel" "$psize" "$phash" 0; then
-			printf 'MISS\t%s (staged copy is not the planned %s bytes)\n' "$rel" "$psize" >&2; rc=1; continue
+		# ONE size read per file: this loop is fork-bound on the device (871 games sat "saving" for minutes,
+		# 2026-09-22), so the staged size is read once and reused for the check, the rename and the ops line
+		ssz=$(file_size "$staging/$rel")
+		if [ "${psize:-0}" != 0 ]; then
+			if [ "$ssz" != "$psize" ] || { [ -n "$phash" ] && [ "$phash" != "-" ] && [ "$(file_hash "$staging/$rel")" != "$phash" ]; }; then
+				printf 'MISS\t%s (staged copy is not the planned %s bytes)\n' "$rel" "$psize" >&2; rc=1; continue
+			fi
 		fi
-		mkdir -p "$dst/$(dirname "$LREL")"
+		ld=${LREL%/*}; [ "$ld" = "$LREL" ] || [ -d "$dst/$ld" ] || mkdir -p "$dst/$ld"
 		if { [ "$pcls" = favorite ] || [ "$pcls" = collection ]; } && [ -f "$dst/$LREL" ]; then
 			# a LIST file: write the union of both sides, one entry per line, sorted (the launcher sorts these
 			# lists itself, so file order carries nothing). Both devices compute the same bytes and stamp the
@@ -575,12 +580,14 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 		# MOVE, not copy: staging and the card are one filesystem, so the transfer needs its own size
 		# once, not twice (a 25 GB library asked a 29 GB card for 52 GB, 2026-09-21). cp only if the
 		# move is refused (a staging dir on another mount).
-		ssz=$(file_size "$staging/$rel")
-		mv "$staging/$rel" "$dst/$LREL.dsync.tmp" 2>/dev/null || cp "$staging/$rel" "$dst/$LREL.dsync.tmp" 2>/dev/null
-		if [ "$ssz" = "$(file_size "$dst/$LREL.dsync.tmp")" ] && mv "$dst/$LREL.dsync.tmp" "$dst/$LREL" 2>/dev/null; then
+		# a same-filesystem rename cannot change the size; only the cp fallback (another mount, a full card)
+		# needs the landed bytes read back
+		if mv "$staging/$rel" "$dst/$LREL.dsync.tmp" 2>/dev/null; then lsz=$ssz
+		else cp "$staging/$rel" "$dst/$LREL.dsync.tmp" 2>/dev/null; lsz=$(file_size "$dst/$LREL.dsync.tmp"); fi
+		if [ "$ssz" = "$lsz" ] && mv "$dst/$LREL.dsync.tmp" "$dst/$LREL" 2>/dev/null; then
 			set_mtime "$dst/$LREL" "${mtime:-0}"
 			op=UPDATE; [ "$bkstate" = none ] && op=ADD
-			printf '%s\t%s\t%s\n' "$op" "$(file_size "$dst/$LREL")" "$rel" >> "$bdir/ops.log"
+			printf '%s\t%s\t%s\n' "$op" "$ssz" "$rel" >> "$bdir/ops.log"
 			printf 'DONE\t%s\t%s\n' "$action" "$rel" >> "$jl"
 		else
 			rm -f "$dst/$LREL.dsync.tmp"; printf 'FAIL\t%s\n' "$rel" >&2; rc=1

@@ -541,7 +541,7 @@ case "$HOMEIP" in 192.168.42.*|"") HAD_WIFI=0 ;; *) HAD_WIFI=1 ;; esac
 # configured and merely associating, and wifi-off at teardown would have killed it (QA 2026-09-20)
 pidof wpa_supplicant >/dev/null 2>&1 && HAD_WIFI=1; pidof dhcpcd >/dev/null 2>&1 && HAD_WIFI=1
 TORN=0
-teardown(){
+teardown(){ [ -n "${BPID:-}" ] && { kill "$BPID" 2>/dev/null; wait "$BPID" 2>/dev/null; BPID=""; }
 	[ "$TORN" = 1 ] && return 0
 	TORN=1
 	dbg "teardown: begin (role=${ROLE:-?} had_wifi=$HAD_WIFI)"
@@ -1280,16 +1280,21 @@ Nothing was copied."; exit 0
 		# a single-value row (VALUES=type) is display-only: A cannot open/exit it, only Y syncs / B backs
 		set -- "$@" "row$ni" "$pnm" "$ptyp" "$ptyp" ""
 	done < "$W/names"
+	# the bundle of what the peer takes is tarred in the background WHILE the user reads this list: the
+	# 30 s to 2 min of tar used to start only after SYNC (Dan, 2026-09-22: speed up the in-between states).
+	# B below throws it away; SYNC waits for it.
+	rm -f "$W/bundle.rc"; ( bundle_out "$W/plan.peer" >/dev/null 2>&1; echo $? > "$W/bundle.rc" ) & BPID=$!
 	# the ONE confirmation: a scrollable list of exactly WHAT will sync, by name -- "4 files (3 saves)"
 	# told the user nothing they could act on (Dan, 2026-09-19). Y = sync, B = back. Nothing moved yet.
 	if menu --wide --title "Sync $NN items, $(fmt_kb $((PK + MK)))" --a-label SYNC "$@" | grep -q '^ACTION=a$'; then
-		bundle_out "$W/plan.peer"
+		status "Preparing..."; wait "$BPID" 2>/dev/null; BPID=""
 		cp "$W/plan.me" "$SERVE/_dsync_want"
 		cp "$W/plan.peer" "$SERVE/_dsync_plan"
 		printf '%s %s 0\n' "$(plan_count "$W/plan.me")" "$(plan_count "$W/plan.peer")" > "$SERVE/_dsync_totals"
 		dbg "review: SYNC me=$(plan_count "$W/plan.me") peer=$(plan_count "$W/plan.peer")"
 		STATE=sync
 	else
+		kill "$BPID" 2>/dev/null; wait "$BPID" 2>/dev/null; BPID=""; rm -rf "$DS_DIR/out"; rm -f "$SERVE"/_dsync_bundle.tar*
 		# tell the peer we backed out, then leave -- it polls _dsync_totals every ~2 s, so KEEP SERVING a
 		# few cycles or it reports "Lost the other device" for a deliberate cancel (the EXIT trap fires in
 		# milliseconds). The status keeps the panel lit meanwhile.
@@ -1344,8 +1349,9 @@ Nothing was copied."; exit 0
 Try again?"; then STATE=find; continue; else exit 0; fi
 	fi
 	MNEED=$(eng plan-need "$W/plan.me" "$LOCAL" 2>/dev/null); case "$MNEED" in ''|*[!0-9]*) MNEED=0 ;; esac   # so bundle_out leaves room for it
+	# built in the background: the host only pulls it after we have applied our half, minutes from now
 	if hget 20 -O "$W/want" "$PEER_BASE/_dsync_want" && [ -s "$W/want" ]; then
-		bundle_out "$W/want"
+		( bundle_out "$W/want" >/dev/null 2>&1 ) & BPID=$!
 	fi
 	dbg "wait_plan: got plan $(plan_count "$W/plan.me") files, totals=$TOTALS"
 	STATE=sync ;;
@@ -1410,6 +1416,7 @@ what already arrived is kept." "SYNC AGAIN"; then STATE=find; continue; else exi
 Nothing was lost.
 Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 		fi
+		[ -n "${BPID:-}" ] && { wait "$BPID" 2>/dev/null; BPID=""; }   # our bundle for the host must be complete before it hears "applied"
 		prog_hold "Copying from $PEER..." "waiting for $PEER to finish" b
 		# Wait for the host to finish its half and publish the Done counts. Five lost pings (~25 s) mean
 		# it is gone. The _dsync_applied request goes out EVERY pass, not once: the host learns we applied
