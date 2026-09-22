@@ -554,10 +554,13 @@ dbg "==== launch name=$NAME had_wifi=$HAD_WIFI ssid=$MYSSID ===="
 # ---- the transfer ---------------------------------------------------------------------------------
 # PART_KB = bytes of the file in flight (fetch_file updates it every second), so the bar and the ETA move
 # inside a 700 MB image instead of freezing until it lands. RATE_F holds (time, KB) samples for eta.
-prog(){ PLABEL="$1"; shown=$((DONE_KB + ${PART_KB:-0})); [ "$shown" -gt "$TOT_KB" ] && shown=$TOT_KB
-	printf '%s/%s\n' "$shown" "$TOT_KB" > "$SPROG"
-	pnow=$(now); printf '%s %s\n' "$pnow" "$shown" >> "$RATE_F"
-	rate=$(awk -v n="$pnow" '$1 >= n-60 && !f { t0=$1; k0=$2; f=1 } { t1=$1; k1=$2 } END { if (f && t1-t0 >= 5 && k1 > k0) printf "%d", (k1-k0)/(t1-t0); else print 0 }' "$RATE_F" 2>/dev/null)
+prog(){ PLABEL="$1"; shown=$(( ${DONE_KB:-0} + ${PART_KB:-0} )); [ "$shown" -gt "${TOT_KB:-0}" ] 2>/dev/null && shown=${TOT_KB:-0}
+	printf '%s/%s\n' "$shown" "${TOT_KB:-0}" > "$SPROG"
+	# RATE_F always names a file and awk never reads stdin: an unset RATE_F made awk block on the console
+	# and froze the host mid-sync, B included (Brick Pro, 2026-09-22)
+	[ -n "${RATE_F:-}" ] || RATE_F="$W/rate"
+	pnow=$(now); printf '%s %s\n' "$pnow" "$shown" >> "$RATE_F" 2>/dev/null
+	rate=$(awk -v n="$pnow" '$1 >= n-60 && !f { t0=$1; k0=$2; f=1 } { t1=$1; k1=$2 } END { if (f && t1-t0 >= 5 && k1 > k0) printf "%d", (k1-k0)/(t1-t0); else print 0 }' "$RATE_F" 2>/dev/null </dev/null)
 	left=$((TOT_KB - shown)); [ "$left" -lt 0 ] && left=0   # per-file rounding can overshoot the total
 	smsg "$1
 
