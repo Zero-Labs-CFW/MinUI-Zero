@@ -8,6 +8,10 @@
 # This replaces the from-scratch approach (tools/build-h700-image.sh), which failed by rebuilding
 # a whole userland one missing library at a time. See .notes/2026-08-06-h700-architecture/.
 #
+# CLEAN-CLONE INPUTS (gitignored, under .notes/2026-08-05-h700-image/ of the checkout being built; the
+# v1.8.0 release clone lacked them one at a time, 2026-09-22): muos-p5.img (8 GB muOS dump, a REAL file or a
+# hard link, never a symlink out of the docker mount), parts/ (p2-p4 + raw-36mb chain), parts-<device>/ and
+# device-<device>/ overlays. A release build also needs H700_VERSION=vX.Y.Z until the tag exists.
 # Pipeline (all offline, no device): debugfs rdump the muOS rootfs -> strip the bloat list ->
 # swap FRONTEND->minui in startup.sh + drop our launcher -> mke2fs -d a lean p5 -> assemble with
 # the verbatim boot chain + our FAT ROMS payload.
