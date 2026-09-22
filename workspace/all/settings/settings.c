@@ -166,9 +166,13 @@ int main(int argc, char* argv[]) {
 			TTF_SizeUTF8(font.tiny, r->current, &rw, NULL);
 			w = lw+rw;
 		}
-		w += SCALE1(OPTION_PADDING*4);
+		// OPTION_PADDING*4 is the pill padding; the extra 24 is breathing room between label and value,
+		// which on the Smart Pro (@2x) otherwise touch (Dan, 2026-09-22)
+		w += SCALE1(OPTION_PADDING*4 + 24);
 		if (w>mw) mw = w;
 	}
+	// never narrower than two fifths of the panel: a two-row list of short words was a cramped island
+	if (mw < screen->w * 2 / 5) mw = screen->w * 2 / 5;
 	mw = MIN(mw, screen->w - SCALE1(PADDING*2));
 	// An ACTION list (Device Sync's entry) is short labels with no values at all, so the widest-row
 	// rule shrank the whole menu to one floating word and it read as a broken option instead of a

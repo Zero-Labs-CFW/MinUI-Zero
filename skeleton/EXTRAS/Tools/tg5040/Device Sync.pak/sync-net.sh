@@ -98,15 +98,23 @@ serve() { # <servedir> <port> : HTTP server, backgrounded, pid tracked so we nev
 	# it (darkhttpd --daemon would fork and orphan the pid). Both log one line per request to the same
 	# file. Verified aarch64/glibc 2026-09-18: darkhttpd serves through the export symlinks and
 	# percent-decodes the spaces/parens in game names exactly like busybox httpd.
-	if command -v httpd >/dev/null 2>&1; then
+	# darkhttpd FIRST where we ship it: busybox httpd on the Brick (1.27.2) has no Range support, so a stopped
+	# or cut 1 GB game restarted from zero whenever a TrimUI was the sender. Our own static darkhttpd 1.16
+	# (workspace/tg5040/other/darkhttpd, built in the tg5040 toolchain because the muOS binary wants glibc
+	# 2.38 and the Brick has 2.33) answers 206; verified on the Brick 2026-09-22 with symlinked export paths
+	# and percent-encoded names, and its log carries the URL the host greps for. The Miyoo keeps busybox
+	# httpd, which does honour Range there (1.20.2, verified).
+	DH=""; [ -x "${SYSTEM_PATH:-}/bin/darkhttpd" ] && DH="$SYSTEM_PATH/bin/darkhttpd"
+	[ -z "$DH" ] && command -v darkhttpd >/dev/null 2>&1 && DH=darkhttpd
+	if [ -n "$DH" ]; then
+		"$DH" "$1" --port "$2" ${3:+--addr "$3"} >/tmp/dsync-httpd.log 2>&1 &    # docroot is positional here, not -h
+	elif command -v httpd >/dev/null 2>&1; then
 		# -vv, NOT -v. Verified on the Brick (busybox 1.27.2, 2026-09-18): -v logs only
 		# "[ip]: response:200" with NO url, so every handshake that greps this log for a marker URL
 		# (the peer reports progress/completion by REQUESTING /_dsync_<marker>) could never match and
 		# both devices waited forever. -vv logs "[ip]: url:/_dsync_applied_7". This same bug is why the
 		# v1 sender never showed its Done summary. darkhttpd logs the URL by default, so it needs no flag.
 		httpd -f -vv -p "${3:+$3:}$2" -h "$1" >/tmp/dsync-httpd.log 2>&1 &   # $3 = bind address (optional)
-	elif command -v darkhttpd >/dev/null 2>&1; then
-		darkhttpd "$1" --port "$2" ${3:+--addr "$3"} >/tmp/dsync-httpd.log 2>&1 &    # docroot is positional here, not -h
 	else
 		# never fail silently: without this the caller waits out a peer that will never answer
 		msg="serve: no HTTP server on this device (busybox has no httpd applet and darkhttpd is missing)"
