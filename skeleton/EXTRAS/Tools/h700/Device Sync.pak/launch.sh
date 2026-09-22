@@ -407,13 +407,17 @@ hget(){ secs=$1; shift
 	wait "$wpid"; }
 # hget that honours B: for the long bundle pulls, where fetch_file's rule (never a download the user
 # cannot stop) was bypassed and a 700 MB bundle ran to its deadline behind a blank panel (QA 2026-09-20)
-hget_c(){ # <secs> <dst> <url>; 0 done, 1 deadline, 3 stopped by the user
+hget_c(){ # <secs> <dst> <url>; 0 done, 1 deadline or stalled, 3 stopped by the user
 	wget -q -O "$2" "$3" 2>/dev/null & wpid=$!
-	k=0
+	k=0; last=-1; stall=0
 	while kill -0 "$wpid" 2>/dev/null && [ "$k" -lt "$1" ]; do
 		stopped && { kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 3; }
 		sleep 1; k=$((k+1))
-		PART_KB=$(( $(file_bytes "$2") / 1024 )); [ -n "${PLABEL:-}" ] && prog "$PLABEL"   # the chunk growing = visible progress
+		sz=$(file_bytes "$2"); PART_KB=$((sz / 1024)); [ -n "${PLABEL:-}" ] && prog "$PLABEL"   # the chunk growing = visible progress
+		# a dead connection (a re-join after a loss left one) must fail over to the per-file path, not
+		# wait out a deadline that scales with the plan (5 h for 1 GB, 2026-09-22)
+		if [ "$sz" = "$last" ]; then stall=$((stall+1)); else stall=0; last=$sz; fi
+		[ "$stall" -ge 30 ] && { kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 1; }
 	done
 	if kill -0 "$wpid" 2>/dev/null; then kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 1; fi
 	wait "$wpid"; }
@@ -658,7 +662,10 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 	# totals BEFORE the bundle stage, so the screen never reads "0 KB of  KB" while chunks download; the
 	# exact split is recomputed after resume-check below (the bundle chunks count as progress meanwhile)
 	TOT_KB=$(plan_kb "$2"); TOT_N=$bn; DONE_KB=0; DONE_N=0
-	if [ "$bn" -gt 1 ]; then
+	# a RETRY with most files already staged goes straight to the per-file resume: re-pulling 320 MB of
+	# bundles to get one missing file (Plus, 469 of 470, 2026-09-22) is exactly the wrong trade
+	missing=$bn; [ -d "$STAGE" ] && missing=$(eng resume-check "$2" "$STAGE" 2>/dev/null | wc -l | tr -d ' ')
+	if [ "$bn" -gt 1 ] && [ "${missing:-$bn}" -gt 20 ]; then
 		BT="$DS_DIR/bundle.tar"; rm -f "$BT"
 		bdl=$(( $(plan_kb "$2") / 50 + 40 ))     # assume >= 50 KB/s, plus slack: never shorter than the data
 		prog "$3"
