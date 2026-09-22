@@ -638,10 +638,14 @@ $(eta "$left" "$rate") left"; }
 # The copy is done but the sync is not: keep the FULL bar and the same three-line layout up through the
 # apply and the wait for the other device, instead of dropping to a bare "Syncing with..." line (Dan,
 # 2026-09-22: "just keep the progress bar going"). <label> <third line> [b]: b arms B (a wait), else none.
-prog_hold(){ t="$1
+prog_hold(){ if [ "${TOT_N:-0}" -gt 0 ] 2>/dev/null; then t="$1
 
 $(fmt_kb "${TOT_KB:-0}") of $(fmt_kb "${TOT_KB:-0}"), ${TOT_N:-0} of ${TOT_N:-0}
 $2"
+	else t="$1
+
+Nothing to copy here.
+$2"; fi   # "0 KB of 0 KB, 0 of 0" read as broken (Brick, 2026-09-22)
 	if [ "${3:-}" = b ]; then status_b "$t"; else status_off; status "$t"; fi
 	printf '%s/%s\n' "${TOT_KB:-1}" "${TOT_KB:-1}" > "$SPROG"; }
 # B makes status.elf exit, which runs GFX_quit and blacks the panel -- so the instant we notice a stop,
@@ -829,7 +833,18 @@ apply_plan(){ # <plan>
 	if [ "$(plan_count "$1")" -eq 0 ]; then printf 0; return 0; fi
 	BK="$BK_ROOT/$(ts)"; bn=1; while [ -e "$BK" ]; do bn=$((bn+1)); BK="$BK_ROOT/$(ts)-$bn"; done   # never reuse a dir (QA 2026-09-20)
 	cp "$1" "$RES_PLAN" 2>/dev/null; printf '%s\n' "$BK" > "$RES_BK"   # so a power cut can be resumed
-	eng apply-plan "$1" "$STAGE" "$LOCAL" "$BK" >> "$LOGF" 2>&1; arc=$?
+	# the engine runs in the background and the journal it writes IS the progress: 871 games "saving to this
+	# device" sat on a full bar with nothing moving for minutes (Dan, 2026-09-22: "feels stuck")
+	eng apply-plan "$1" "$STAGE" "$LOCAL" "$BK" >> "$LOGF" 2>&1 & apid=$!
+	an=$(plan_count "$1"); alast=-1
+	while kill -0 "$apid" 2>/dev/null; do
+		sleep 1; ad=$(awk -F"$TAB" '$1=="DONE"{n++} END{print n+0}' "$BK/journal.log" 2>/dev/null)
+		if [ "$ad" != "$alast" ]; then alast=$ad; smsg "Copying from $PEER...
+
+$(fmt_kb "${TOT_KB:-0}") of $(fmt_kb "${TOT_KB:-0}"), ${TOT_N:-0} of ${TOT_N:-0}
+saving to this device, $ad of $an"; fi
+	done
+	wait "$apid"; arc=$?
 	printf '%s, %s' "$PEER" "$(date '+%b %d %H:%M' 2>/dev/null)" > "$BK/label" 2>/dev/null
 	eng prune "$BK_ROOT" 5 >/dev/null 2>&1
 	awk -F"$TAB" '$1=="DONE" && $2!="keep" {n++} END{print n+0}' "$BK/journal.log" 2>/dev/null   # keep = live edit kept, nothing copied
