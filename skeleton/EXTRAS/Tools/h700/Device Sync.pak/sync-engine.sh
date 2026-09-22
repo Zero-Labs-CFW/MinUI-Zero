@@ -509,8 +509,10 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 		# a cut between the final rename and its journal line: the write LANDED (the live file is the plan
 		# copy) and the staged file was moved away, so there is nothing to redo. Record it now, ops.log
 		# included, or a resume would report MISS forever and Restore would not know the file (Codex 2026-09-21)
-		if [ ! -e "$staging/$rel" ] && _is_plan_copy "$dst/$rel" "$psize" "$phash" "$mtime"; then
-			grep -qF "$(printf '\t%s' "$rel")" "$bdir/ops.log" 2>/dev/null || { op=UPDATE; [ "$bkstate" = none ] && op=ADD; printf '%s\t%s\t%s\n' "$op" "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"; }
+		# (never on size alone: a ROM is identity-by-name, anything else needs the hash or the mtime)
+		if [ ! -e "$staging/$rel" ] && { [ "$pcls" = rom ] || [ "${mtime:-0}" != 0 ] || [ "${phash:--}" != - ]; } \
+		   && _is_plan_copy "$dst/$rel" "$psize" "$phash" "$mtime"; then
+			if ! awk -F"$TAB" -v r="$rel" '$3==r {f=1} END {exit !f}' "$bdir/ops.log" 2>/dev/null; then op=UPDATE; [ "$bkstate" = none ] && op=ADD; printf '%s\t%s\t%s\n' "$op" "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"; fi
 			printf 'DONE\t%s\t%s\n' "$action" "$rel" >> "$jl"; continue
 		fi
 		if [ ! -e "$staging/$rel" ]; then
@@ -531,7 +533,7 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 			{ cat "$dst/$rel"; echo; cat "$staging/$rel"; echo; } | grep -v '^$' | sort -u > "$dst/$rel.dsync.tmp" 2>/dev/null; urc=$?
 			[ "$lm" -gt "${mtime:-0}" ] 2>/dev/null && mtime=$lm
 			# accepted only when sort succeeded and no live entry went missing (a full card can leave a partial file)
-			lcnt=$(grep -c . "$dst/$rel" 2>/dev/null); ucnt=$(grep -c . "$dst/$rel.dsync.tmp" 2>/dev/null)
+			lcnt=$(grep -v '^$' "$dst/$rel" 2>/dev/null | sort -u | wc -l | tr -d ' '); ucnt=$(grep -c . "$dst/$rel.dsync.tmp" 2>/dev/null)
 			if [ "$urc" = 0 ] && [ "${ucnt:-0}" -gt 0 ] && [ "${ucnt:-0}" -ge "${lcnt:-0}" ] 2>/dev/null && mv "$dst/$rel.dsync.tmp" "$dst/$rel" 2>/dev/null; then
 				set_mtime "$dst/$rel" "${mtime:-0}"
 				printf 'UPDATE\t%s\t%s\n' "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"
@@ -690,8 +692,7 @@ restore() { # <dst> <backupdir> [file of rels: restore ONLY these]
 			if [ -e "$bdir/$rel" ]; then
 				mkdir -p "$dst/$(dirname "$rel")"
 				cp "$bdir/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
-				if [ "$(file_size "$bdir/$rel")" = "$(file_size "$dst/$rel.dsync.tmp")" ]; then
-					mv "$dst/$rel.dsync.tmp" "$dst/$rel"
+				if [ "$(file_size "$bdir/$rel")" = "$(file_size "$dst/$rel.dsync.tmp")" ] && mv "$dst/$rel.dsync.tmp" "$dst/$rel" 2>/dev/null; then
 					set_mtime "$dst/$rel" "$(file_mtime "$bdir/$rel")"
 					printf 'DONE\trestore\t%s\n' "$rel" >> "$new/journal.log"; rdone=$((rdone+1))
 				else
@@ -701,7 +702,8 @@ restore() { # <dst> <backupdir> [file of rels: restore ONLY these]
 				printf 'RESTORE-MISS\t%s\n' "$rel" >&2; rc=1; rmiss=$((rmiss+1))   # backup gone: leave the live file alone, never truncate it
 			fi ;;
 		ADD)     # the sync added this file; before it there was nothing. Its current bytes are in $new.
-			rm -f "$dst/$rel"
+			rm -f "$dst/$rel" 2>/dev/null
+			if [ -e "$dst/$rel" ]; then printf 'RESTORE-FAIL\t%s (remove)\n' "$rel" >&2; rc=1; rmiss=$((rmiss+1)); continue; fi
 			d=$(dirname "$rel")
 			while [ "$d" != "." ] && [ "$d" != "/" ]; do
 				rmdir "$dst/$d" 2>/dev/null || break

@@ -297,7 +297,7 @@ restore_rows(){ # <ops.log> -> ORD \t NAME \t TYPE \t REL (one line per rel; row
 		else if (rel ~ /^Collections\//)     { sub(/\.[^.]*$/,"",n); name=n; type="Collection"; ord=6 }
 		else if (rel ~ /^Roms\//)            { sub(/\.[^.]*$/,"",n); name=n; type="Game"; ord=2 }
 		else if (rel ~ /\.cfg$/)             { sub(/\.[^.]*$/,"",n); name=n; type="Settings"; ord=3 }
-		else if (rel ~ /^Saves\// || rel ~ /\.st[0-9](\.[^.]*)?$/) { sub(/\.[^.]*$/,"",n); sub(/\.st[0-9]$/,"",n); name=n; type="Save"; ord=1 }
+		else if (rel ~ /^Saves\// || rel ~ /\.st[0-9](\.[^.]*)?$/) { sub(/\.[^.]*$/,"",n); sub(/\.st[0-9]$/,"",n); if (rel ~ /^Saves\//) sub(/\.[^.]*$/,"",n); name=n; type="Save"; ord=1 }
 		else                                 { sub(/\.[^.]*$/,"",n); name=n; type="File"; ord=7 }
 		print ord, name, type, rel }' "$1" | sort -t"$TAB" -k1,1n -k2,2
 }
@@ -358,7 +358,7 @@ plan_names(){ # <plan.me> <plan.peer> -> deduped "Name<TAB>Type", most useful fi
     { rel=$4; cls=$2; n=rel; sub(/.*\//,"",n)
       if (rel ~ /favorites\.txt$/)      { name="Favorites";       type="Favorite"; ord=4 }
       else {
-        sub(/\.[^.]*$/,"",n); sub(/\.st[0-9]$/,"",n); name=n
+        sub(/\.[^.]*$/,"",n); sub(/\.st[0-9]$/,"",n); if (rel ~ /^Saves\//) sub(/\.[^.]*$/,"",n); name=n   # Zelda.gbc.sav and Zelda.st0 are one row
         if (cls=="save")            { type="Save";       ord=1 }
         else if (cls=="rom")        { type="Game";       ord=2 }
         else if (cls=="config")     { type="Settings";   ord=3 }
@@ -595,9 +595,14 @@ bundle_plan(){ # <plan> <out.tar> -> 0 when the archive was written
 	while IFS="$TAB" read -r act cls sz rel hash mtime; do
 		[ -n "$rel" ] || continue
 		[ -f "$LOCAL/$rel" ] || continue     # gone since the manifest: one missing path failed the whole tar (QA 2026-09-20)
+		# a chunk closes at 400 paths OR 200 MB, and BEFORE a file that would push it past the cap, so a chunk
+		# is never bigger than max(200 MB, one file): the receiver holds one chunk beside its extracted files
+		if [ "$c" -gt 0 ] && [ $((cb + ${sz:-0})) -gt 209715200 ]; then
+			out="$bo"; [ "$k" -gt 1 ] && out="$bo.$k"
+			tar -cf "$out" -C "$LOCAL" "$@" 2>/dev/null || { rm -f "$bo" "$bo".[0-9]*; return 1; }
+			k=$((k+1)); c=0; cb=0; set --
+		fi
 		set -- "$@" "$rel"; c=$((c+1)); cb=$((cb + ${sz:-0}))
-		# a chunk closes at 400 paths OR 200 MB: the receiver holds one chunk beside its extracted files,
-		# so the cap bounds the card space a Games sync needs above the transfer itself
 		if [ "$c" -ge 400 ] || [ "$cb" -ge 209715200 ]; then
 			out="$bo"; [ "$k" -gt 1 ] && out="$bo.$k"
 			tar -cf "$out" -C "$LOCAL" "$@" 2>/dev/null || { rm -f "$bo" "$bo".[0-9]*; return 1; }
@@ -1066,9 +1071,16 @@ Nothing to copy."; exit 0
 	PK=$(plan_kb "$W/plan.peer"); MK=$(plan_kb "$W/plan.me")
 	if [ "$TOTN" -eq 0 ]; then
 		printf 'NOTHING\n' > "$SERVE/_dsync_totals"; sleep 2
+		NDIFF=$(awk -F"$TAB" '$1!="skip"' "$W/merge" | wc -l | tr -d ' ')
 		if [ "${NDROP:-0}" -gt 0 ]; then tell "Already in sync.
 
-Only skipped systems differ."; else tell "Already in sync.
+Only skipped systems differ."
+		elif [ "${NDIFF:-0}" -gt 0 ]; then tell "Nothing to copy
+with the current settings.
+
+Turn on a category on the
+device that should receive it."
+		else tell "Already in sync.
 
 Nothing to copy."; fi; exit 0
 	fi
