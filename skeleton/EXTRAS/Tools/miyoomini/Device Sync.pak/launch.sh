@@ -613,6 +613,15 @@ prog(){ PLABEL="$1"; shown=$(( ${DONE_KB:-0} + ${PART_KB:-0} )); [ "$shown" -gt 
 $(fmt_kb "$shown") of $(fmt_kb "$TOT_KB"), $DONE_N of $TOT_N
 $(eta "$left" "$rate") left"; }
 
+# The copy is done but the sync is not: keep the FULL bar and the same three-line layout up through the
+# apply and the wait for the other device, instead of dropping to a bare "Syncing with..." line (Dan,
+# 2026-09-22: "just keep the progress bar going"). <label> <third line> [b]: b arms B (a wait), else none.
+prog_hold(){ t="$1
+
+$(fmt_kb "${TOT_KB:-0}") of $(fmt_kb "${TOT_KB:-0}"), ${TOT_N:-0} of ${TOT_N:-0}
+$2"
+	if [ "${3:-}" = b ]; then status_b "$t"; else status_off; status "$t"; fi
+	printf '%s/%s\n' "${TOT_KB:-1}" "${TOT_KB:-1}" > "$SPROG"; }
 # B makes status.elf exit, which runs GFX_quit and blacks the panel -- so the instant we notice a stop,
 # put an UNCANCELLABLE status straight back. The script keeps working for a moment after a stop (finishing
 # the file, tidying up), and a phase that runs with a dark screen is exactly what the plan forbids.
@@ -1328,7 +1337,7 @@ Pick Sync again to finish." "SYNC AGAIN"; then STATE=find; continue; else exit 0
 Pick Sync again to finish;
 what already arrived is kept." "SYNC AGAIN"; then STATE=find; continue; else exit 0; fi
 		fi
-		status_off; status "Syncing with $PEER..."      # B off: nothing here can stop safely
+		prog_hold "Copying from $PEER..." "saving to this device"      # B off: nothing here can stop safely
 		apply_plan "$W/plan.me" > "$W/got"; arc=$?
 		GOT=$(cat "$W/got" 2>/dev/null); [ -n "$GOT" ] || GOT=0
 		if [ "$arc" != 0 ]; then
@@ -1340,7 +1349,7 @@ what already arrived is kept." "SYNC AGAIN"; then STATE=find; continue; else exi
 Nothing was lost.
 Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 		fi
-		status_sync "Syncing with $PEER..."
+		prog_hold "Copying from $PEER..." "waiting for $PEER to finish" b
 		# Wait for the host to finish its half and publish the Done counts. Five lost pings (~25 s) mean
 		# it is gone. The _dsync_applied request goes out EVERY pass, not once: the host learns we applied
 		# only from that request, and a single fire-and-forget one that got lost hung both devices for
@@ -1436,7 +1445,7 @@ nothing was half-copied." "SYNC AGAIN"; then STATE=find; continue; else exit 0; 
 $PEER is up to date.
 Pick Sync again to finish this one." "SYNC AGAIN"; then STATE=sync; continue; else exit 0; fi
 		fi
-		status_off; status "Syncing with $PEER..."      # B off: nothing here can stop safely
+		prog_hold "Copying from $PEER..." "saving to this device"      # B off: nothing here can stop safely
 		apply_plan "$W/plan.me" > "$W/got"; arc=$?
 		GOT=$(cat "$W/got" 2>/dev/null); [ -n "$GOT" ] || GOT=0
 		if [ "$arc" != 0 ]; then
@@ -1455,7 +1464,7 @@ Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 		# line rendered here read backwards on the joiner whenever both devices are the same model.
 		printf '%s %s %s %s %s\n' "$GOT" "$PEER_GOT" "$NSKIP" "${HELD_A:-0}" "${HELD_B:-0}" > "$SERVE/_dsync_done"
 		# hold the AP up briefly so the joiner can read it before we tear the radio down
-		smsg "Syncing with $PEER..."
+		prog_hold "Copying from $PEER..." "finishing"
 		i=0; while [ "$i" -lt 30 ] && ! grep -q "_dsync_done" /tmp/dsync-httpd.log 2>/dev/null; do sleep 1; i=$((i+1)); done
 	fi
 	STATE=done ;;
