@@ -320,6 +320,14 @@ skipped_count(){ awk -F"$TAB" '$1!="skip"{t++} END{print t+0}' "$1"; }
 # and remembered by tag as a SKIP list, so a new system syncs by default ("all minus PS1", Dan 2026-09-21).
 # A skipped system moves in neither direction. The tag is the last parenthesised group of the console
 # folder ("6) PlayStation (PS)" -> PS), the same identity MinUI itself uses, so it survives renamed folders.
+# TAG \t to-a|to-b|both: which way a system's games would move (the emulator gate asks the RECEIVER)
+sys_dirs(){ # <merge>
+	awk -F"$TAB" -v OFS="$TAB" '$1!="skip" && $2=="rom" && $4 ~ /^Roms\// {
+		f=$4; sub(/^Roms\//,"",f); sub(/\/.*/,"",f); tag=f; if (match(f,/\([^()]*\)[^()]*$/)) { tag=substr(f,RSTART+1); sub(/\).*/,"",tag) }
+		if ($1=="to-a") a[tag]=1; else if ($1=="to-b") b[tag]=1; seen[tag]=1 }
+		END { for (t in seen) print t, ((t in a) && (t in b) ? "both" : (t in a) ? "to-a" : "to-b") }' "$1" | sort; }
+# a device runs a tag when it has the Emus pak for it; an EMPTY list means unknown (an older peer), never "none"
+has_emu(){ [ -s "$2" ] || return 0; grep -qx "$1" "$2"; }
 sys_rows(){ # <merge> [sysmap] -> TAG \t NAME \t games \t KB, one line per system with a game to move
 	awk -F"$TAB" -v OFS="$TAB" 'FILENAME==ARGV[1] { if ($1!="") folder[$1]=$2; next }
 		$1!="skip" && $2=="rom" && $4 ~ /^Roms\// {
@@ -1050,6 +1058,10 @@ Comparing libraries"; fi
 	# written since then carry the lag the peer measures now (older ones are compared raw)
 	NB=$(now); UP=$(cut -d. -f1 /proc/uptime 2>/dev/null); case "$UP" in ''|*[!0-9]*) UP=0 ;; esac
 	MY_BOOT=0; [ "$NB" != 0 ] && { MY_BOOT=$((NB - UP)); printf '%s\n' "$MY_BOOT" > "$SERVE/_dsync_boot"; }
+	# the systems this device can run, one TAG per line: the host gates games on the RECEIVER having the
+	# emulator (MinUI hides a system folder without one, so such games would sit invisible; Dan 2026-09-22)
+	{ for d in "$SYSTEM_PATH"/paks/Emus/*.pak "$SDCARD"/Emus/"$PLATFORM"/*.pak; do [ -f "$d/launch.sh" ] && { d=${d%.pak}; printf '%s\n' "${d##*/}"; }; done; } 2>/dev/null | sort -u > "$SERVE/_dsync_emus"
+	cp "$SERVE/_dsync_emus" "$W/my.emus" 2>/dev/null
 	printf 'S=%s G=%s P=%s F=%s V=%s K=%s\n' "$PS" "$PG" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" "$GSKIP" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label) + skipped systems
 	df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}' > "$SERVE/_dsync_free"
 	cp "$SERVE/_dsync_manifest" "$W/my.mf" 2>/dev/null
@@ -1075,6 +1087,7 @@ Try again?"; then STATE=find; continue; else exit 0; fi
 Comparing with $PEER"
 	fetch_live "$PEER_BASE/_dsync_manifest" "$W/peer.mf" 240 "$PEER_IP"; rc=$?
 	hget 8 -O "$W/peer.sys" "$PEER_BASE/_dsync_systems" >/dev/null 2>&1 || : > "$W/peer.sys"   # its folder name per tag
+	hget 8 -O "$W/peer.emus" "$PEER_BASE/_dsync_emus" >/dev/null 2>&1 || : > "$W/peer.emus"   # the systems it can run (empty = unknown)
 	if [ "$rc" = 0 ] && { [ "$PEER" = "${PN:-}" ] || [ "$PEER" = "the other device" ]; }; then pn2=$(hget 6 -O - "$PEER_BASE/_dsync_name" | head -c 200 | tr -cd 'A-Za-z0-9 ._()+-' | cut -c1-40); [ -n "$pn2" ] && PEER=$pn2; fi
 	if [ "$rc" = 2 ]; then
 		tell "Stopped.
@@ -1159,10 +1172,16 @@ Nothing to copy."; exit 0
 		if [ -n "$QK" ]; then drop_systems "$W/merge" "$QK" > "$W/merge.f" && mv "$W/merge.f" "$W/merge"; fi   # the peer's skips first: not offered here
 		write_sysmap; sys_rows "$W/merge" "$W/sysmap" > "$W/sys"
 		if [ -s "$W/sys" ]; then
+			sys_dirs "$W/merge" > "$W/sysdir"; : > "$W/noemu"
 			set --
 			while IFS="$TAB" read -r st sn sc sk; do
 				cur=Sync; in_csv "$st" "$GSKIP" && cur=Skip
-				set -- "$@" "sys_$st" "$sn ($sc games, $(fmt_kb "$sk"))" "Sync|Skip" "$cur" ""
+				# the emulator gate: games heading to a device with no emulator for them start as Skip
+				dr=$(awk -F"$TAB" -v t="$st" '$1==t{print $2; exit}' "$W/sysdir"); who=""
+				case "$dr" in to-b|both) has_emu "$st" "$W/peer.emus" || who="$PEER" ;; esac
+				case "$dr" in to-a|both) has_emu "$st" "$W/my.emus" || who="${who:+$who and }this device" ;; esac
+				hint=""; if [ -n "$who" ]; then cur=Skip; hint="No $st emulator on $who."; printf '%s\t%s\t%s\n' "$st" "$sn" "$who" >> "$W/noemu"; fi
+				set -- "$@" "sys_$st" "$sn ($sc games, $(fmt_kb "$sk"))" "Sync|Skip" "$cur" "$hint"
 			done < "$W/sys"
 			menu --title "Games to sync" --x-label "Continue" "$@" > "$W/out"
 			if ! grep -q '^ACTION=x$' "$W/out"; then
@@ -1170,12 +1189,25 @@ Nothing to copy."; exit 0
 				dbg "review: cancelled at the system picker"; exit 0
 			fi
 			# rows the user left untouched are not echoed back, so start from the remembered list
-			nskip=""
+			nskip=""; forced=""
 			while IFS="$TAB" read -r st sn sc sk; do
 				v=$(sed -n "s/^sys_$st=//p" "$W/out" | tail -1)
+				if grep -q "^$st$TAB" "$W/noemu" 2>/dev/null; then
+					# gated rows start as Skip, so only an explicit Sync is echoed back; a gate is never remembered as
+					# a user skip (the day the emulator lands, the system syncs by default again)
+					case "$v" in Sync) forced="${forced:+$forced
+}$sn: no $st emulator on $(awk -F"$TAB" -v t="$st" '$1==t{print $3; exit}' "$W/noemu")" ;; *) nskip="${nskip:+$nskip,}$st" ;; esac
+					continue
+				fi
 				case "$v" in Skip) nskip="${nskip:+$nskip,}$st" ;; Sync) ;; *) in_csv "$st" "$GSKIP" && nskip="${nskip:+$nskip,}$st" ;; esac
 			done < "$W/sys"
-			GSKIP=$nskip; save_prefs
+			# remember only the user's own skips: strip the gated systems before saving
+			GSKIP=""; for st in $(printf '%s' "$nskip" | tr ',' ' '); do grep -q "^$st$TAB" "$W/noemu" 2>/dev/null || GSKIP="${GSKIP:+$GSKIP,}$st"; done; save_prefs
+			GSKIP=$nskip   # for THIS sync the gated systems are skipped too (prefs keep the user's list only)
+			if [ -n "$forced" ]; then tell "These games will copy, but stay
+hidden until the emulator is added:
+
+$forced"; fi
 			drop_systems "$W/merge" "$GSKIP" > "$W/merge.f" && mv "$W/merge.f" "$W/merge"
 			dbg "review: games skip=[$GSKIP] peer=[$QK]"
 		fi
