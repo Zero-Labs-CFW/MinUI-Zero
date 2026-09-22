@@ -61,7 +61,7 @@ PORT=8145; PSK=minuizerosync; SSID=MinUI-Sync
 # Wire-protocol version, published with our prefs. Bump it whenever the manifest/plan/bundle shape or
 # the handshake files change incompatibly; a peer on a different number is told to update instead of
 # syncing by luck (two Zero builds, or a Zero and a NextUI port, can otherwise disagree silently).
-DSYNC_PROTO=5
+DSYNC_PROTO=6
 # Fork + build, INFORMATIONAL only (never a gate: a Zero 1.7 and a Zero 1.8, or a Zero and a NextUI port,
 # on the same protocol number sync fine). They make the mismatch message say WHICH build to update.
 DSYNC_FORK=zero
@@ -212,8 +212,12 @@ disambiguate(){ if [ "$1" = "$2" ]; then printf '%s (this one)\n%s (other)\n' "$
 # The Done sentence is rendered by WHOEVER READS IT, from three counts. The host used to compose the
 # finished line and serve it verbatim -- but the labels above are viewer-relative, so on two devices of
 # the same model the joiner's screen read "(this one) received 8" about the HOST's 8 (2026-09-18 review).
-done_text(){ # <A received> <B received> <skipped> <A name> <B name>
+done_text(){ # <A received> <B received> <skipped> <A name> <B name> [saves held from A] [saves held from B]
 	if [ "${3:-0}" -gt 0 ]; then t="$3 game(s) in skipped systems."; else t="Both devices are up to date."; fi
+	[ "${6:-0}" -gt 0 ] && t="$t
+$6 save(s) not sent to $4: no game there."
+	[ "${7:-0}" -gt 0 ] && t="$t
+$7 save(s) not sent to $5: no game there."
 	printf 'Synced!\n\n%s received %s.\n%s received %s.\n\n%s' "$4" "$1" "$5" "$2" "$t"; }
 
 # Free space a device must have to RECEIVE <kb>: the transfer once (apply MOVES staged files into place,
@@ -248,12 +252,31 @@ arp_peer_ip(){ printf '%s\n' "$1" | awk -v me="$2" '$1 ~ /^192\.168\.42\./ && $1
 # looks "newer" than local on the NEXT sync. Both come from whichever manifest the file is travelling
 # FROM. Excluded categories and per-item "skip" decisions drop out here, and a conflict only travels once
 # the user has named a winner -- an undecided conflict moves nothing, in either direction.
-build_plan(){ # <merge> <decisions> <skipped classes csv> <to-a|to-b> <A manifest> <B manifest>
-	awk -F"$TAB" -v OFS="$TAB" -v want="$4" -v skip="$3" '
+# A save or state goes only to a device that HAS its game, or is getting it in this same sync: a
+# 4 MB PS1 state for a game the other card lacks is dead weight there (Dan, 2026-09-22). Held saves are
+# listed in <held file> (one rel per line) for the Done screen, and they are only deferred: the sync after
+# the game arrives sends them. A save that cannot be tied to a game (PS1 memory cards, PICO-8 cartdata,
+# anything not named <rom file>.sav/.srm or <rom file>.stN) always travels: skipping it would lose progress.
+build_plan(){ # <merge> <decisions> <skipped classes csv> <to-a|to-b> <A manifest> <B manifest> [held file]
+	awk -F"$TAB" -v OFS="$TAB" -v want="$4" -v skip="$3" -v held="${7:-/dev/null}" '
 		function excluded(c,   n,i,p) { n=split(skip,p,","); for(i=1;i<=n;i++) if (p[i]==c) return 1; return 0 }
+		# TAG SUBSEP <rom file name> for a rom rel at any depth (Roms/PS/Frogger/Frogger.cue counts as PS/Frogger.cue)
+		# the tag is the folder name on the wire (proto 5 tag paths) or, on a raw card manifest, its last
+		# parenthesised group ("1) Game Boy Advance (GBA)" -> GBA), the same identity sys_rows uses
+		function romkey(r,   t,b) { if (r !~ /^Roms\/[^\/]+\/./) return ""; t=r; sub(/^Roms\//,"",t); sub(/\/.*/,"",t)
+			if (match(t,/\([^()]*\)[^()]*$/)) { t=substr(t,RSTART+1); sub(/\).*/,"",t) }
+			b=r; sub(/.*\//,"",b); return t SUBSEP b }
+		# TAG SUBSEP <rom file name> for a save that is tied to one game, else ""
+		function gamekey(r,   t,b) {
+			if (r ~ /^Saves\/[^\/]+\/[^\/]+\.(sav|srm)$/) { t=r; sub(/^Saves\//,"",t); sub(/\/.*/,"",t); b=r; sub(/.*\//,"",b); sub(/\.(sav|srm)$/,"",b); return t SUBSEP b }
+			if (r ~ /^\.userdata\/shared\/[^\/]+\/[^\/]+\.st[0-9]/) { t=r; sub(/^\.userdata\/shared\//,"",t); sub(/\/.*/,"",t); sub(/-.*/,"",t); b=r; sub(/.*\//,"",b); sub(/\.st[0-9].*$/,"",b); return t SUBSEP b }
+			return "" }
 		FILENAME==ARGV[1] { dec[$1]=$2; next }
-		FILENAME==ARGV[2] { asz[$1]=$2; amt[$1]=$3; ah[$1]=$5; next }
-		FILENAME==ARGV[3] { bsz[$1]=$2; bmt[$1]=$3; bh[$1]=$5; next }
+		# a game is indexed under its file name AND its name without the extension: MinUI saves are
+		# <rom file>.sav ("Zelda.gbc.sav"), other firmwares write "Zelda.srm"; both belong to Zelda.gbc
+		function romadd(arr, r,   k,b) { k=romkey(r); if (k=="") return; arr[k]=1; b=k; sub(/\.[^.]*$/,"",b); if (b!=k) arr[b]=1 }
+		FILENAME==ARGV[2] { asz[$1]=$2; amt[$1]=$3; ah[$1]=$5; romadd(arom, $1); next }
+		FILENAME==ARGV[3] { bsz[$1]=$2; bmt[$1]=$3; bh[$1]=$5; romadd(brom, $1); next }
 		{ d=$1; c=$2; s=$3; rel=$4
 		  if (d=="skip") next
 		  if (excluded(c)) next
@@ -264,8 +287,14 @@ build_plan(){ # <merge> <decisions> <skipped classes csv> <to-a|to-b> <A manifes
 			else next                                          # undecided: nothing moves
 		  }
 		  if (d != want) next
-		  if (d=="to-b") print "take", c, s+0, rel, (rel in ah ? ah[rel] : "-"), (rel in amt ? amt[rel] : 0)
-		  else           print "take", c, s+0, rel, (rel in bh ? bh[rel] : "-"), (rel in bmt ? bmt[rel] : 0) }
+		  if (d=="to-b") line=sprintf("%s\t%s\t%d\t%s\t%s\t%s", "take", c, s+0, rel, (rel in ah ? ah[rel] : "-"), (rel in amt ? amt[rel] : 0))
+		  else           line=sprintf("%s\t%s\t%d\t%s\t%s\t%s", "take", c, s+0, rel, (rel in bh ? bh[rel] : "-"), (rel in bmt ? bmt[rel] : 0))
+		  if (c=="rom") romadd(prom, rel)
+		  g=""; if (c=="save") g=gamekey(rel)
+		  if (g=="") print line; else { nb++; sline[nb]=line; skey[nb]=g; srel[nb]=rel } }   # saves wait: their game may be later in the merge
+		END { for (i=1;i<=nb;i++) {
+			if ((want=="to-b" && (skey[i] in brom)) || (want=="to-a" && (skey[i] in arom)) || (skey[i] in prom)) print sline[i]
+			else print srel[i] > held } }
 	' "$2" "$5" "$6" "$1"; }
 
 plan_count(){ awk 'END{print NR+0}' "$1"; }
@@ -1109,8 +1138,10 @@ Nothing to copy."; exit 0
 	# per direction: what the peer takes follows the PEER toggles, what we take follows OURS
 	SKIPB=$(skip_classes "$QS" "$QG" "$QC"); SKIPA=$(skip_classes "$PS" "$PG" "$PC")
 	dbg "review: skip to-peer=[$SKIPB] to-me=[$SKIPA] mine=S$PS/G$PG/C$PC peer=S$QS/G$QG/C$QC"
-	build_plan "$W/merge" "$DEC" "$SKIPB" to-b "$W/my.mf" "$W/peer.mf" > "$W/plan.peer"
-	build_plan "$W/merge" "$DEC" "$SKIPA" to-a "$W/my.mf" "$W/peer.mf" > "$W/plan.me"
+	build_plan "$W/merge" "$DEC" "$SKIPB" to-b "$W/my.mf" "$W/peer.mf" "$W/held.peer" > "$W/plan.peer"
+	build_plan "$W/merge" "$DEC" "$SKIPA" to-a "$W/my.mf" "$W/peer.mf" "$W/held.me" > "$W/plan.me"
+	HELD_A=$(awk 'END{print NR+0}' "$W/held.me" 2>/dev/null); HELD_B=$(awk 'END{print NR+0}' "$W/held.peer" 2>/dev/null)
+	[ "$((HELD_A + HELD_B))" -gt 0 ] && dbg "review: saves held back, no game there: to-me=$HELD_A to-peer=$HELD_B"
 	TOTN=$(( $(plan_count "$W/plan.peer") + $(plan_count "$W/plan.me") ))
 	PK=$(plan_kb "$W/plan.peer"); MK=$(plan_kb "$W/plan.me")
 	if [ "$TOTN" -eq 0 ]; then
@@ -1291,8 +1322,8 @@ Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 		[ "$HALT" = 1 ] && DONE_RAW=""
 		if [ -n "$DONE_RAW" ]; then
 			# counts, not a sentence: render it with OUR labels (see done_text)
-			set -- $(printf '%s\n' "$DONE_RAW" | awk '{print $1+0, $2+0, $3+0; exit}')
-			DONE_TEXT=$(done_text "$1" "$2" "$3" "$ANAME" "$BNAME")
+			set -- $(printf '%s\n' "$DONE_RAW" | awk '{print $1+0, $2+0, $3+0, $4+0, $5+0; exit}')
+			DONE_TEXT=$(done_text "$1" "$2" "$3" "$ANAME" "$BNAME" "$4" "$5")
 		else
 			# Stopped, or the host died / a failure sent it back to FIND while we waited for a message it
 			# will never publish. Our half landed: say exactly that. Falling through to `done` used to
@@ -1383,10 +1414,10 @@ Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 		# leaves alone are not skips, and counting them said "565 item(s) skipped" for a two-save sync
 		# with Games off on both (Dan, 2026-09-22).
 		NSKIP=${NDROP:-0}
-		DONE_TEXT=$(done_text "$GOT" "$PEER_GOT" "$NSKIP" "$ANAME" "$BNAME")
+		DONE_TEXT=$(done_text "$GOT" "$PEER_GOT" "$NSKIP" "$ANAME" "$BNAME" "${HELD_A:-0}" "${HELD_B:-0}")
 		# Publish the COUNTS, never the finished sentence: ANAME/BNAME carry "(this one)"/"(other)", so a
 		# line rendered here read backwards on the joiner whenever both devices are the same model.
-		printf '%s %s %s\n' "$GOT" "$PEER_GOT" "$NSKIP" > "$SERVE/_dsync_done"
+		printf '%s %s %s %s %s\n' "$GOT" "$PEER_GOT" "$NSKIP" "${HELD_A:-0}" "${HELD_B:-0}" > "$SERVE/_dsync_done"
 		# hold the AP up briefly so the joiner can read it before we tear the radio down
 		smsg "Syncing with $PEER..."
 		i=0; while [ "$i" -lt 30 ] && ! grep -q "_dsync_done" /tmp/dsync-httpd.log 2>/dev/null; do sleep 1; i=$((i+1)); done

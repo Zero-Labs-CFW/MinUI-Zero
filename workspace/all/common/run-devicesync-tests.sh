@@ -723,13 +723,13 @@ check "merge-summary: to-b TOTAL items = 3" "$(printf '%s\n' "$MSUM" | awk -F"$T
 check "merge-summary: to-a TOTAL items = 2" "$(printf '%s\n' "$MSUM" | awk -F"$TAB" '$1=="to-a"&&$2=="TOTAL"{print $3}')" "2"
 
 ######################################################################
-echo "########## SCENARIO W: wire format is FROZEN at DSYNC_PROTO=5 ##########"
+echo "########## SCENARIO W: wire format is FROZEN at DSYNC_PROTO=6 ##########"
 # Everything a peer reads off the wire, pinned byte-for-byte: manifest lines, merge lines, the shared
 # plan lines and the prefs line. If one of these checks fails, the wire SHAPE changed:
 #   1. bump DSYNC_PROTO in launch.sh (all three platform copies stay byte-identical), and
 #   2. update the expected strings AND the WIRE_PROTO below in the same commit.
 # A shape change without a bump would let two builds sync by luck; the number is the only gate.
-WIRE_PROTO=5
+WIRE_PROTO=6   # 6: the _dsync_done line carries five counts (got, peer got, skipped, saves held from A, from B)
 LAUNCH_W="$ROOT/skeleton/EXTRAS/Tools/tg5040/Device Sync.pak/launch.sh"
 check "W: launch.sh publishes DSYNC_PROTO=$WIRE_PROTO" "$(sed -n 's/^DSYNC_PROTO=\([0-9]*\)$/\1/p' "$LAUNCH_W")" "$WIRE_PROTO"
 check "W: prefs line carries S G C P F V K" "$(grep -c "printf 'S=%s G=%s C=%s P=%s F=%s V=%s K=%s\\\\n'" "$LAUNCH_W")" "1"
@@ -741,18 +741,19 @@ SW="$WORK/sw"; WA="$SW/a"; WB="$SW/b"; mkdir -p "$WA" "$WB"
 mk "$WA" "Saves/GBA/Zelda.srm" "AAAA"
 mk "$WA" "Roms/1) Game Boy Advance (GBA)/Zelda.gba" "ROM"
 mk "$WA" ".userdata/tg5040/GBA-mgba/minarch.cfg" "CFG"
+mk "$WA" "Roms/2) Game Boy Color (GBC)/Tetris.gbc" "ROM"   # a save travels only to a card that has its game
 mk "$WB" "Saves/GBA/Zelda.srm" "BBBBBB"
 mk "$WB" "Saves/GBC/Tetris.sav" "CC"
 find "$SW" -type f -exec env TZ=UTC touch -t 202601011200 {} +     # 1767268800, timezone-proof
 TZ=UTC touch -t 202601021200 "$WB/Saves/GBA/Zelda.srm"              # 1767355200: B's save is newer
 E manifest "$WA" | sort > "$SW/a.mf"; E manifest "$WB" | sort > "$SW/b.mf"
 check "W: manifest line = REL SIZE MTIME CLASS HASH (ROM mtime 0, hash -)" "$(cat "$SW/a.mf")" \
-"$(printf '.userdata/tg5040/GBA-mgba/minarch.cfg\t3\t1767268800\tconfig\t-\nRoms/1) Game Boy Advance (GBA)/Zelda.gba\t3\t0\trom\t-\nSaves/GBA/Zelda.srm\t4\t1767268800\tsave\t-')"
+"$(printf '.userdata/tg5040/GBA-mgba/minarch.cfg\t3\t1767268800\tconfig\t-\nRoms/1) Game Boy Advance (GBA)/Zelda.gba\t3\t0\trom\t-\nRoms/2) Game Boy Color (GBC)/Tetris.gbc\t3\t0\trom\t-\nSaves/GBA/Zelda.srm\t4\t1767268800\tsave\t-')"
 check "W: manifest B" "$(cat "$SW/b.mf")" \
 "$(printf 'Saves/GBA/Zelda.srm\t6\t1767355200\tsave\t-\nSaves/GBC/Tetris.sav\t2\t1767268800\tsave\t-')"
 E merge "$SW/a.mf" "$SW/b.mf" | sort > "$SW/merge"
 check "W: merge line = DIRECTION CLASS SIZE REL (order is not part of the contract)" "$(cat "$SW/merge")" \
-"$(printf 'conflict\tsave\t6\tSaves/GBA/Zelda.srm\nto-a\tsave\t2\tSaves/GBC/Tetris.sav\nto-b\tconfig\t3\t.userdata/tg5040/GBA-mgba/minarch.cfg\nto-b\trom\t3\tRoms/1) Game Boy Advance (GBA)/Zelda.gba')"
+"$(printf 'conflict\tsave\t6\tSaves/GBA/Zelda.srm\nto-a\tsave\t2\tSaves/GBC/Tetris.sav\nto-b\tconfig\t3\t.userdata/tg5040/GBA-mgba/minarch.cfg\nto-b\trom\t3\tRoms/1) Game Boy Advance (GBA)/Zelda.gba\nto-b\trom\t3\tRoms/2) Game Boy Color (GBC)/Tetris.gbc')"
 # the shared plan the host publishes as _dsync_plan: build_plan lives in launch.sh (pure awk), lifted out
 awk '/^build_plan\(\)\{/{p=1} p{print} p&&/"\$1"; }$/{exit}' "$LAUNCH_W" > "$SW/build_plan.sh"
 check "W: build_plan extracted from launch.sh" "$(grep -c '^build_plan' "$SW/build_plan.sh")" "1"
@@ -762,7 +763,7 @@ printf 'Saves/GBA/Zelda.srm\tb\n' > "$SW/dec"   # the user picked B on the confl
 check "W: plan line = take CLASS SIZE REL HASH MTIME (to-a: B copies, B mtimes)" "$(cat "$SW/plan.a")" \
 "$(printf 'take\tsave\t2\tSaves/GBC/Tetris.sav\t-\t1767268800\ntake\tsave\t6\tSaves/GBA/Zelda.srm\t-\t1767355200')"
 check "W: plan to-b (A copies, ROM mtime 0)" "$(cat "$SW/plan.b")" \
-"$(printf 'take\tconfig\t3\t.userdata/tg5040/GBA-mgba/minarch.cfg\t-\t1767268800\ntake\trom\t3\tRoms/1) Game Boy Advance (GBA)/Zelda.gba\t-\t0')"
+"$(printf 'take\tconfig\t3\t.userdata/tg5040/GBA-mgba/minarch.cfg\t-\t1767268800\ntake\trom\t3\tRoms/1) Game Boy Advance (GBA)/Zelda.gba\t-\t0\ntake\trom\t3\tRoms/2) Game Boy Color (GBC)/Tetris.gbc\t-\t0')"
 # and the plan feeds apply-plan unchanged (the consumer side of the same contract)
 check "W: apply-plan accepts the frozen plan" "$(cp -R "$WB" "$SW/bstage"; E apply-plan "$SW/plan.a" "$SW/bstage" "$SW/adst" "$SW/bk/1" >/dev/null 2>&1 && cat "$SW/adst/Saves/GBA/Zelda.srm" "$SW/adst/Saves/GBC/Tetris.sav")" "BBBBBBCC"
 
