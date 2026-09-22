@@ -305,20 +305,18 @@ staged_ok(){ [ -f "$STAGE/$1" ] || return 1
 # The sync scope: user content, never firmware. Whole trees by name so build-export symlinks them
 # instead of walking every game (the per-game walk cost minutes on a 765-game card, 2026-09-05).
 # build-export silently skips anything that is not there.
-# Only walk the categories THIS device shares (its toggles). Games off means we never even stat the
-# 1000-file library, which is what keeps the snapshot fast. The plan then also drops any category the
-# PEER has off (the both-on rule), so an asymmetric pair still never pushes a game onto a device that
-# turned games off.
+# EVERYTHING is exported; the toggles decide what each device TAKES, per direction (Dan, 2026-09-21:
+# Games on the Plus and off on the Pro must still bring games to the Plus). The old both-on rule needed
+# both devices to opt in, which nobody expected. Walking the library is one batched find/stat pass,
+# seconds even for a 25 GB card, so exporting it unconditionally costs little.
 #   Saves    -> Saves/, save states + thumbs (.userdata/shared/<tag>-<core>/), collections, favorites
 #   Games    -> Roms/  (existence by name; never overwritten, never deleted)
 #   Configs  -> per-game / per-console .cfg dirs (.userdata/$PLATFORM/<tag>-<core>/)
 scope_list(){
-	if [ "$PS" = 1 ]; then
-		printf '%s\n' Saves Collections ".userdata/shared/.minui/favorites.txt"   # Recently Played stays per device
-		for d in "$LOCAL"/.userdata/shared/*-*/; do [ -d "$d" ] || continue; d=${d%/}; printf '%s\n' "${d#"$LOCAL"/}"; done
-	fi
-	[ "$PG" = 1 ] && printf '%s\n' Roms
-	if [ "$PC" = 1 ]; then
+	printf '%s\n' Saves Collections ".userdata/shared/.minui/favorites.txt"   # Recently Played stays per device
+	for d in "$LOCAL"/.userdata/shared/*-*/; do [ -d "$d" ] || continue; d=${d%/}; printf '%s\n' "${d#"$LOCAL"/}"; done
+	printf '%s\n' Roms
+	if :; then
 		# a real config dir has at least one .cfg -- tells it apart from app state that also has a hyphen
 		for d in "$LOCAL"/.userdata/$PLATFORM/*-*/; do
 			[ -d "$d" ] || continue; dn=${d%/}; dn=${dn##*/}
@@ -328,11 +326,11 @@ scope_list(){
 		done
 	fi
 	return 0; }
-# the classes to SKIP because a category is off on EITHER device: <peerS> <peerG> <peerC> -> csv
+# the classes a device does NOT take, from ITS OWN toggles: <S> <G> <C> -> csv (per direction)
 skip_classes(){ sc=""
-	{ [ "$PS" = 1 ] && [ "$1" = 1 ]; } || sc="save,favorite,collection"
-	{ [ "$PG" = 1 ] && [ "$2" = 1 ]; } || sc="${sc:+$sc,}rom"
-	{ [ "$PC" = 1 ] && [ "$3" = 1 ]; } || sc="${sc:+$sc,}config,map"
+	[ "$1" = 1 ] || sc="save,favorite,collection"
+	[ "$2" = 1 ] || sc="${sc:+$sc,}rom"
+	[ "$3" = 1 ] || sc="${sc:+$sc,}config,map"
 	printf '%s' "$sc"; }
 # breakdown of what will actually transfer, counted from the built plans (post-skip). class is field 2.
 plan_break(){ out=""
@@ -1022,7 +1020,7 @@ Nothing to copy."; exit 0
 	auto_resolve "$W/my.mf" "$W/peer.mf" "$W/merge" > "$DEC"
 	# per-system choice for Games: a 25 GB library all-or-nothing was unusable (Dan, 2026-09-21). Shown on
 	# the host only (it owns the plan), B here cancels like B on the item list.
-	if [ "$PG" = 1 ] && [ "$QG" = 1 ]; then
+	if [ "$PG" = 1 ] || [ "$QG" = 1 ]; then
 		sys_rows "$W/merge" > "$W/sys"
 		if [ -s "$W/sys" ]; then
 			set --
@@ -1046,11 +1044,11 @@ Nothing to copy."; exit 0
 			dbg "review: games skip=[$GSKIP]"
 		fi
 	fi
-	# the both-on rule: drop any category that is off on EITHER device, in BOTH directions
-	SKIPCLS=$(skip_classes "$QS" "$QG" "$QC")
-	dbg "review: skipcls=[$SKIPCLS] mine=S$PS/G$PG/C$PC peer=S$QS/G$QG/C$QC"
-	build_plan "$W/merge" "$DEC" "$SKIPCLS" to-b "$W/my.mf" "$W/peer.mf" > "$W/plan.peer"
-	build_plan "$W/merge" "$DEC" "$SKIPCLS" to-a "$W/my.mf" "$W/peer.mf" > "$W/plan.me"
+	# per direction: what the peer takes follows the PEER toggles, what we take follows OURS
+	SKIPB=$(skip_classes "$QS" "$QG" "$QC"); SKIPA=$(skip_classes "$PS" "$PG" "$PC")
+	dbg "review: skip to-peer=[$SKIPB] to-me=[$SKIPA] mine=S$PS/G$PG/C$PC peer=S$QS/G$QG/C$QC"
+	build_plan "$W/merge" "$DEC" "$SKIPB" to-b "$W/my.mf" "$W/peer.mf" > "$W/plan.peer"
+	build_plan "$W/merge" "$DEC" "$SKIPA" to-a "$W/my.mf" "$W/peer.mf" > "$W/plan.me"
 	TOTN=$(( $(plan_count "$W/plan.peer") + $(plan_count "$W/plan.me") ))
 	PK=$(plan_kb "$W/plan.peer"); MK=$(plan_kb "$W/plan.me")
 	if [ "$TOTN" -eq 0 ]; then
