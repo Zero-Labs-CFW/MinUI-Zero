@@ -160,6 +160,9 @@ R=/work/root
 rm -rf "$R"; mkdir -p "$R"
 echo "  rdump (2.6GB, be patient)..."
 debugfs -R "rdump / $R" /a/muos-p5.img 2>/dev/null
+# fail HERE, not 140 lines later at a sed on startup.sh: an empty rdump (the dump was a symlink pointing
+# outside the docker mount, release clone 2026-09-22) otherwise reads as a stripped-but-odd rootfs
+[ -f "$R/opt/muos/script/system/startup.sh" ] || { echo "ERROR: rdump produced no rootfs (is muos-p5.img a real file inside the mount, not a symlink out of it?)"; exit 1; }
 
 echo "  stripping bloat..."
 # frontend UI + its 1.2GB of theme/asset data (we replace the UI with minui)
