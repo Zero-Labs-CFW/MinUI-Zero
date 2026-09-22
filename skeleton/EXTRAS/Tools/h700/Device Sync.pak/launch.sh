@@ -954,7 +954,7 @@ Try again?"; then STATE=find; continue; else exit 0; fi
 	while [ "$pn" -lt 6 ] && [ -z "$PEER" ]; do PEER=$(hget 6 -O - "$PEER_BASE/_dsync_name" | head -c 200 | tr -cd 'A-Za-z0-9 ._()+-' | cut -c1-40) || PEER=""; pn=$((pn+1)); [ -n "$PEER" ] || sleep 1; done
 	[ -z "$PEER" ] && PEER="the other device"
 	step "3
-Found $PEER"
+Comparing with $PEER"
 	fetch_live "$PEER_BASE/_dsync_manifest" "$W/peer.mf" 240 "$PEER_IP"; rc=$?
 	if [ "$rc" = 2 ]; then
 		tell "Stopped.
@@ -968,7 +968,7 @@ Nothing was copied."; exit 0
 Try again?"; then STATE=find; continue; else exit 0; fi
 	fi
 	step "3
-Found $PEER"   # Comparing (building the delta)
+Comparing with $PEER"   # the row says Connected, the caption says why you wait
 	# A fetch that timed out may still have delivered a PREFIX of the body, and hget reports that with a
 	# non-zero status -- so a captured value is only usable when the status says the fetch COMPLETED.
 	# This matters most for the free-space figure: a truncated decimal is a smaller VALID number, so
