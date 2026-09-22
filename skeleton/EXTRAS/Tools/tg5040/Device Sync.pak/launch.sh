@@ -629,7 +629,9 @@ served_count(){ u=$(grep -c 'url:' /tmp/dsync-httpd.log 2>/dev/null)
 # segfault this busybox (see hget).
 fetch_file(){ # <url> <dst> <bytes>
 	if [ "${3:-0}" -lt 4194304 ]; then hget 20 -O "$2" "$1"; return 0; fi
-	FRC=""; wget -q -O "$2" "$1" 2>/dev/null & wp=$!
+	# stderr goes to the log: four big files failed three ~1.5 s tries each right after a 27-chunk bundle
+	# (BRICKTEST Pro, 2026-09-22) and the log could not say whether wget was refused, got a 404 or was cut
+	FRC=""; wget -q -O "$2" "$1" 2>>"$LOGF" & wp=$!
 	last=-1; stall=0
 	while kill -0 "$wp" 2>/dev/null; do
 		stopped && { kill "$wp" 2>/dev/null; return 3; }
