@@ -535,7 +535,7 @@ command -v iw >/dev/null 2>&1 || TOKEN=0000
 # SSID ("Found Brick Pro" on the stepper), not seconds later after connecting. The token stays right
 # after the prefix so peer_ssid/yield_to still order by token. 32-char SSID: prefix+token is 16, so
 # the name is cut to 15 and reduced to letters, digits and spaces.
-NSHORT=$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9 ' ' ' | tr -s ' ' | cut -c1-15 | sed 's/ *$//')
+NSHORT=$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9 ' ' ' | tr -s ' ' | cut -c1-16 | sed 's/ *$//')   # 11 + 4 + 1 + 16 = the 32-byte SSID; "Trimui Brick Pro" is 16
 MYSSID="$SSID-$TOKEN${NSHORT:+-$NSHORT}"
 dbg "==== launch name=$NAME had_wifi=$HAD_WIFI ssid=$MYSSID ===="
 
