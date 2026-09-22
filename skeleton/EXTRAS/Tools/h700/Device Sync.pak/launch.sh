@@ -101,7 +101,7 @@ NAME="${TRIMUI_MODEL}"
 [ -z "$NAME" ] && NAME=$(strings /usr/trimui/bin/MainUI 2>/dev/null | grep '^Trimui' | head -1)
 [ -z "$NAME" ] && case "$PLATFORM" in
 	miyoomini) if [ "$IS_FLIP" = true ]; then NAME="Miyoo Mini Flip"; elif [ "$IS_PLUS" = true ]; then NAME="Miyoo Mini Plus"; else NAME="Miyoo Mini"; fi ;;
-	h700) case "$DEVICE" in rg35xx-plus) NAME="RG35XX Plus" ;; rg35xx-h) NAME="RG35XX H" ;; *) NAME="Anbernic ${DEVICE:-H700}" ;; esac ;;
+	h700) case "$DEVICE" in rg35xx-plus|plus) NAME="RG35XX Plus" ;; rg35xx-h|h) NAME="RG35XX H" ;; *) NAME="Anbernic ${DEVICE:-H700}" ;; esac ;;   # the frontend exports DEVICE=plus|h
 esac
 [ -z "$NAME" ] && NAME="This device"
 
@@ -966,10 +966,13 @@ Try again?"; then STATE=find; continue; else exit 0; fi
 	# larger) file lists exchange. Both sides publish _dsync_name before serve().
 	PEER=""; pn=0
 	while [ "$pn" -lt 6 ] && [ -z "$PEER" ]; do PEER=$(hget 6 -O - "$PEER_BASE/_dsync_name" | head -c 200 | tr -cd 'A-Za-z0-9 ._()+-' | cut -c1-40) || PEER=""; pn=$((pn+1)); [ -n "$PEER" ] || sleep 1; done
-	[ -z "$PEER" ] && PEER="the other device"
+	# the host may still be building its file list (10-20 s on a big card) and not serving yet: fall back
+	# to the name that rode in its SSID, and refresh once the list fetch below has proven it is up
+	[ -z "$PEER" ] && PEER="${PN:-the other device}"
 	step "3
 Comparing with $PEER"
 	fetch_live "$PEER_BASE/_dsync_manifest" "$W/peer.mf" 240 "$PEER_IP"; rc=$?
+	if [ "$rc" = 0 ] && { [ "$PEER" = "${PN:-}" ] || [ "$PEER" = "the other device" ]; }; then pn2=$(hget 6 -O - "$PEER_BASE/_dsync_name" | head -c 200 | tr -cd 'A-Za-z0-9 ._()+-' | cut -c1-40); [ -n "$pn2" ] && PEER=$pn2; fi
 	if [ "$rc" = 2 ]; then
 		tell "Stopped.
 
