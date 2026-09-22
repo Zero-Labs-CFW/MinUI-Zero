@@ -63,8 +63,18 @@ build_export() { # <cardroot> <servedir> <scope-relpath>...  |  <cardroot> <serv
 	# its own copy while the other is still pulling it: served through a live symlink, the peer got a
 	# file that no longer matched the plan and "Connection lost" (Brick<>MMP, 2026-09-21). They are
 	# tiny, so serve a SNAPSHOT copy (-p keeps the mtime the manifest and the merge rely on).
+	# Roms is served BY TAG: Roms/<TAG> -> the real console folder, so every device sees the same path for
+	# the same system whatever it named the folder ("6) PlayStation (PS)" vs "Sony PlayStation (PS)" made
+	# duplicates, Dan 2026-09-22). _dsync_systems tells the peer our folder name per tag, for tags it lacks.
+	_link_roms() { mkdir -p "$sv/Roms"; : > "$sv/_dsync_systems"
+		for d in "$card"/Roms/*/; do [ -d "$d" ] || continue; d=${d%/}; n=${d##*/}
+			case "$n" in .*) continue ;; *"("*")") t=${n##*(}; t=${t%)} ;; *) t=$n ;; esac
+			[ -e "$sv/Roms/$t" ] && continue   # two folders with one tag: the first wins
+			ln -s "$d" "$sv/Roms/$t"; printf '%s\t%s\n' "$t" "$n" >> "$sv/_dsync_systems"
+		done; }
 	_link() { [ -e "$card/$1" ] || return 0; mkdir -p "$sv/$(dirname "$1")"
-		case "$1" in */favorites.txt|Collections|Collections/*) cp -pR "$card/$1" "$sv/$1" 2>/dev/null || { rm -rf "$sv/$1"; ln -s "$card/$1" "$sv/$1"; } ;;
+		case "$1" in Roms) _link_roms ;;
+		*/favorites.txt|Collections|Collections/*) cp -pR "$card/$1" "$sv/$1" 2>/dev/null || { rm -rf "$sv/$1"; ln -s "$card/$1" "$sv/$1"; } ;;
 		*) ln -s "$card/$1" "$sv/$1" ;; esac; }  # nested rels need their parent first
 	if [ "$1" = "--list" ]; then
 		# per-game scopes carry spaces and parens in every path, so they arrive as a file, never as words

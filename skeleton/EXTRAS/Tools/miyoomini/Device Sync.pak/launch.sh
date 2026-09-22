@@ -61,7 +61,7 @@ PORT=8145; PSK=minuizerosync; SSID=MinUI-Sync
 # Wire-protocol version, published with our prefs. Bump it whenever the manifest/plan/bundle shape or
 # the handshake files change incompatibly; a peer on a different number is told to update instead of
 # syncing by luck (two Zero builds, or a Zero and a NextUI port, can otherwise disagree silently).
-DSYNC_PROTO=4
+DSYNC_PROTO=5
 # Fork + build, INFORMATIONAL only (never a gate: a Zero 1.7 and a Zero 1.8, or a Zero and a NextUI port,
 # on the same protocol number sync fine). They make the mismatch message say WHICH build to update.
 DSYNC_FORK=zero
@@ -277,17 +277,19 @@ skipped_count(){ awk -F"$TAB" '$1!="skip"{t++} END{print t+0}' "$1"; }
 # and remembered by tag as a SKIP list, so a new system syncs by default ("all minus PS1", Dan 2026-09-21).
 # A skipped system moves in neither direction. The tag is the last parenthesised group of the console
 # folder ("6) PlayStation (PS)" -> PS), the same identity MinUI itself uses, so it survives renamed folders.
-sys_rows(){ # <merge> -> TAG \t NAME \t games \t KB, one line per system with a game to move
-	awk -F"$TAB" -v OFS="$TAB" '$1!="skip" && $2=="rom" && $4 ~ /^Roms\// {
+sys_rows(){ # <merge> [sysmap] -> TAG \t NAME \t games \t KB, one line per system with a game to move
+	awk -F"$TAB" -v OFS="$TAB" 'FILENAME==ARGV[1] { if ($1!="") folder[$1]=$2; next }
+		$1!="skip" && $2=="rom" && $4 ~ /^Roms\// {
 		f=$4; sub(/^Roms\//,"",f); sub(/\/.*/,"",f)
 		tag=f; if (match(f,/\([^()]*\)[^()]*$/)) { tag=substr(f,RSTART+1); sub(/\).*/,"",tag) }
+		if (f in folder) f=folder[f]   # a tag path (Roms/PS/...) shows the folder name on this card
 		name=f; sub(/^[0-9]+\) /,"",name); sub(/ *\([^()]*\)[^()]*$/,"",name)
 		# a GAME is one top-level entry in the system folder: a file, or a folder (a port with hundreds of
 		# files, a CD game with .bin + .cue). Counting files said "Ports (329 games)" for three ports.
 		g=$4; sub(/^Roms\/[^\/]*\//,"",g); sub(/\/.*/,"",g)
 		if (!((tag SUBSEP g) in seen)) { seen[tag SUBSEP g]=1; n[tag]++ }
 		kb[tag]+=$3; nm[tag]=name }
-		END { for (t in n) print t, nm[t], n[t], int(kb[t]/1024) }' "$1" | sort -t"$TAB" -k2,2; }
+		END { for (t in n) print t, nm[t], n[t], int(kb[t]/1024) }' "${2:-/dev/null}" "$1" | sort -t"$TAB" -k2,2; }
 drop_systems(){ # <merge> <skip csv> -> the merge without the skipped systems (either direction)
 	awk -F"$TAB" -v skip=",$2," '$2=="rom" && $4 ~ /^Roms\// {
 		f=$4; sub(/^Roms\//,"",f); sub(/\/.*/,"",f)
@@ -616,25 +618,25 @@ bundle_plan(){ # <plan> <out.tar> -> 0 when the archive was written
 	rm -f "$bo" "$bo".[0-9]*; k=1; c=0; cb=0; set --
 	while IFS="$TAB" read -r act cls sz rel hash mtime; do
 		[ -n "$rel" ] || continue
-		[ -f "$LOCAL/$rel" ] || continue     # gone since the manifest: one missing path failed the whole tar (QA 2026-09-20)
+		[ -f "$SERVE/$rel" ] || continue     # gone since the manifest: one missing path failed the whole tar (QA 2026-09-20)
 		[ "${sz:-0}" -lt 4194304 ] 2>/dev/null || continue   # >= 4 MiB streams on its own (fetch_file); the bundle is for the MANY small files
 		# a chunk closes at 400 paths OR 200 MB, and BEFORE a file that would push it past the cap, so a chunk
 		# is never bigger than max(200 MB, one file): the receiver holds one chunk beside its extracted files
 		if [ "$c" -gt 0 ] && [ $((cb + ${sz:-0})) -gt 209715200 ]; then
 			out="$bo"; [ "$k" -gt 1 ] && out="$bo.$k"
-			tar -cf "$out" -C "$LOCAL" "$@" 2>/dev/null || { rm -f "$bo" "$bo".[0-9]*; return 1; }
+			tar -chf "$out" -C "$SERVE" "$@" 2>/dev/null || { rm -f "$bo" "$bo".[0-9]*; return 1; }
 			k=$((k+1)); c=0; cb=0; set --
 		fi
 		set -- "$@" "$rel"; c=$((c+1)); cb=$((cb + ${sz:-0}))
 		if [ "$c" -ge 400 ] || [ "$cb" -ge 209715200 ]; then
 			out="$bo"; [ "$k" -gt 1 ] && out="$bo.$k"
-			tar -cf "$out" -C "$LOCAL" "$@" 2>/dev/null || { rm -f "$bo" "$bo".[0-9]*; return 1; }
+			tar -chf "$out" -C "$SERVE" "$@" 2>/dev/null || { rm -f "$bo" "$bo".[0-9]*; return 1; }
 			k=$((k+1)); c=0; cb=0; set --
 		fi
 	done < "$bp"
 	if [ "$c" -gt 0 ]; then
 		out="$bo"; [ "$k" -gt 1 ] && out="$bo.$k"
-		tar -cf "$out" -C "$LOCAL" "$@" 2>/dev/null || { rm -f "$bo" "$bo".[0-9]*; return 1; }
+		tar -chf "$out" -C "$SERVE" "$@" 2>/dev/null || { rm -f "$bo" "$bo".[0-9]*; return 1; }
 	fi
 	[ -s "$bo" ]
 }
@@ -726,8 +728,16 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 # reported as "Synced!" and the `done` state then deleted the journal pointer and the staged bytes that
 # were the only way to finish it. Call it as `apply_plan <plan> > file`, never in $(...): the globals it
 # sets (BK) have to survive, and a command substitution would fork them away.
+# TAG -> folder for THIS card (see sync-engine.sh local_rel): local folders first, then the peer's names for
+# tags this card has no folder for yet, so a new system lands under the name the sender used
+write_sysmap(){ : > "$W/sysmap"
+	for d in "$LOCAL"/Roms/*/; do [ -d "$d" ] || continue; d=${d%/}; n=${d##*/}
+		case "$n" in .*) continue ;; *"("*")") t=${n##*(}; t=${t%)} ;; *) t=$n ;; esac
+		printf '%s\t%s\n' "$t" "$n" >> "$W/sysmap"; done
+	[ -s "$W/peer.sys" ] && awk -F"$TAB" 'FILENAME==ARGV[1] { h[$1]=1; next } $1!="" && !($1 in h) && !s[$1]++' "$W/sysmap" "$W/peer.sys" >> "$W/sysmap"
+	export DSYNC_SYSMAP="$W/sysmap"; }
 apply_plan(){ # <plan>
-	BK=""
+	BK=""; write_sysmap
 	if [ "$(plan_count "$1")" -eq 0 ]; then printf 0; return 0; fi
 	BK="$BK_ROOT/$(ts)"; bn=1; while [ -e "$BK" ]; do bn=$((bn+1)); BK="$BK_ROOT/$(ts)-$bn"; done   # never reuse a dir (QA 2026-09-20)
 	cp "$1" "$RES_PLAN" 2>/dev/null; printf '%s\n' "$BK" > "$RES_BK"   # so a power cut can be resumed
@@ -998,6 +1008,7 @@ Try again?"; then STATE=find; continue; else exit 0; fi
 	step "3
 Comparing with $PEER"
 	fetch_live "$PEER_BASE/_dsync_manifest" "$W/peer.mf" 240 "$PEER_IP"; rc=$?
+	hget 8 -O "$W/peer.sys" "$PEER_BASE/_dsync_systems" >/dev/null 2>&1 || : > "$W/peer.sys"   # its folder name per tag
 	if [ "$rc" = 0 ] && { [ "$PEER" = "${PN:-}" ] || [ "$PEER" = "the other device" ]; }; then pn2=$(hget 6 -O - "$PEER_BASE/_dsync_name" | head -c 200 | tr -cd 'A-Za-z0-9 ._()+-' | cut -c1-40); [ -n "$pn2" ] && PEER=$pn2; fi
 	if [ "$rc" = 2 ]; then
 		tell "Stopped.
@@ -1081,7 +1092,7 @@ Nothing to copy."; exit 0
 	if [ "$PG" = 1 ] || [ "$QG" = 1 ]; then
 		NROM0=$(awk -F"$TAB" '$1!="skip" && $2=="rom"' "$W/merge" | wc -l | tr -d ' ')
 		if [ -n "$QK" ]; then drop_systems "$W/merge" "$QK" > "$W/merge.f" && mv "$W/merge.f" "$W/merge"; fi   # the peer's skips first: not offered here
-		sys_rows "$W/merge" > "$W/sys"
+		write_sysmap; sys_rows "$W/merge" "$W/sysmap" > "$W/sys"
 		if [ -s "$W/sys" ]; then
 			set --
 			while IFS="$TAB" read -r st sn sc sk; do
@@ -1424,7 +1435,7 @@ resume)
 	# power loss during apply. Everything was already staged (the apply only starts once a whole
 	# direction is downloaded), so this finishes locally -- no radio, no peer.
 	status "Finishing the interrupted sync..."
-	eng resume-apply "$RES_PLAN" "$STAGE" "$LOCAL" "$RESUME_BK" >> "$LOGF" 2>&1
+	write_sysmap; eng resume-apply "$RES_PLAN" "$STAGE" "$LOCAL" "$RESUME_BK" >> "$LOGF" 2>&1
 	case "$(eng journal-status "$RESUME_BK" 2>/dev/null)" in
 		COMPLETE*) n=$(awk -F"$TAB" '$1=="DONE" && $2!="keep" {n++} END{print n+0}' "$RESUME_BK/journal.log" 2>/dev/null)
 		           rm -f "$RES_BK" "$RES_PLAN"; rm -rf "$STAGE"; mkdir -p "$STAGE"
@@ -1483,7 +1494,7 @@ up first." "RESTORE ALL" "BACK" || { STATE=restore; continue; }
 Current files are backed
 up first." "RESTORE" "BACK" || { STATE=restore; continue; }
 		    fi
-		    status "Restoring..."
+		    status "Restoring..."; write_sysmap
 		    # restore() skips a file it cannot put back (a pruned backup, a full card, a bad sector) and
 		    # returns 1, saying so only in the log. "Restored." on top of that is the worst lie this pak
 		    # can tell: the user plays on believing their pre-sync saves are back (2026-09-18 review).

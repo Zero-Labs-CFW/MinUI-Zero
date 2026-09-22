@@ -719,13 +719,13 @@ check "merge-summary: to-b TOTAL items = 3" "$(printf '%s\n' "$MSUM" | awk -F"$T
 check "merge-summary: to-a TOTAL items = 2" "$(printf '%s\n' "$MSUM" | awk -F"$TAB" '$1=="to-a"&&$2=="TOTAL"{print $3}')" "2"
 
 ######################################################################
-echo "########## SCENARIO W: wire format is FROZEN at DSYNC_PROTO=4 ##########"
+echo "########## SCENARIO W: wire format is FROZEN at DSYNC_PROTO=5 ##########"
 # Everything a peer reads off the wire, pinned byte-for-byte: manifest lines, merge lines, the shared
 # plan lines and the prefs line. If one of these checks fails, the wire SHAPE changed:
 #   1. bump DSYNC_PROTO in launch.sh (all three platform copies stay byte-identical), and
 #   2. update the expected strings AND the WIRE_PROTO below in the same commit.
 # A shape change without a bump would let two builds sync by luck; the number is the only gate.
-WIRE_PROTO=4
+WIRE_PROTO=5
 LAUNCH_W="$ROOT/skeleton/EXTRAS/Tools/tg5040/Device Sync.pak/launch.sh"
 check "W: launch.sh publishes DSYNC_PROTO=$WIRE_PROTO" "$(sed -n 's/^DSYNC_PROTO=\([0-9]*\)$/\1/p' "$LAUNCH_W")" "$WIRE_PROTO"
 check "W: prefs line carries S G C P F V K" "$(grep -c "printf 'S=%s G=%s C=%s P=%s F=%s V=%s K=%s\\\\n'" "$LAUNCH_W")" "1"
@@ -853,6 +853,29 @@ check "V: the added file was left alone"          "$([ -e "$LV/Saves/GBA/c.srm" 
 check "V: the new snapshot records only the chosen file" "$(cat "$SV/bk"/*/ops.log | grep -v "^UPDATE.5.Saves/GBA/a.srm$" | grep -c "Saves/GBA/a.srm\|b.sav\|c.srm" | tr -d ' ')" "2"
 E restore "$LV" "$BKV" >/dev/null 2>&1
 check "V: a full restore still removes the added file" "$([ -e "$LV/Saves/GBA/c.srm" ] && echo present || echo removed)" "removed"
+
+######################################################################
+echo "########## SCENARIO G: games are identified by system TAG, not folder name ##########"
+SG="$WORK/sg"; CA="$SG/a"; CB="$SG/b"; SVA="$SG/srv"; mkdir -p "$CA/Roms/6) PlayStation (PS)" "$CB/Roms/Sony PlayStation (PS)" "$CA/Roms/GB"
+printf 'FF7' > "$CA/Roms/6) PlayStation (PS)/FF7.chd"; printf 'GBGAME' > "$CA/Roms/GB/x.gb"
+sh "$NET" build-export "$CA" "$SVA" Roms >/dev/null 2>&1
+check "G: export serves Roms by tag"          "$(ls "$SVA/Roms" | sort | tr '\n' ' ')" "GB PS "
+check "G: manifest rel is Roms/PS/..."        "$(grep -c "^Roms/PS/FF7.chd" "$SVA/_dsync_manifest")" "1"
+check "G: _dsync_systems names the folder"    "$(grep "^PS" "$SVA/_dsync_systems" | cut -f2)" "6) PlayStation (PS)"
+# receiver B has its own folder for PS: the plan rel Roms/PS/FF7.chd must land there, journalled as the wire rel
+STG="$SG/stg"; mkdir -p "$STG/Roms/PS"; printf 'FF7' > "$STG/Roms/PS/FF7.chd"
+PLG="$SG/plan"; planln "$STG" rom "Roms/PS/FF7.chd" 0 > "$PLG"
+printf 'PS\tSony PlayStation (PS)\n' > "$SG/sysmap"
+DSYNC_SYSMAP="$SG/sysmap" E apply-plan "$PLG" "$STG" "$CB" "$SG/bk/1" >/dev/null 2>&1
+check "G: landed in the LOCAL folder for the tag" "$(cat "$CB/Roms/Sony PlayStation (PS)/FF7.chd" 2>/dev/null)" "FF7"
+check "G: no Roms/PS folder was created"      "$([ -e "$CB/Roms/PS" ] && echo created || echo none)" "none"
+check "G: ops.log keeps the wire rel"         "$(cut -f3 "$SG/bk/1/ops.log")" "Roms/PS/FF7.chd"
+DSYNC_SYSMAP="$SG/sysmap" E restore "$CB" "$SG/bk/1" >/dev/null 2>&1
+check "G: restore removes it from the local folder" "$([ -e "$CB/Roms/Sony PlayStation (PS)/FF7.chd" ] && echo present || echo removed)" "removed"
+# no folder for the tag yet: the peer name is used
+printf 'PS\t6) PlayStation (PS)\n' > "$SG/sysmap2"; rm -rf "$CB/Roms/Sony PlayStation (PS)"; printf 'FF7' > "$STG/Roms/PS/FF7.chd"
+DSYNC_SYSMAP="$SG/sysmap2" E apply-plan "$PLG" "$STG" "$CB" "$SG/bk/2" >/dev/null 2>&1
+check "G: unknown tag lands under the peer folder name" "$(cat "$CB/Roms/6) PlayStation (PS)/FF7.chd" 2>/dev/null)" "FF7"
 
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"

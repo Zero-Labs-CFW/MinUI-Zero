@@ -42,6 +42,25 @@
 
 TAB=$(printf '\t')
 
+# ---- system folders: identity by TAG --------------------------------------------------------------
+# Games are identified by system TAG + file name, never by folder name: one card says "6) PlayStation (PS)",
+# another "Sony PlayStation (PS)", and a path compare copied each folder to the other side (Dan, 2026-09-22).
+# On the wire and in every plan/journal a game is Roms/<TAG>/<file>: build-export serves Roms/<TAG> as a
+# symlink to the real folder, and apply/restore map Roms/<TAG>/ back to THIS card's folder through
+# DSYNC_SYSMAP, a "TAG<tab>folder" file the launcher writes (local folders first, then the peer's names
+# for tags this card lacks). No map, or an unknown tag: the path is used as it is (old backups too).
+SYSMAP_STR=""
+if [ -n "${DSYNC_SYSMAP:-}" ] && [ -f "$DSYNC_SYSMAP" ]; then
+	SYSMAP_STR="$(awk -F"$TAB" '$1!="" && $2!="" { printf "|%s=%s", $1, $2 }' "$DSYNC_SYSMAP")|"
+fi
+local_rel() { # <rel> -> sets LREL (no subshell: this runs once per file)
+	LREL=$1
+	case "$1" in Roms/*/*)
+		t=${1#Roms/}; t=${t%%/*}; r=${1#Roms/*/}
+		case "$SYSMAP_STR" in *"|$t="*) f=${SYSMAP_STR#*"|$t="}; f=${f%%|*}; LREL="Roms/$f/$r" ;; esac ;;
+	esac
+}
+
 # ---- portable shims: busybox (device) and BSD (macOS dev) ----
 # Size via ls -ln (a stat), NEVER wc -c: busybox wc READS the whole file to count it, which on a card of
 # PS1 disc images meant reading gigabytes just to size them (caught on the Brick 2026-09-05, wc found
@@ -83,8 +102,8 @@ _backup_copy() { # <src file> <dest file> -> 0 = verified copy in place, 1 = cou
 	set_mtime "$2" "$_bc_mt"
 	return 0
 }
-_backup_one() { # <dst> <bdir> <rel> -> 0 = verified copy in place, 1 = could not (caller must NOT write)
-	_backup_copy "$1/$3" "$2/$3"
+_backup_one() { # <dst> <bdir> <rel> [live rel] -> 0 = verified copy in place, 1 = could not (caller must NOT write)
+	_backup_copy "$1/${4:-$3}" "$2/$3"
 }
 # byte-identical? size first (a stat), hash only when the sizes already agree. Used by resume to ask
 # "is the backup I remember still a copy of the file that is on the card NOW?"
@@ -446,6 +465,7 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 	# fed by a FILE, not a pipe: a pipe would run the loop in a subshell and lose rc
 	while IFS="$TAB" read -r action bkstate bksz mtime psize phash pcls rel; do
 		[ -n "$rel" ] || continue
+		local_rel "$rel"   # live path on THIS card (LREL); journal, ops.log, staging and backups keep the wire rel
 		printf 'BEGIN\t%s\n' "$rel" >> "$jl"
 		if [ "$bkstate" = "-" ]; then
 			# No journalled backup. Back up the loser FIRST, verified: if the backup is not a faithful
@@ -456,26 +476,26 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 				# journal line we still have to prove WHAT it copied before overwriting anything.
 				# bytes, not just size: a save the user edited AFTER the cut can be the same size as the copy
 				# taken before it -- overwriting that behind a stale backup is exactly the loss this guards
-				if [ -e "$dst/$rel" ] && ! cmp -s "$bdir/$rel" "$dst/$rel" 2>/dev/null \
-				   && ! _is_plan_copy "$dst/$rel" "$psize" "$phash" "$mtime"; then
+				if [ -e "$dst/$LREL" ] && ! cmp -s "$bdir/$rel" "$dst/$LREL" 2>/dev/null \
+				   && ! _is_plan_copy "$dst/$LREL" "$psize" "$phash" "$mtime"; then
 					# The live file does not match the plan, so this file's write never landed and the live
 					# file IS the pre-sync original -- which this mismatched leftover therefore is not a
 					# copy of. Two cases. A TORN stub from a pre-fix build (an interrupted cp) is a shorter PREFIX of
 					# the live original: redo the backup, verified, and apply. Anything else means the user played
 					# on after the cut (this build mv's whole copies only): the live file is the newest state, so
 					# KEEP it, skip this write, and leave the leftover as the pre-sync copy (Codex 2026-09-21).
-					lsz=$(file_size "$bdir/$rel"); dsz=$(file_size "$dst/$rel")
-					if [ "$lsz" -lt "$dsz" ] 2>/dev/null && head -c "$lsz" "$dst/$rel" 2>/dev/null | cmp -s - "$bdir/$rel" 2>/dev/null; then
+					lsz=$(file_size "$bdir/$rel"); dsz=$(file_size "$dst/$LREL")
+					if [ "$lsz" -lt "$dsz" ] 2>/dev/null && head -c "$lsz" "$dst/$LREL" 2>/dev/null | cmp -s - "$bdir/$rel" 2>/dev/null; then
 						rm -f "$bdir/$rel"
-						if _backup_one "$dst" "$bdir" "$rel"; then bkstate=have; else bkstate=fail; fi
+						if _backup_one "$dst" "$bdir" "$rel" "$LREL"; then bkstate=have; else bkstate=fail; fi
 					else
 						printf 'DONE\tkeep\t%s\n' "$rel" >> "$jl"; printf 'KEEP\t%s (edited after the interruption)\n' "$rel" >&2; continue
 					fi
 				else
 					bkstate=have                   # a faithful copy of the live file, or the write already landed
 				fi
-			elif [ -e "$dst/$rel" ]; then
-				if _backup_one "$dst" "$bdir" "$rel"; then bkstate=have; else bkstate=fail; fi
+			elif [ -e "$dst/$LREL" ]; then
+				if _backup_one "$dst" "$bdir" "$rel" "$LREL"; then bkstate=have; else bkstate=fail; fi
 			else
 				bkstate=none                       # nothing here before: restoring this file means removing it
 			fi
@@ -487,7 +507,7 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 			# the journal says the pre-sync copy is in the backup dir, but it is gone or no longer the size
 			# it was verified at: refuse rather than overwrite behind a backup that cannot be trusted
 			printf 'FAIL\t%s (backup damaged)\n' "$rel" >&2; rc=1; continue
-		elif [ -e "$dst/$rel" ] && ! _is_plan_copy "$dst/$rel" "$psize" "$phash" "$mtime"; then
+		elif [ -e "$dst/$LREL" ] && ! _is_plan_copy "$dst/$LREL" "$psize" "$phash" "$mtime"; then
 			# RESUME, and this file's write never landed. The journal describes the card AS IT WAS AT THE
 			# INTERRUPTION, but the user has had the device since: a battery death, then 20 hours of play
 			# before they pick "Resume interrupted sync". So re-verify against the file that is on the card
@@ -498,7 +518,7 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 				# That is the newest state: KEEP it and skip the stale staged write (it used to be backed up and
 				# then replaced, Codex review 2026-09-21). No ops.log line, so restore leaves it alone.
 				printf 'DONE\tkeep\t%s\n' "$rel" >> "$jl"; printf 'KEEP\t%s (created after the interruption)\n' "$rel" >&2; continue
-			elif ! _same_bytes "$dst/$rel" "$bdir/$rel"; then
+			elif ! _same_bytes "$dst/$LREL" "$bdir/$rel"; then
 				# the live file changed AFTER the backup was taken: the user played on. The plan was newest-wins
 				# when it was computed, and the live bytes are the newest now, so KEEP them and skip this write.
 				# It used to park the edit as <rel>.dsync.kept (unreachable from any screen, pruned after five
@@ -515,8 +535,8 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 		# included, or a resume would report MISS forever and Restore would not know the file (Codex 2026-09-21)
 		# (never on size alone: a ROM is identity-by-name, anything else needs the hash or the mtime)
 		if [ ! -e "$staging/$rel" ] && { [ "$pcls" = rom ] || [ "${mtime:-0}" != 0 ] || [ "${phash:--}" != - ]; } \
-		   && _is_plan_copy "$dst/$rel" "$psize" "$phash" "$mtime"; then
-			if ! awk -F"$TAB" -v r="$rel" '$3==r {f=1} END {exit !f}' "$bdir/ops.log" 2>/dev/null; then op=UPDATE; [ "$bkstate" = none ] && op=ADD; printf '%s\t%s\t%s\n' "$op" "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"; fi
+		   && _is_plan_copy "$dst/$LREL" "$psize" "$phash" "$mtime"; then
+			if ! awk -F"$TAB" -v r="$rel" '$3==r {f=1} END {exit !f}' "$bdir/ops.log" 2>/dev/null; then op=UPDATE; [ "$bkstate" = none ] && op=ADD; printf '%s\t%s\t%s\n' "$op" "$(file_size "$dst/$LREL")" "$rel" >> "$bdir/ops.log"; fi
 			printf 'DONE\t%s\t%s\n' "$action" "$rel" >> "$jl"; continue
 		fi
 		if [ ! -e "$staging/$rel" ]; then
@@ -527,23 +547,23 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 		if [ "${psize:-0}" != 0 ] && ! _is_plan_copy "$staging/$rel" "$psize" "$phash" 0; then
 			printf 'MISS\t%s (staged copy is not the planned %s bytes)\n' "$rel" "$psize" >&2; rc=1; continue
 		fi
-		mkdir -p "$dst/$(dirname "$rel")"
-		if { [ "$pcls" = favorite ] || [ "$pcls" = collection ]; } && [ -f "$dst/$rel" ]; then
+		mkdir -p "$dst/$(dirname "$LREL")"
+		if { [ "$pcls" = favorite ] || [ "$pcls" = collection ]; } && [ -f "$dst/$LREL" ]; then
 			# a LIST file: write the union of both sides, one entry per line, sorted (the launcher sorts these
 			# lists itself, so file order carries nothing). Both devices compute the same bytes and stamp the
 			# later of the two mtimes, so the pair reads identical on the next sync. The pre-union file is
 			# already backed up above, so Restore still puts it back (Dan, 2026-09-21).
-			lm=$(file_mtime "$dst/$rel"); case "$lm" in ''|*[!0-9]*) lm=0 ;; esac
-			{ cat "$dst/$rel"; echo; cat "$staging/$rel"; echo; } | grep -v '^$' | sort -u > "$dst/$rel.dsync.tmp" 2>/dev/null; urc=$?
+			lm=$(file_mtime "$dst/$LREL"); case "$lm" in ''|*[!0-9]*) lm=0 ;; esac
+			{ cat "$dst/$LREL"; echo; cat "$staging/$rel"; echo; } | grep -v '^$' | sort -u > "$dst/$LREL.dsync.tmp" 2>/dev/null; urc=$?
 			[ "$lm" -gt "${mtime:-0}" ] 2>/dev/null && mtime=$lm
 			# accepted only when sort succeeded and no live entry went missing (a full card can leave a partial file)
-			lcnt=$(grep -v '^$' "$dst/$rel" 2>/dev/null | sort -u | wc -l | tr -d ' '); ucnt=$(grep -c . "$dst/$rel.dsync.tmp" 2>/dev/null)
-			if [ "$urc" = 0 ] && [ "${ucnt:-0}" -gt 0 ] && [ "${ucnt:-0}" -ge "${lcnt:-0}" ] 2>/dev/null && mv "$dst/$rel.dsync.tmp" "$dst/$rel" 2>/dev/null; then
-				set_mtime "$dst/$rel" "${mtime:-0}"
-				printf 'UPDATE\t%s\t%s\n' "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"
+			lcnt=$(grep -v '^$' "$dst/$LREL" 2>/dev/null | sort -u | wc -l | tr -d ' '); ucnt=$(grep -c . "$dst/$LREL.dsync.tmp" 2>/dev/null)
+			if [ "$urc" = 0 ] && [ "${ucnt:-0}" -gt 0 ] && [ "${ucnt:-0}" -ge "${lcnt:-0}" ] 2>/dev/null && mv "$dst/$LREL.dsync.tmp" "$dst/$LREL" 2>/dev/null; then
+				set_mtime "$dst/$LREL" "${mtime:-0}"
+				printf 'UPDATE\t%s\t%s\n' "$(file_size "$dst/$LREL")" "$rel" >> "$bdir/ops.log"
 				printf 'DONE\t%s\t%s\n' "$action" "$rel" >> "$jl"
 			else
-				rm -f "$dst/$rel.dsync.tmp"; printf 'FAIL\t%s (union)\n' "$rel" >&2; rc=1
+				rm -f "$dst/$LREL.dsync.tmp"; printf 'FAIL\t%s (union)\n' "$rel" >&2; rc=1
 			fi
 			continue
 		fi
@@ -551,14 +571,14 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 		# once, not twice (a 25 GB library asked a 29 GB card for 52 GB, 2026-09-21). cp only if the
 		# move is refused (a staging dir on another mount).
 		ssz=$(file_size "$staging/$rel")
-		mv "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null || cp "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
-		if [ "$ssz" = "$(file_size "$dst/$rel.dsync.tmp")" ] && mv "$dst/$rel.dsync.tmp" "$dst/$rel" 2>/dev/null; then
-			set_mtime "$dst/$rel" "${mtime:-0}"
+		mv "$staging/$rel" "$dst/$LREL.dsync.tmp" 2>/dev/null || cp "$staging/$rel" "$dst/$LREL.dsync.tmp" 2>/dev/null
+		if [ "$ssz" = "$(file_size "$dst/$LREL.dsync.tmp")" ] && mv "$dst/$LREL.dsync.tmp" "$dst/$LREL" 2>/dev/null; then
+			set_mtime "$dst/$LREL" "${mtime:-0}"
 			op=UPDATE; [ "$bkstate" = none ] && op=ADD
-			printf '%s\t%s\t%s\n' "$op" "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"
+			printf '%s\t%s\t%s\n' "$op" "$(file_size "$dst/$LREL")" "$rel" >> "$bdir/ops.log"
 			printf 'DONE\t%s\t%s\n' "$action" "$rel" >> "$jl"
 		else
-			rm -f "$dst/$rel.dsync.tmp"; printf 'FAIL\t%s\n' "$rel" >&2; rc=1
+			rm -f "$dst/$LREL.dsync.tmp"; printf 'FAIL\t%s\n' "$rel" >&2; rc=1
 		fi
 	done < "$t.work"
 	[ "$rc" = 0 ] && printf 'COMPLETE\n' >> "$jl"
@@ -675,14 +695,15 @@ restore() { # <dst> <backupdir> [file of rels: restore ONLY these]
 	while IFS="$TAB" read -r op rel; do
 		[ -n "$rel" ] || continue
 		case "$rel" in /*|..|../*|*/..|*/../*) printf 'UNSAFE\t%s\n' "$rel" >&2; continue ;; esac
+		local_rel "$rel"
 		printf 'BEGIN\t%s\n' "$rel" >> "$new/journal.log"
 		# 1. snapshot what is there NOW (verified), recorded in the new snapshot's own ops.log in the same
 		#    vocabulary, so restoring the new snapshot is the exact inverse of this restore
-		if [ -e "$dst/$rel" ]; then
-			cmt=$(file_mtime "$dst/$rel")
+		if [ -e "$dst/$LREL" ]; then
+			cmt=$(file_mtime "$dst/$LREL")
 			if ! mkdir -p "$new/$(dirname "$rel")" 2>/dev/null \
-			   || ! cp "$dst/$rel" "$new/$rel" 2>/dev/null \
-			   || [ "$(file_size "$dst/$rel")" != "$(file_size "$new/$rel")" ]; then
+			   || ! cp "$dst/$LREL" "$new/$rel" 2>/dev/null \
+			   || [ "$(file_size "$dst/$LREL")" != "$(file_size "$new/$rel")" ]; then
 				rm -f "$new/$rel"; printf 'FAIL\t%s (snapshot)\n' "$rel" >&2; rc=1; rmiss=$((rmiss+1)); continue   # never touch what we could not save
 			fi
 			set_mtime "$new/$rel" "$cmt"
@@ -694,21 +715,21 @@ restore() { # <dst> <backupdir> [file of rels: restore ONLY these]
 		case "$op" in
 		UPDATE)  # there is a pre-sync copy: atomic put-back (tmp + verify + rename), original mtime
 			if [ -e "$bdir/$rel" ]; then
-				mkdir -p "$dst/$(dirname "$rel")"
-				cp "$bdir/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
-				if [ "$(file_size "$bdir/$rel")" = "$(file_size "$dst/$rel.dsync.tmp")" ] && mv "$dst/$rel.dsync.tmp" "$dst/$rel" 2>/dev/null; then
-					set_mtime "$dst/$rel" "$(file_mtime "$bdir/$rel")"
+				mkdir -p "$dst/$(dirname "$LREL")"
+				cp "$bdir/$rel" "$dst/$LREL.dsync.tmp" 2>/dev/null
+				if [ "$(file_size "$bdir/$rel")" = "$(file_size "$dst/$LREL.dsync.tmp")" ] && mv "$dst/$LREL.dsync.tmp" "$dst/$LREL" 2>/dev/null; then
+					set_mtime "$dst/$LREL" "$(file_mtime "$bdir/$rel")"
 					printf 'DONE\trestore\t%s\n' "$rel" >> "$new/journal.log"; rdone=$((rdone+1))
 				else
-					rm -f "$dst/$rel.dsync.tmp"; printf 'RESTORE-FAIL\t%s\n' "$rel" >&2; rc=1; rmiss=$((rmiss+1))
+					rm -f "$dst/$LREL.dsync.tmp"; printf 'RESTORE-FAIL\t%s\n' "$rel" >&2; rc=1; rmiss=$((rmiss+1))
 				fi
 			else
 				printf 'RESTORE-MISS\t%s\n' "$rel" >&2; rc=1; rmiss=$((rmiss+1))   # backup gone: leave the live file alone, never truncate it
 			fi ;;
 		ADD)     # the sync added this file; before it there was nothing. Its current bytes are in $new.
-			rm -f "$dst/$rel" 2>/dev/null
-			if [ -e "$dst/$rel" ]; then printf 'RESTORE-FAIL\t%s (remove)\n' "$rel" >&2; rc=1; rmiss=$((rmiss+1)); continue; fi
-			d=$(dirname "$rel")
+			rm -f "$dst/$LREL" 2>/dev/null
+			if [ -e "$dst/$LREL" ]; then printf 'RESTORE-FAIL\t%s (remove)\n' "$rel" >&2; rc=1; rmiss=$((rmiss+1)); continue; fi
+			d=$(dirname "$LREL")
 			while [ "$d" != "." ] && [ "$d" != "/" ]; do
 				rmdir "$dst/$d" 2>/dev/null || break
 				d=$(dirname "$d")
