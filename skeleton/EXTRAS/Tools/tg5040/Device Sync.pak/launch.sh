@@ -336,6 +336,7 @@ restore_rows(){ # <ops.log> -> ORD \t NAME \t TYPE \t REL (one line per rel; row
 	awk -F"$TAB" -v OFS="$TAB" '{ rel=$3; if (rel=="") next; n=rel; sub(/.*\//,"",n)
 		if (rel ~ /favorites\.txt$/)        { name="Favorites"; type="Favorite"; ord=4 }
 		else if (rel ~ /^Collections\//)     { sub(/\.[^.]*$/,"",n); name=n; type="Collection"; ord=6 }
+		else if (rel ~ /^Roms\/[^\/]+\/[^\/]+\//) { name=rel; sub(/^Roms\/[^\/]+\//,"",name); sub(/\/.*/,"",name); type="Game"; ord=2 }   # folder game: one row
 		else if (rel ~ /^Roms\//)            { sub(/\.[^.]*$/,"",n); name=n; type="Game"; ord=2 }
 		else if (rel ~ /\.cfg$/)             { sub(/\.[^.]*$/,"",n); name=n; type="Settings"; ord=3 }
 		else if (rel ~ /\.st[0-9](\.[^.]*)?$/) { sub(/\.st[0-9](\.[^.]*)?$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n); name=n; type="Save"; ord=1 }   # same collapse as plan_names
@@ -405,6 +406,9 @@ plan_names(){ # <plan.me> <plan.peer> -> deduped "Name<TAB>Type", most useful fi
         else if (rel ~ /^Saves\//) { sub(/\.[^.]*$/,"",n); sub(/\.[A-Za-z0-9][A-Za-z0-9]?[A-Za-z0-9]?[A-Za-z0-9]?$/,"",n) }
         else sub(/\.[^.]*$/,"",n)
         name=n
+        # a game in its own folder (PS1: Game/Game (USA).cue + .bin tracks) is ONE row named by the folder,
+        # not one per file name (Brick Pro list, 2026-09-22)
+        if (cls=="rom" && rel ~ /^Roms\/[^\/]+\/[^\/]+\//) { name=rel; sub(/^Roms\/[^\/]+\//,"",name); sub(/\/.*/,"",name) }
         if (cls=="save")            { type="Save";       ord=1 }
         else if (cls=="rom")        { type="Game";       ord=2 }
         else if (cls=="config")     { type="Settings";   ord=3 }
