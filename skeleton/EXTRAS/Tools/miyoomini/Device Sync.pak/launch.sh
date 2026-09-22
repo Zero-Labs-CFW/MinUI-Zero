@@ -282,7 +282,11 @@ sys_rows(){ # <merge> -> TAG \t NAME \t games \t KB, one line per system with a 
 		f=$4; sub(/^Roms\//,"",f); sub(/\/.*/,"",f)
 		tag=f; if (match(f,/\([^()]*\)[^()]*$/)) { tag=substr(f,RSTART+1); sub(/\).*/,"",tag) }
 		name=f; sub(/^[0-9]+\) /,"",name); sub(/ *\([^()]*\)[^()]*$/,"",name)
-		n[tag]++; kb[tag]+=$3; nm[tag]=name }
+		# a GAME is one top-level entry in the system folder: a file, or a folder (a port with hundreds of
+		# files, a CD game with .bin + .cue). Counting files said "Ports (329 games)" for three ports.
+		g=$4; sub(/^Roms\/[^\/]*\//,"",g); sub(/\/.*/,"",g)
+		if (!((tag SUBSEP g) in seen)) { seen[tag SUBSEP g]=1; n[tag]++ }
+		kb[tag]+=$3; nm[tag]=name }
 		END { for (t in n) print t, nm[t], n[t], int(kb[t]/1024) }' "$1" | sort -t"$TAB" -k2,2; }
 drop_systems(){ # <merge> <skip csv> -> the merge without the skipped systems (either direction)
 	awk -F"$TAB" -v skip=",$2," '$2=="rom" && $4 ~ /^Roms\// {
