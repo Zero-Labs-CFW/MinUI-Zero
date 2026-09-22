@@ -56,7 +56,10 @@ $1_PROCS ?= $(PROCS)
 src/$(1):
 	mkdir -p src
 	cd src && git clone $(if $($1_HASH),,--depth 1) --recursive $$($(1)_REPO) $(1)
-	$(if $($1_HASH),cd src/$$($1_BUILD_PATH) && git checkout $($1_HASH) && echo $($1_HASH),)
+	# submodules must follow the PIN, not the clone-time HEAD: pcsx_rearmed's libpicofe pointer moved upstream
+	# and a clean clone failed verify-source ("tracked source changes do not match declared patches") on the
+	# v1.8.0 release build, 2026-09-22; the dev tree only passed because it was cloned when the pin was HEAD
+	$(if $($1_HASH),cd src/$$($1_BUILD_PATH) && git checkout $($1_HASH) && git submodule update --init --recursive && echo $($1_HASH),)
 
 src/$(1)/.patched: src/$(1)
 	(test ! -f patches/$(1).patch) || (test -f src/$(1)/.patched) || (cd src/$(1) && $(PATCH) -p1 < ../../patches/$(1).patch && touch .patched && true)
