@@ -575,11 +575,14 @@ S9T="$WORK/s9t"; C9="$S9T/card"; D9="$S9T/dst"; mkdir -p "$C9" "$D9"
 mk "$C9" "Saves/GBC/Zelda.sav" "REAL-SAVE"
 mk "$C9" "Saves/GBC/Zelda.sav.dsync.tmp" "HALF-WRITTEN-FRAGMENT"     # the orphan
 mk "$C9" "Saves/GBC/._Zelda.sav" "APPLEDOUBLE"; mk "$C9" "Saves/GBC/.DS_Store" "FINDER"   # hidden: never manifested
+mk "$C9" "Roms/1) Game Boy Color (GBC)/Thumbs.db" "WINDOWS"; mk "$C9" "Roms/1) Game Boy Color (GBC)/desktop.ini" "WINDOWS"
 mk "$C9" "Roms/1) Game Boy Color (GBC)/Zelda.gbc" "ROM"
 MF9="$S9T/mf"; E manifest "$C9" > "$MF9"
 nohas "dsync.tmp" "$(cat "$MF9")"
 nohas "._Zelda" "$(cat "$MF9")"
 nohas ".DS_Store" "$(cat "$MF9")"
+nohas "Thumbs.db" "$(cat "$MF9")"
+nohas "desktop.ini" "$(cat "$MF9")"
 has   "Saves/GBC/Zelda.sav" "$(cat "$MF9")"
 P9=$(E plan-rich "$MF9" "$D9")
 nohas "dsync.tmp" "$P9"
