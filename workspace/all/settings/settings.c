@@ -180,6 +180,7 @@ int main(int argc, char* argv[]) {
 	if (wide) mw = screen->w - SCALE1(PADDING*2);
 
 	int open = -1; // full-rows index of the chosen action row
+	char* cursor_key = NULL; // the highlighted row when an X/Y action exits (vis/nvis live inside the loop)
 	char action = 0; // 'x' or 'y' when a bottom-bar action button exits the screen
 	int quit = 0;
 	int dirty = 1;
@@ -241,6 +242,7 @@ int main(int argc, char* argv[]) {
 		else if (a_label && PAD_justPressed(BTN_A)) { action = 'a'; quit = 1; }
 		else if (x_label && PAD_justPressed(BTN_X)) { action = 'x'; quit = 1; }
 		else if (y_label && PAD_justPressed(BTN_Y)) { action = 'y'; quit = 1; }
+		if (action && nvis>0 && selected>=0 && selected<nvis) cursor_key = rows[vis[selected]].key;
 
 		PWR_update(&dirty, &show_setting, NULL, NULL);
 
@@ -357,7 +359,7 @@ int main(int argc, char* argv[]) {
 	if (action) printf("ACTION=%c\n", action);
 	// the highlighted row goes with an action, so X can mean "this one" (Backups: X deletes the
 	// highlighted backup, Y deletes all; Dan 2026-09-22)
-	if (action && nvis>0 && selected>=0 && selected<nvis) printf("CURSOR=%s\n", rows[vis[selected]].key);
+	if (action && cursor_key) printf("CURSOR=%s\n", cursor_key);
 	fflush(stdout);
 
 	QuitSettings();
