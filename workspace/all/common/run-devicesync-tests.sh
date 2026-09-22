@@ -736,6 +736,9 @@ WIRE_PROTO=6   # 6: the _dsync_done line carries five counts (got, peer got, ski
 LAUNCH_W="$ROOT/skeleton/EXTRAS/Tools/tg5040/Device Sync.pak/launch.sh"
 check "W: launch.sh publishes DSYNC_PROTO=$WIRE_PROTO" "$(sed -n 's/^DSYNC_PROTO=\([0-9]*\)$/\1/p' "$LAUNCH_W")" "$WIRE_PROTO"
 check "W: prefs line carries S G P F V K" "$(grep -c "printf 'S=%s G=%s P=%s F=%s V=%s K=%s\\\\n'" "$LAUNCH_W")" "1"
+# no helper may use the bare loop variable k: busybox sh has no locals and the bundle loop in pull_plan counts
+# chunks in k (the hget_c clash refetched chunk 2 forever / skipped chunks, 2026-09-22)
+check "W: hget/hget_c/status_off never assign k" "$(awk '/^(hget|hget_c|status_off)\(\)/{p=1;print;next} /^[a-z_]+\(\)/{p=0} p' "$LAUNCH_W" | grep -c '[^a-z_]k=')" "0"
 for _p in miyoomini h700; do
 	check "W: $_p launch.sh byte-identical to tg5040" "$(cmp -s "$LAUNCH_W" "$ROOT/skeleton/EXTRAS/Tools/$_p/Device Sync.pak/launch.sh" && echo same || echo differs)" "same"
 	check "W: $_p sync-engine.sh byte-identical to tg5040" "$(cmp -s "$ENGINE" "$ROOT/skeleton/EXTRAS/Tools/$_p/Device Sync.pak/sync-engine.sh" && echo same || echo differs)" "same"

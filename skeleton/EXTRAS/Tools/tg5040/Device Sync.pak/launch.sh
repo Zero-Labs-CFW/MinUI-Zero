@@ -145,7 +145,7 @@ if sleep 0.1 2>/dev/null; then NAPN=20; nap(){ sleep 0.1; }; else NAPN=2; nap(){
 # new one had painted -- a live screen showing black, and a second owner of a display that allows one
 # (Codex, 2026-09-18). Wait for it to actually go.
 status_off(){ if [ -n "$SPID" ]; then kill "$SPID" 2>/dev/null
-		k=0; while kill -0 "$SPID" 2>/dev/null && [ "$k" -lt "$NAPN" ]; do nap; k=$((k+1)); done
+		sk=0; while kill -0 "$SPID" 2>/dev/null && [ "$sk" -lt "$NAPN" ]; do nap; sk=$((sk+1)); done
 		kill -0 "$SPID" 2>/dev/null && kill -9 "$SPID" 2>/dev/null
 	fi
 	SPID=""; SCANCEL=0; killall status.elf 2>/dev/null; rm -f "$SMSG" "$SPROG"; return 0; }
@@ -458,18 +458,21 @@ hget(){ secs=$1; shift
 	# NAPN is ticks-per-TWO-seconds from the single sleep probe above (20 fractional, 2 otherwise), so
 	# ticks-per-second is half of it and `nap` is one tick.
 	lim=$(( secs * (NAPN / 2) )); [ "$lim" -lt 1 ] && lim=1
-	k=0
-	while kill -0 "$wpid" 2>/dev/null && [ "$k" -lt "$lim" ]; do nap; k=$((k+1)); done
+	# hk, never k: busybox sh has no locals, and a caller looping over bundle chunks with k had its counter
+	# overwritten by the seconds waited here, refetching chunk 2 forever on a fast link and SKIPPING chunks on a
+	# slow one, which then dribbled in file by file (Plus harness + the 27-chunk BRICKTEST sync, 2026-09-22)
+	hk=0
+	while kill -0 "$wpid" 2>/dev/null && [ "$hk" -lt "$lim" ]; do nap; hk=$((hk+1)); done
 	if kill -0 "$wpid" 2>/dev/null; then kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 1; fi
 	wait "$wpid"; }
 # hget that honours B: for the long bundle pulls, where fetch_file's rule (never a download the user
 # cannot stop) was bypassed and a 700 MB bundle ran to its deadline behind a blank panel (QA 2026-09-20)
 hget_c(){ # <secs> <dst> <url>; 0 done, 1 deadline or stalled, 3 stopped by the user
 	wget -q -O "$2" "$3" 2>/dev/null & wpid=$!
-	k=0; last=-1; stall=0
-	while kill -0 "$wpid" 2>/dev/null && [ "$k" -lt "$1" ]; do
+	ck=0; last=-1; stall=0   # ck, never k: see hget
+	while kill -0 "$wpid" 2>/dev/null && [ "$ck" -lt "$1" ]; do
 		stopped && { kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 3; }
-		sleep 1; k=$((k+1))
+		sleep 1; ck=$((ck+1))
 		sz=$(file_bytes "$2"); PART_KB=$((sz / 1024)); [ -n "${PLABEL:-}" ] && prog "$PLABEL"   # the chunk growing = visible progress
 		# a dead connection (a re-join after a loss left one) must fail over to the per-file path, not
 		# wait out a deadline that scales with the plan (5 h for 1 GB, 2026-09-22)
