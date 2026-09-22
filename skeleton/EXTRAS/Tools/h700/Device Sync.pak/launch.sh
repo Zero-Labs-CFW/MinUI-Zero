@@ -1302,7 +1302,7 @@ Pick Sync again there."
 			# arithmetic, and the bar would jump to garbage
 			DONE_N=$n; [ "$TOT_N" -gt 0 ] && DONE_KB=$(( TOT_KB / TOT_N * n ))
 			if [ -n "$BASE_TX" ]; then tx=$(cat "$TXF" 2>/dev/null); case "$tx" in ''|*[!0-9]*) ;; *)
-				DONE_KB=$(( (tx - BASE_TX) / 1024 * 25 / 26 )); [ "$DONE_KB" -gt "$TOT_KB" ] && DONE_KB=$TOT_KB ;;   # ~4% is TCP/WiFi framing
+				DONE_KB=$(awk -v a="$BASE_TX" -v b="$tx" -v t="$TOT_KB" 'BEGIN { k = (b - a) / 1024 * 25 / 26; if (k > t) k = t; if (k < 0) k = 0; printf "%d", k }') ;;   # awk: byte counts overflow 32-bit shell math; ~4% is TCP/WiFi framing
 			esac; fi
 			prog "Syncing with $PEER..."
 			stopped && { stop_ui; HALT=1; break; }
