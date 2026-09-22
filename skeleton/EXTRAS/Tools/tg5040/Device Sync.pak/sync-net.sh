@@ -64,7 +64,7 @@ build_export() { # <cardroot> <servedir> <scope-relpath>...  |  <cardroot> <serv
 	# file that no longer matched the plan and "Connection lost" (Brick<>MMP, 2026-09-21). They are
 	# tiny, so serve a SNAPSHOT copy (-p keeps the mtime the manifest and the merge rely on).
 	_link() { [ -e "$card/$1" ] || return 0; mkdir -p "$sv/$(dirname "$1")"
-		case "$1" in */favorites.txt|Collections|Collections/*) cp -pR "$card/$1" "$sv/$1" 2>/dev/null || ln -s "$card/$1" "$sv/$1" ;;
+		case "$1" in */favorites.txt|Collections|Collections/*) cp -pR "$card/$1" "$sv/$1" 2>/dev/null || { rm -rf "$sv/$1"; ln -s "$card/$1" "$sv/$1"; } ;;
 		*) ln -s "$card/$1" "$sv/$1" ;; esac; }  # nested rels need their parent first
 	if [ "$1" = "--list" ]; then
 		# per-game scopes carry spaces and parens in every path, so they arrive as a file, never as words

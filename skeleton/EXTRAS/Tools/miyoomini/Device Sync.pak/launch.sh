@@ -61,7 +61,7 @@ PORT=8145; PSK=minuizerosync; SSID=MinUI-Sync
 # Wire-protocol version, published with our prefs. Bump it whenever the manifest/plan/bundle shape or
 # the handshake files change incompatibly; a peer on a different number is told to update instead of
 # syncing by luck (two Zero builds, or a Zero and a NextUI port, can otherwise disagree silently).
-DSYNC_PROTO=3
+DSYNC_PROTO=4
 # Fork + build, INFORMATIONAL only (never a gate: a Zero 1.7 and a Zero 1.8, or a Zero and a NextUI port,
 # on the same protocol number sync fine). They make the mismatch message say WHICH build to update.
 DSYNC_FORK=zero
@@ -461,6 +461,7 @@ teardown(){
 	# hold the menu hostage: after 40 s the menu comes back while the reconnect finishes on its own
 	# (the Plus sat on a black screen for good here, 2026-09-21).
 	if [ "$HAD_WIFI" = 1 ]; then
+		rm -f "$BUSY"   # the force-quit guard restores only while BUSY names us: not twice
 		status "Reconnecting WiFi..."
 		( net restore-wifi >/dev/null 2>&1 ) & rp=$!
 		i=0; while kill -0 "$rp" 2>/dev/null && [ "$i" -lt 40 ]; do sleep 1; i=$((i+1)); done
@@ -739,12 +740,7 @@ options)
 	esac; done < "$W/out"
 	save_prefs
 	case "$(sed -n 's/^ACTION=//p' "$W/out" | head -1)" in
-		x) if [ "$PS" = 0 ] && [ "$PG" = 0 ] && [ "$PC" = 0 ]; then
-		       tell "Nothing turned on.
-
-Turn on Saves, Games or
-Game Configs first."; STATE=options
-		   else STATE=find; fi ;;
+		x) STATE=find ;;   # all off is allowed: this device then takes nothing and only gives (per-direction toggles)
 		y) STATE=backups ;;
 		*) exit 0 ;;   # B (no ACTION line): leave. It used to fall into find and start searching (QA 2026-09-20)
 	esac ;;
@@ -920,7 +916,7 @@ compare)
 	# written since then carry the lag the peer measures now (older ones are compared raw)
 	NB=$(now); UP=$(cut -d. -f1 /proc/uptime 2>/dev/null); case "$UP" in ''|*[!0-9]*) UP=0 ;; esac
 	MY_BOOT=0; [ "$NB" != 0 ] && { MY_BOOT=$((NB - UP)); printf '%s\n' "$MY_BOOT" > "$SERVE/_dsync_boot"; }
-	printf 'S=%s G=%s C=%s P=%s F=%s V=%s\n' "$PS" "$PG" "$PC" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label)
+	printf 'S=%s G=%s C=%s P=%s F=%s V=%s K=%s\n' "$PS" "$PG" "$PC" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" "$GSKIP" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label) + skipped systems
 	df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}' > "$SERVE/_dsync_free"
 	cp "$SERVE/_dsync_manifest" "$W/my.mf" 2>/dev/null
 	# bind to the sync interface only: a concurrent host (Brick, Miyoo) would otherwise serve its saves
@@ -978,6 +974,7 @@ Found $PEER"   # Comparing (building the delta)
 	case "$PP" in *S=0*) QS=0 ;; esac
 	case "$PP" in *G=1*) QG=1 ;; esac   # Games ON only when the peer EXPLICITLY says so
 	case "$PP" in *C=0*) QC=0 ;; esac
+	QK=$(printf '%s\n' "$PP" | sed -n 's/.*K=\([^ ]*\).*/\1/p' | head -1)   # systems the peer skips: honoured whoever hosts
 	# protocol check: a peer that publishes prefs but a different P (or none: a pre-v2 build) cannot be
 	# trusted to read our plan/bundle. Say which side to update, then leave cleanly (the peer sees ABORT).
 	PPROTO=$(printf '%s\n' "$PP" | sed -n 's/.*P=\([0-9]*\).*/\1/p' | head -1)
@@ -1021,6 +1018,8 @@ Nothing to copy."; exit 0
 	# per-system choice for Games: a 25 GB library all-or-nothing was unusable (Dan, 2026-09-21). Shown on
 	# the host only (it owns the plan), B here cancels like B on the item list.
 	if [ "$PG" = 1 ] || [ "$QG" = 1 ]; then
+		NROM0=$(awk -F"$TAB" '$1!="skip" && $2=="rom"' "$W/merge" | wc -l | tr -d ' ')
+		if [ -n "$QK" ]; then drop_systems "$W/merge" "$QK" > "$W/merge.f" && mv "$W/merge.f" "$W/merge"; fi   # the peer's skips first: not offered here
 		sys_rows "$W/merge" > "$W/sys"
 		if [ -s "$W/sys" ]; then
 			set --
@@ -1041,8 +1040,9 @@ Nothing to copy."; exit 0
 			done < "$W/sys"
 			GSKIP=$nskip; save_prefs
 			drop_systems "$W/merge" "$GSKIP" > "$W/merge.f" && mv "$W/merge.f" "$W/merge"
-			dbg "review: games skip=[$GSKIP]"
+			dbg "review: games skip=[$GSKIP] peer=[$QK]"
 		fi
+		NROM1=$(awk -F"$TAB" '$1!="skip" && $2=="rom"' "$W/merge" | wc -l | tr -d ' '); NDROP=$((NROM0 - NROM1))
 	fi
 	# per direction: what the peer takes follows the PEER toggles, what we take follows OURS
 	SKIPB=$(skip_classes "$QS" "$QG" "$QC"); SKIPA=$(skip_classes "$PS" "$PG" "$PC")
@@ -1053,9 +1053,11 @@ Nothing to copy."; exit 0
 	PK=$(plan_kb "$W/plan.peer"); MK=$(plan_kb "$W/plan.me")
 	if [ "$TOTN" -eq 0 ]; then
 		printf 'NOTHING\n' > "$SERVE/_dsync_totals"; sleep 2
-		tell "Already in sync.
+		if [ "${NDROP:-0}" -gt 0 ]; then tell "Already in sync.
 
-Nothing to copy."; exit 0
+Only skipped systems differ."; else tell "Already in sync.
+
+Nothing to copy."; fi; exit 0
 	fi
 
 	# Space is still checked on BOTH cards, but it can now only ADD a warning, never hide the button.
@@ -1148,6 +1150,7 @@ Nothing was copied."; exit 0
 
 Try again?"; then STATE=find; continue; else exit 0; fi
 	fi
+	MNEED=$(eng plan-need "$W/plan.me" "$LOCAL" 2>/dev/null); case "$MNEED" in ''|*[!0-9]*) MNEED=0 ;; esac   # so bundle_out leaves room for it
 	if hget 20 -O "$W/want" "$PEER_BASE/_dsync_want" && [ -s "$W/want" ]; then
 		bundle_out "$W/want"
 	fi

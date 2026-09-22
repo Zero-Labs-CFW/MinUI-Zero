@@ -506,6 +506,13 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 		if [ "$bkstate" = fail ]; then
 			printf 'FAIL\t%s (backup)\n' "$rel" >&2; rc=1; continue          # left unfinished on purpose
 		fi
+		# a cut between the final rename and its journal line: the write LANDED (the live file is the plan
+		# copy) and the staged file was moved away, so there is nothing to redo. Record it now, ops.log
+		# included, or a resume would report MISS forever and Restore would not know the file (Codex 2026-09-21)
+		if [ ! -e "$staging/$rel" ] && _is_plan_copy "$dst/$rel" "$psize" "$phash" "$mtime"; then
+			grep -qF "$(printf '\t%s' "$rel")" "$bdir/ops.log" 2>/dev/null || { op=UPDATE; [ "$bkstate" = none ] && op=ADD; printf '%s\t%s\t%s\n' "$op" "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"; }
+			printf 'DONE\t%s\t%s\n' "$action" "$rel" >> "$jl"; continue
+		fi
 		if [ ! -e "$staging/$rel" ]; then
 			printf 'MISS\t%s\n' "$rel" >&2; rc=1; continue                   # not downloaded: resume-apply retries it
 		fi
@@ -521,10 +528,12 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 			# later of the two mtimes, so the pair reads identical on the next sync. The pre-union file is
 			# already backed up above, so Restore still puts it back (Dan, 2026-09-21).
 			lm=$(file_mtime "$dst/$rel"); case "$lm" in ''|*[!0-9]*) lm=0 ;; esac
-			{ cat "$dst/$rel"; echo; cat "$staging/$rel"; echo; } | grep -v '^$' | sort -u > "$dst/$rel.dsync.tmp" 2>/dev/null
+			{ cat "$dst/$rel"; echo; cat "$staging/$rel"; echo; } | grep -v '^$' | sort -u > "$dst/$rel.dsync.tmp" 2>/dev/null; urc=$?
 			[ "$lm" -gt "${mtime:-0}" ] 2>/dev/null && mtime=$lm
-			if [ "$(file_size "$dst/$rel.dsync.tmp")" -gt 0 ] 2>/dev/null; then
-				mv "$dst/$rel.dsync.tmp" "$dst/$rel"; set_mtime "$dst/$rel" "${mtime:-0}"
+			# accepted only when sort succeeded and no live entry went missing (a full card can leave a partial file)
+			lcnt=$(grep -c . "$dst/$rel" 2>/dev/null); ucnt=$(grep -c . "$dst/$rel.dsync.tmp" 2>/dev/null)
+			if [ "$urc" = 0 ] && [ "${ucnt:-0}" -gt 0 ] && [ "${ucnt:-0}" -ge "${lcnt:-0}" ] 2>/dev/null && mv "$dst/$rel.dsync.tmp" "$dst/$rel" 2>/dev/null; then
+				set_mtime "$dst/$rel" "${mtime:-0}"
 				printf 'UPDATE\t%s\t%s\n' "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"
 				printf 'DONE\t%s\t%s\n' "$action" "$rel" >> "$jl"
 			else
@@ -537,8 +546,7 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 		# move is refused (a staging dir on another mount).
 		ssz=$(file_size "$staging/$rel")
 		mv "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null || cp "$staging/$rel" "$dst/$rel.dsync.tmp" 2>/dev/null
-		if [ "$ssz" = "$(file_size "$dst/$rel.dsync.tmp")" ]; then
-			mv "$dst/$rel.dsync.tmp" "$dst/$rel"
+		if [ "$ssz" = "$(file_size "$dst/$rel.dsync.tmp")" ] && mv "$dst/$rel.dsync.tmp" "$dst/$rel" 2>/dev/null; then
 			set_mtime "$dst/$rel" "${mtime:-0}"
 			op=UPDATE; [ "$bkstate" = none ] && op=ADD
 			printf '%s\t%s\t%s\n' "$op" "$(file_size "$dst/$rel")" "$rel" >> "$bdir/ops.log"
@@ -621,8 +629,8 @@ plan_need() { # <planfile> [dst] : KB that must be free on the receiving card
 	fi
 	awk -F"$TAB" '
 		FILENAME==ARGV[1] { i=index($0," ./"); if (i) { split($0,a," "); bk += a[5] } next }   # files that will be backed up
-		$1=="take" && $4 != "" && !seen[$4]++ { pl += $3 }
-		END { sl = pl; if (sl > 209715200) sl = 209715200; print int((pl + bk + sl + 1023) / 1024) }   # plan + backups + one bundle chunk (apply moves, never copies)
+		$1=="take" && $4 != "" && !seen[$4]++ { pl += $3; if ($3+0 > mx) mx = $3+0 }
+		END { sl = 209715200; if (mx > sl) sl = mx; if (sl > pl) sl = pl; print int((pl + bk + sl + 1023) / 1024) }   # plan + backups + one bundle chunk (a single file can exceed the cap)
 	' "$nt.sz" "$pn"
 	rm -f "$nt" "$nt.rels" "$nt.sz"
 }

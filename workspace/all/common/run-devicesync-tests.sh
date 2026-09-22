@@ -712,16 +712,16 @@ check "merge-summary: to-b TOTAL items = 3" "$(printf '%s\n' "$MSUM" | awk -F"$T
 check "merge-summary: to-a TOTAL items = 2" "$(printf '%s\n' "$MSUM" | awk -F"$TAB" '$1=="to-a"&&$2=="TOTAL"{print $3}')" "2"
 
 ######################################################################
-echo "########## SCENARIO W: wire format is FROZEN at DSYNC_PROTO=3 ##########"
+echo "########## SCENARIO W: wire format is FROZEN at DSYNC_PROTO=4 ##########"
 # Everything a peer reads off the wire, pinned byte-for-byte: manifest lines, merge lines, the shared
 # plan lines and the prefs line. If one of these checks fails, the wire SHAPE changed:
 #   1. bump DSYNC_PROTO in launch.sh (all three platform copies stay byte-identical), and
 #   2. update the expected strings AND the WIRE_PROTO below in the same commit.
 # A shape change without a bump would let two builds sync by luck; the number is the only gate.
-WIRE_PROTO=3
+WIRE_PROTO=4
 LAUNCH_W="$ROOT/skeleton/EXTRAS/Tools/tg5040/Device Sync.pak/launch.sh"
 check "W: launch.sh publishes DSYNC_PROTO=$WIRE_PROTO" "$(sed -n 's/^DSYNC_PROTO=\([0-9]*\)$/\1/p' "$LAUNCH_W")" "$WIRE_PROTO"
-check "W: prefs line carries S G C P F V" "$(grep -c "printf 'S=%s G=%s C=%s P=%s F=%s V=%s\\\\n'" "$LAUNCH_W")" "1"
+check "W: prefs line carries S G C P F V K" "$(grep -c "printf 'S=%s G=%s C=%s P=%s F=%s V=%s K=%s\\\\n'" "$LAUNCH_W")" "1"
 for _p in miyoomini h700; do
 	check "W: $_p launch.sh byte-identical to tg5040" "$(cmp -s "$LAUNCH_W" "$ROOT/skeleton/EXTRAS/Tools/$_p/Device Sync.pak/launch.sh" && echo same || echo differs)" "same"
 	check "W: $_p sync-engine.sh byte-identical to tg5040" "$(cmp -s "$ENGINE" "$ROOT/skeleton/EXTRAS/Tools/$_p/Device Sync.pak/sync-engine.sh" && echo same || echo differs)" "same"
@@ -814,6 +814,22 @@ check "U: collection union on both" "$(cat "$UA/$COL" | tr '\n' ' ')/$(cat "$UB/
 check "U: pre-union favorites are backed up on A" "$(cat "$SU/bk/a/$FAV" | tr '\n' ' ')" "Roms/GBA/b.gba Roms/GBA/a.gba "
 E manifest "$UA" > "$SU/a2.mf"; E manifest "$UB" > "$SU/b2.mf"
 check "U: after the merge both sides read identical (skip)" "$(E merge "$SU/a2.mf" "$SU/b2.mf" | awk -F"$TAB" '{print $1}' | sort -u | tr '\n' ' ')" "skip "
+
+######################################################################
+echo "########## SCENARIO L: resume after the write landed but the journal line did not ##########"
+# apply MOVES the staged file into place; a cut between that rename and the DONE line left no staged
+# copy and a live file that IS the plan copy. Resume must record it, not MISS forever.
+SL="$WORK/sl"; LL="$SL/local"; STL="$SL/staging"; BKL="$SL/bk/20260921-2300"; mkdir -p "$LL/Saves/GBA" "$STL/Saves/GBA" "$BKL/Saves/GBA"
+printf 'PEER-SAVE' > "$STL/Saves/GBA/w.srm"; PLANL="$SL/plan"; planln "$STL" save "Saves/GBA/w.srm" 1700000000 > "$PLANL"
+printf 'PEER-SAVE' > "$LL/Saves/GBA/w.srm"; TZ=UTC touch -t 202311141322.20 "$LL/Saves/GBA/w.srm"   # 1700000000: the write landed
+rm -f "$STL/Saves/GBA/w.srm"                                                                        # and staging was moved away
+printf 'ORIGINAL' > "$BKL/Saves/GBA/w.srm"
+printf 'BEGIN\tSaves/GBA/w.srm\nBACKUP\thave\t8\tSaves/GBA/w.srm\n' > "$BKL/journal.log"; : > "$BKL/ops.log"
+E resume-apply "$PLANL" "$STL" "$LL" "$BKL" >/dev/null 2>&1; lrc=$?
+check "L: resume completes (rc 0)"           "$lrc" "0"
+check "L: journal COMPLETE"                  "$(E journal-status "$BKL")" "COMPLETE"
+check "L: ops.log gained the UPDATE so Restore knows it" "$(awk -F"$TAB" '$3=="Saves/GBA/w.srm"{print $1}' "$BKL/ops.log")" "UPDATE"
+check "L: live file untouched"               "$(cat "$LL/Saves/GBA/w.srm")" "PEER-SAVE"
 
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"
