@@ -958,7 +958,8 @@ then try again."; then continue; else exit 0; fi
 	STATE=compare ;;
 
 compare)
-	step 3   # Comparing
+	step "3
+Comparing libraries"   # never a blank line under the row; the name follows once the peer answers
 	scope_list > "$W/scope"
 	net build-export "$LOCAL" "$SERVE" --list "$W/scope" >/dev/null 2>&1
 	printf '%s' "$NAME" > "$SERVE/_dsync_name"
