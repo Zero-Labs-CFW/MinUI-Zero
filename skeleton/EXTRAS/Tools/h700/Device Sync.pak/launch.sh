@@ -592,7 +592,7 @@ served_count(){ u=$(grep -c 'url:' /tmp/dsync-httpd.log 2>/dev/null)
 # segfault this busybox (see hget).
 fetch_file(){ # <url> <dst> <bytes>
 	if [ "${3:-0}" -lt 4194304 ]; then hget 20 -O "$2" "$1"; return 0; fi
-	wget -q -O "$2" "$1" 2>/dev/null & wp=$!
+	FRC=""; wget -q -O "$2" "$1" 2>/dev/null & wp=$!
 	last=-1; stall=0
 	while kill -0 "$wp" 2>/dev/null; do
 		stopped && { kill "$wp" 2>/dev/null; return 3; }
@@ -600,8 +600,9 @@ fetch_file(){ # <url> <dst> <bytes>
 		sz=$(file_bytes "$2")
 		if [ "$sz" = "$last" ]; then stall=$((stall+1)); else stall=0; last=$sz; fi
 		PART_KB=$((sz / 1024)); [ -n "${PLABEL:-}" ] && prog "$PLABEL"
-		[ "$stall" -ge 30 ] && { PART_KB=0; kill -9 "$wp" 2>/dev/null; return 0; }
+		[ "$stall" -ge 30 ] && { PART_KB=0; kill -9 "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; FRC=stall; return 0; }
 	done
+	wait "$wp" 2>/dev/null; FRC=$?   # for the give-up log line only; the size check decides
 	PART_KB=0
 	return 0; }
 
@@ -711,6 +712,7 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 			fetch_file "$1/$(net urlenc "$rel")" "$STAGE/$rel" "$sz"; frc=$?
 			[ "$frc" = 3 ] && { rm -f "$STAGE/$rel"; halt=1; break; }
 			staged_ok "$rel" "$sz" "${hash:--}" && { okf=1; break; }
+			dbg "pull: try $try of $rel landed $(file_bytes "$STAGE/$rel") of $sz bytes (wget ${FRC:-?})"
 			rm -f "$STAGE/$rel"
 			stopped && { halt=1; break; }     # B during a small file: give up between attempts
 		done
@@ -1470,7 +1472,9 @@ This cannot be undone." "DELETE" "BACK"; then
 		    set --; ri=0; : > "$W/rmap"
 		    while IFS="$TAB" read -r ro rn rt rr; do
 			k=$(awk -F"$TAB" -v n="$rn" -v t="$rt" '$2==n && $3==t {print $1; exit}' "$W/rmap")
-			if [ -z "$k" ]; then ri=$((ri+1)); k="r$ri"; set -- "$@" "$k" "$rn" "Keep|Restore" "Keep" "$rt"; fi
+			# "Game: 1942" / "Save: 1942": the right column is the toggle here, and a bare name did not say
+			# which of the two it was (Dan, 2026-09-22)
+			if [ -z "$k" ]; then ri=$((ri+1)); k="r$ri"; set -- "$@" "$k" "$rt: $rn" "Keep|Restore" "Keep" "$rt"; fi
 			printf '%s\t%s\t%s\t%s\n' "$k" "$rn" "$rt" "$rr" >> "$W/rmap"
 		    done < "$W/rrows"
 		    [ "$ri" -gt 0 ] || { tell "Nothing to restore in this backup."; STATE=restore; continue; }
