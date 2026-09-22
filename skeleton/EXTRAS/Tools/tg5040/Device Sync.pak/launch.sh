@@ -289,6 +289,19 @@ drop_systems(){ # <merge> <skip csv> -> the merge without the skipped systems (e
 		{ print }' "$1"; }
 in_csv(){ case ",$2," in *",$1,"*) return 0 ;; esac; return 1; }
 
+# Backups: one row per NAME+TYPE of a snapshot (a game's save and its state collapse into one row, like the
+# sync list), so a row can be put back on its own. Class from the path, the same rules as the engine.
+restore_rows(){ # <ops.log> -> ORD \t NAME \t TYPE \t REL (one line per rel; rows are deduped by NAME+TYPE by the caller)
+	awk -F"$TAB" -v OFS="$TAB" '{ rel=$3; if (rel=="") next; n=rel; sub(/.*\//,"",n)
+		if (rel ~ /favorites\.txt$/)        { name="Favorites"; type="Favorite"; ord=4 }
+		else if (rel ~ /^Collections\//)     { sub(/\.[^.]*$/,"",n); name=n; type="Collection"; ord=6 }
+		else if (rel ~ /^Roms\//)            { sub(/\.[^.]*$/,"",n); name=n; type="Game"; ord=2 }
+		else if (rel ~ /\.cfg$/)             { sub(/\.[^.]*$/,"",n); name=n; type="Settings"; ord=3 }
+		else if (rel ~ /^Saves\// || rel ~ /\.st[0-9](\.[^.]*)?$/) { sub(/\.[^.]*$/,"",n); sub(/\.st[0-9]$/,"",n); name=n; type="Save"; ord=1 }
+		else                                 { sub(/\.[^.]*$/,"",n); name=n; type="File"; ord=7 }
+		print ord, name, type, rel }' "$1" | sort -t"$TAB" -k1,1n -k2,2
+}
+
 # <<< pure logic
 # ===================================================================================================
 
@@ -1378,16 +1391,45 @@ restore)
 	OPEN=$(sed -n 's/^OPEN=//p' "$W/out" | head -1)
 	case "$OPEN" in
 		b*) b=$(awk -F"$TAB" -v k="$OPEN" '$1==k{print $2; exit}' "$W/bmap")
-		    ask "Restore this device to
-before that sync?
+		    # the files of that sync, one row per game/list, each Keep: A marks a row Restore, X restores the
+		    # marked rows (nothing marked = offer all of them), B goes back to the list (Dan, 2026-09-22)
+		    restore_rows "$BK_ROOT/$b/ops.log" > "$W/rrows"
+		    set --; ri=0; : > "$W/rmap"
+		    while IFS="$TAB" read -r ro rn rt rr; do
+			k=$(awk -F"$TAB" -v n="$rn" -v t="$rt" '$2==n && $3==t {print $1; exit}' "$W/rmap")
+			if [ -z "$k" ]; then ri=$((ri+1)); k="r$ri"; set -- "$@" "$k" "$rn" "Keep|Restore" "Keep" "$rt"; fi
+			printf '%s\t%s\t%s\t%s\n' "$k" "$rn" "$rt" "$rr" >> "$W/rmap"
+		    done < "$W/rrows"
+		    [ "$ri" -gt 0 ] || { tell "Nothing to restore in this backup."; STATE=restore; continue; }
+		    lbl=$(cat "$BK_ROOT/$b/label" 2>/dev/null); [ -n "$lbl" ] || lbl="$b"
+		    menu --wide --title "Restore: $lbl" --x-label "Restore" "$@" > "$W/out"
+		    grep -q '^ACTION=x$' "$W/out" || { STATE=restore; continue; }
+		    : > "$W/rsel"
+		    for k in $(sed -n 's/=Restore$//p' "$W/out" | grep '^r[0-9]*$'); do awk -F"$TAB" -v k="$k" '$1==k {print $4}' "$W/rmap" >> "$W/rsel"; done
+		    NR_SEL=$(awk 'END{print NR+0}' "$W/rsel"); NR_ALL=$(awk 'END{print NR+0}' "$W/rrows")
+		    if [ "$NR_SEL" -eq 0 ]; then
+			ask "Restore all $NR_ALL file(s)
+from before that sync?
 
 Current files are backed
-up first." "RESTORE" "BACK" || { STATE=entry; continue; }
+up first." "RESTORE ALL" "BACK" || { STATE=restore; continue; }
+			rm -f "$W/rsel"
+		    else
+			ask "Restore $NR_SEL file(s)?
+
+Current files are backed
+up first." "RESTORE" "BACK" || { STATE=restore; continue; }
+		    fi
 		    status "Restoring..."
 		    # restore() skips a file it cannot put back (a pruned backup, a full card, a bad sector) and
 		    # returns 1, saying so only in the log. "Restored." on top of that is the worst lie this pak
 		    # can tell: the user plays on believing their pre-sync saves are back (2026-09-18 review).
-		    eng restore "$LOCAL" "$BK_ROOT/$b" >> "$LOGF" 2>&1; rrc=$?
+		    # restore prints the NEW snapshot dir first (the files as they were just before this restore):
+		    # label it, so "go back to the synced state" is a readable row in this same list
+		    if [ -s "$W/rsel" ]; then NEWBK=$(eng restore "$LOCAL" "$BK_ROOT/$b" "$W/rsel" 2>> "$LOGF" | head -1); rrc=$?
+		    else NEWBK=$(eng restore "$LOCAL" "$BK_ROOT/$b" 2>> "$LOGF" | head -1); rrc=$?; fi
+		    [ -d "$NEWBK" ] && printf 'Before restore, %s' "$(date '+%b %d %H:%M' 2>/dev/null)" > "$NEWBK/label" 2>/dev/null
+		    rrc=$(if [ -f "$NEWBK/journal.log" ] && [ "$(eng journal-status "$NEWBK" 2>/dev/null)" = COMPLETE ]; then echo 0; else echo 1; fi)
 		    if [ "$rrc" = 0 ]; then
 			    tell "Restored.
 

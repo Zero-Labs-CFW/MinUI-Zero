@@ -647,8 +647,8 @@ plan_need() { # <planfile> [dst] : KB that must be free on the receiving card
 # The file list comes from ops.log, not journal.log: ops.log names exactly what was CHANGED (a file that
 # was backed up but never written is untouched, so it must not be "restored"), and it carries the
 # pre-state each rel needs. Prints the new snapshot dir on stdout as its first line.
-restore() { # <dst> <backupdir>
-	dst="$1"; bdir="$2"
+restore() { # <dst> <backupdir> [file of rels: restore ONLY these]
+	dst="$1"; bdir="$2"; rsel="${3:-}"
 	[ -f "$bdir/ops.log" ] || { echo "restore: no ops.log in $bdir" >&2; return 1; }
 	root=$(dirname "$bdir")
 	ts=$(date +%Y%m%d-%H%M%S); n=0
@@ -660,7 +660,11 @@ restore() { # <dst> <backupdir>
 	t=$(tmpf)
 	# one line per rel (a crash-resumed apply can log a rel twice, and snapshotting it twice would
 	# overwrite the snapshot with the already-restored file)
-	awk -F"$TAB" -v OFS="$TAB" '!seen[$3]++ { print $1, $3 }' "$bdir/ops.log" > "$t.work"
+	if [ -n "$rsel" ] && [ -f "$rsel" ]; then   # a chosen subset (Dan 2026-09-22: undo one save, not the whole sync)
+		awk -F"$TAB" -v OFS="$TAB" 'FILENAME==ARGV[1] { k[$0]=1; next } !seen[$3]++ && ($3 in k) { print $1, $3 }' "$rsel" "$bdir/ops.log" > "$t.work"
+	else
+		awk -F"$TAB" -v OFS="$TAB" '!seen[$3]++ { print $1, $3 }' "$bdir/ops.log" > "$t.work"
+	fi
 	rc=0; rdone=0; rmiss=0
 	while IFS="$TAB" read -r op rel; do
 		[ -n "$rel" ] || continue

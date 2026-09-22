@@ -831,6 +831,22 @@ check "L: journal COMPLETE"                  "$(E journal-status "$BKL")" "COMPL
 check "L: ops.log gained the UPDATE so Restore knows it" "$(awk -F"$TAB" '$3=="Saves/GBA/w.srm"{print $1}' "$BKL/ops.log")" "UPDATE"
 check "L: live file untouched"               "$(cat "$LL/Saves/GBA/w.srm")" "PEER-SAVE"
 
+######################################################################
+echo "########## SCENARIO V: restore a chosen subset of a backup ##########"
+SV="$WORK/sv"; LV="$SV/local"; BKV="$SV/bk/20260922-0900"; mkdir -p "$LV/Saves/GBA" "$LV/Saves/GBC" "$BKV/Saves/GBA" "$BKV/Saves/GBC"
+printf 'NEW-A' > "$LV/Saves/GBA/a.srm"; printf 'NEW-B' > "$LV/Saves/GBC/b.sav"; printf 'ADDED' > "$LV/Saves/GBA/c.srm"
+printf 'OLD-A' > "$BKV/Saves/GBA/a.srm"; printf 'OLD-B' > "$BKV/Saves/GBC/b.sav"
+printf 'UPDATE\t5\tSaves/GBA/a.srm\nUPDATE\t5\tSaves/GBC/b.sav\nADD\t5\tSaves/GBA/c.srm\n' > "$BKV/ops.log"; printf 'COMPLETE\n' > "$BKV/journal.log"
+printf 'Saves/GBA/a.srm\n' > "$SV/sel"
+E restore "$LV" "$BKV" "$SV/sel" >/dev/null 2>&1; vrc=$?
+check "V: subset restore rc 0"                    "$vrc" "0"
+check "V: the chosen save went back"              "$(cat "$LV/Saves/GBA/a.srm")" "OLD-A"
+check "V: the other save was left alone"          "$(cat "$LV/Saves/GBC/b.sav")" "NEW-B"
+check "V: the added file was left alone"          "$([ -e "$LV/Saves/GBA/c.srm" ] && cat "$LV/Saves/GBA/c.srm")" "ADDED"
+check "V: the new snapshot records only the chosen file" "$(cat "$SV/bk"/*/ops.log | grep -v "^UPDATE.5.Saves/GBA/a.srm$" | grep -c "Saves/GBA/a.srm\|b.sav\|c.srm" | tr -d ' ')" "2"
+E restore "$LV" "$BKV" >/dev/null 2>&1
+check "V: a full restore still removes the added file" "$([ -e "$LV/Saves/GBA/c.srm" ] && echo present || echo removed)" "removed"
+
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"
 rm -rf "$WORK"
