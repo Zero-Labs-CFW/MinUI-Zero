@@ -182,6 +182,10 @@ manifest() {
 	  # Hidden files (basename starting with a dot) never sync: macOS drops ._name and .DS_Store beside every
 	  # file it copies to a card, and MinUI hides them too (Dan, 2026-09-22: "lots of garbage files").
 	  # Windows leaves Thumbs.db / ehthumbs.db / desktop.ini inside game folders: same treatment.
+	  # Nor anything INSIDE a hidden folder: Syncthing keeps its marker at Saves/.stfolder/syncthing-folder-*.txt
+	  # and it showed up as a save called syncthing-folder-9525ed (Smart Pro, 2026-09-22). The walk starts at the
+	  # export root, so ./*/.*/* spares the .userdata scope root itself and drops hidden folders below any root,
+	  # except MinUI's own .minui (favorites.txt, recent.txt, collections live there).
 	  # NOT find -L: the Miyoo's busybox 1.20.2 has no -L and errors out. *.dsync.tmp/.part are our own
 	  # half-written scratch, never user files.
 	  # ONE pass for size AND mtime when stat -c exists (every device we ship: Brick, Miyoo, Plus): the
@@ -191,18 +195,18 @@ manifest() {
 		# -L reported the link itself (42 bytes, export time), so the plan carried a size no download could
 		# ever match (QA 2026-09-20). NF==3 drops a name containing a tab, which would otherwise become a
 		# phantom path that fails the whole bundle.
-		find . -follow -type f ! -name '.*' ! -name 'Thumbs.db' ! -name 'ehthumbs.db' ! -name 'desktop.ini' ! -name '*.dsync.tmp' ! -name '*.dsync.part' ! -name '*.gov' ! -name '*.thread' -exec stat -L -c "%s$TAB%Y$TAB%n" {} + 2>/dev/null > "$t.st"
+		find . -follow -type f ! -name '.*' \( -path '*/.minui/*' -o ! -path './*/.*/*' \) ! -name 'Thumbs.db' ! -name 'ehthumbs.db' ! -name 'desktop.ini' ! -name '*.dsync.tmp' ! -name '*.dsync.part' ! -name '*.gov' ! -name '*.thread' -exec stat -L -c "%s$TAB%Y$TAB%n" {} + 2>/dev/null > "$t.st"
 		# same shape the old passes produced, so the join below is unchanged: sizes as a fake ls line, mtimes only for non-ROMs
 		awk -F"$TAB" 'NF==3 { print "- - - - " $1 " x x x " $3 }' "$t.st" > "$t.sz"
 		awk -F"$TAB" -v OFS="$TAB" 'NF==3 && $3 !~ /^\.\/Roms\// { print $2, $3 }' "$t.st" > "$t.mt"
 	  else
-	  find . -follow -type f ! -name '.*' ! -name 'Thumbs.db' ! -name 'ehthumbs.db' ! -name 'desktop.ini' ! -name '*.dsync.tmp' ! -name '*.dsync.part' ! -name '*.gov' ! -name '*.thread' -exec ls -lnL {} + 2>/dev/null > "$t.sz"
+	  find . -follow -type f ! -name '.*' \( -path '*/.minui/*' -o ! -path './*/.*/*' \) ! -name 'Thumbs.db' ! -name 'ehthumbs.db' ! -name 'desktop.ini' ! -name '*.dsync.tmp' ! -name '*.dsync.part' ! -name '*.gov' ! -name '*.thread' -exec ls -lnL {} + 2>/dev/null > "$t.sz"
 	  # ROMs are existence-by-name (mtime never used, emitted as 0), so skip the per-file mtime fork for
 	  # them -- with Games on that is one date/stat fork PER GAME, the fork-storm class this file fixes.
 	  # ONE stat for every non-ROM file (`-exec {} +` batches), not one fork per file: 920 saves/states on
 	  # the Miyoo took 16 s of forks (measured 2026-09-20). The per-file loop stays as the fallback for a
 	  # busybox without stat -c.
-	  find . -follow -type f ! -path './Roms/*' ! -name '.*' ! -name 'Thumbs.db' ! -name 'ehthumbs.db' ! -name 'desktop.ini' ! -name '*.dsync.tmp' ! -name '*.dsync.part' ! -name '*.gov' ! -name '*.thread' 2>/dev/null | while IFS= read -r f; do
+	  find . -follow -type f ! -path './Roms/*' ! -name '.*' \( -path '*/.minui/*' -o ! -path './*/.*/*' \) ! -name 'Thumbs.db' ! -name 'ehthumbs.db' ! -name 'desktop.ini' ! -name '*.dsync.tmp' ! -name '*.dsync.part' ! -name '*.gov' ! -name '*.thread' 2>/dev/null | while IFS= read -r f; do
 		printf '%s\t%s\n' "$(file_mtime "$f")" "$f"; done > "$t.mt"
 	  fi
 	  # the path is everything from the first " ./" (the fields before it are perms/counts/date)

@@ -1263,7 +1263,10 @@ Nothing was half-copied.
 Pick Sync again to finish." "SYNC AGAIN"; then STATE=find; continue; else exit 0; fi
 		fi
 		if [ "$rc" = 1 ]; then
-			if oops "Connection lost.
+			# say what happened, as the host side does: a peer that still answers means some ITEMS failed
+			# after their retries, not the link (Brick with the Smart Pro, 2026-09-22)
+			if ping -c1 -W2 "$PEER_IP" >/dev/null 2>&1; then MM="Could not copy everything."; else MM="Connection lost."; fi
+			if oops "$MM
 
 Pick Sync again to finish;
 what already arrived is kept." "SYNC AGAIN"; then STATE=find; continue; else exit 0; fi
