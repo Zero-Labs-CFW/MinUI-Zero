@@ -281,8 +281,11 @@ build_plan(){ # <merge> <decisions> <skipped classes csv> <to-a|to-b> <A manifes
 		# a game is indexed under its file name AND its name without the extension: MinUI saves are
 		# <rom file>.sav ("Zelda.gbc.sav"), other firmwares write "Zelda.srm"; both belong to Zelda.gbc
 		function romadd(arr, r,   k,b) { k=romkey(r); if (k=="") return; arr[k]=1; b=k; sub(/\.[^.]*$/,"",b); if (b!=k) arr[b]=1 }
-		FILENAME==ARGV[2] { asz[$1]=$2; amt[$1]=$3; ah[$1]=$5; romadd(arom, $1); next }
-		FILENAME==ARGV[3] { bsz[$1]=$2; bmt[$1]=$3; bh[$1]=$5; romadd(brom, $1); next }
+		# the systems a card has games for (TAG), so a BIOS travels only where its system is
+		function tagof(r,   t) { if (r !~ /^Roms\/[^\/]+\/./) return ""; t=r; sub(/^Roms\//,"",t); sub(/\/.*/,"",t); if (match(t,/\([^()]*\)[^()]*$/)) { t=substr(t,RSTART+1); sub(/\).*/,"",t) } return t }
+		function biostag(r,   t) { if (r !~ /^Bios\/[^\/]+\/./) return ""; t=r; sub(/^Bios\//,"",t); sub(/\/.*/,"",t); return t }
+		FILENAME==ARGV[2] { asz[$1]=$2; amt[$1]=$3; ah[$1]=$5; romadd(arom, $1); t=tagof($1); if (t!="") atag[t]=1; next }
+		FILENAME==ARGV[3] { bsz[$1]=$2; bmt[$1]=$3; bh[$1]=$5; romadd(brom, $1); t=tagof($1); if (t!="") btag[t]=1; next }
 		{ d=$1; c=$2; s=$3; rel=$4
 		  if (d=="skip") next
 		  if (excluded(c)) next
@@ -295,12 +298,17 @@ build_plan(){ # <merge> <decisions> <skipped classes csv> <to-a|to-b> <A manifes
 		  if (d != want) next
 		  if (d=="to-b") line=sprintf("%s\t%s\t%d\t%s\t%s\t%s", "take", c, s+0, rel, (rel in ah ? ah[rel] : "-"), (rel in amt ? amt[rel] : 0))
 		  else           line=sprintf("%s\t%s\t%d\t%s\t%s\t%s", "take", c, s+0, rel, (rel in bh ? bh[rel] : "-"), (rel in bmt ? bmt[rel] : 0))
-		  if (c=="rom") romadd(prom, rel)
+		  if (c=="rom") { romadd(prom, rel); t=tagof(rel); if (t!="") ptag[t]=1 }
 		  g=""; if (c=="save") g=gamekey(rel)
-		  if (g=="") print line; else { nb++; sline[nb]=line; skey[nb]=g; srel[nb]=rel } }   # saves wait: their game may be later in the merge
+		  bt=biostag(rel)
+		  if (bt!="") { nc++; cline[nc]=line; ctag[nc]=bt }                                  # a BIOS waits: its games may be later in the merge
+		  else if (g=="") print line; else { nb++; sline[nb]=line; skey[nb]=g; srel[nb]=rel } }   # saves wait: their game may be later in the merge
 		END { for (i=1;i<=nb;i++) {
 			if ((want=="to-b" && (skey[i] in brom)) || (want=="to-a" && (skey[i] in arom)) || (skey[i] in prom)) print sline[i]
-			else print srel[i] > held } }
+			else print srel[i] > held }
+		  # a BIOS for a system with no games on the receiving card (and none coming) stays home, quietly:
+		  # Bios/ZQUEST and Bios/PUAE showed up as "Games" on a card with neither system (Dan, 2026-09-22)
+		  for (i=1;i<=nc;i++) if ((want=="to-b" && (ctag[i] in btag)) || (want=="to-a" && (ctag[i] in atag)) || (ctag[i] in ptag)) print cline[i] }
 	' "$2" "$5" "$6" "$1"; }
 
 plan_count(){ awk 'END{print NR+0}' "$1"; }
@@ -339,6 +347,7 @@ restore_rows(){ # <ops.log> -> ORD \t NAME \t TYPE \t REL (one line per rel; row
 	awk -F"$TAB" -v OFS="$TAB" '{ rel=$3; if (rel=="") next; n=rel; sub(/.*\//,"",n)
 		if (rel ~ /favorites\.txt$/)        { name="Favorites"; type="Favorite"; ord=4 }
 		else if (rel ~ /^Collections\//)     { sub(/\.[^.]*$/,"",n); name=n; type="Collection"; ord=6 }
+		else if (rel ~ /^Bios\/[^\/]+\//) { name=rel; sub(/^Bios\//,"",name); sub(/\/.*/,"",name); type="BIOS"; ord=5 }   # one row per system
 		else if (rel ~ /^Roms\/[^\/]+\/[^\/]+\//) { name=rel; sub(/^Roms\/[^\/]+\//,"",name); sub(/\/.*/,"",name); type="Game"; ord=2 }   # folder game: one row
 		else if (rel ~ /^Roms\//)            { sub(/\.[^.]*$/,"",n); name=n; type="Game"; ord=2 }
 		else if (rel ~ /\.cfg$/)             { sub(/\.[^.]*$/,"",n); name=n; type="Settings"; ord=3 }
@@ -417,6 +426,8 @@ plan_names(){ # <plan.me> <plan.peer> -> deduped "Name<TAB>Type", most useful fi
         else if (cls=="config")     { type="Settings";   ord=3 }
         else if (cls=="collection") { type="Collection"; ord=6 }
         else                        { type="File";       ord=7 }
+        # every BIOS file of a system is one row: "PS" / BIOS (they were listed one per file as Games)
+        if (rel ~ /^Bios\/[^\/]+\//) { name=rel; sub(/^Bios\//,"",name); sub(/\/.*/,"",name); type="BIOS"; ord=5 }
       }
       if (name=="") next
       k=name SUBSEP type
