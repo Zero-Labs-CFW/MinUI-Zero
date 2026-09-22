@@ -37,7 +37,7 @@ export SAVES_PATH="$SDCARD_PATH/Saves"
 # desktop.ini). MinUI hides them, Device Sync ignores them, and this sweeps them each boot so they do
 # not accumulate; known junk names only, never a user file (parity with the Brick launcher, 2026-09-22).
 rm -f "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._* 2>/dev/null
-( find "$ROMS_PATH" "$BIOS_PATH" "$SAVES_PATH" "$SDCARD_PATH/Collections" \( -name "._*" -o -name ".DS_Store" -o -name "Thumbs.db" -o -name "ehthumbs.db" -o -name "desktop.ini" \) -delete 2>/dev/null & )
+( sleep 15; find "$ROMS_PATH" "$BIOS_PATH" "$SAVES_PATH" "$SDCARD_PATH/Collections" \( -name "._*" -o -name ".DS_Store" -o -name "Thumbs.db" -o -name "ehthumbs.db" -o -name "desktop.ini" \) -delete 2>/dev/null & )
 export CHEATS_PATH="$SDCARD_PATH/Cheats"
 export USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM"
 export SHARED_USERDATA_PATH="$SDCARD_PATH/.userdata/shared"
