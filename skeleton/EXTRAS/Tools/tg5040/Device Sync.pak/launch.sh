@@ -1285,7 +1285,10 @@ Pick Sync again there."
 	else
 		# the joiner pulls first; watch our httpd log to turn its downloads into a live bar
 		BASE_LINES=$(served_count)
-		TOT_N=$(plan_count "$W/plan.peer"); TOT_KB=$(plan_kb "$W/plan.peer"); DONE_N=0; DONE_KB=0
+		# bytes actually sent over the hotspot radio: the only counter that moves INSIDE a 100 MB game
+		# (the request count stood still for minutes and the host looked frozen, Dan 2026-09-22)
+		TXF="/sys/class/net/$AP_IF/statistics/tx_bytes"; BASE_TX=$(cat "$TXF" 2>/dev/null); case "$BASE_TX" in ''|*[!0-9]*) BASE_TX="" ;; esac
+		TOT_N=$(plan_count "$W/plan.peer"); TOT_KB=$(plan_kb "$W/plan.peer"); DONE_N=0; DONE_KB=0; RATE_F="$W/rate"; : > "$RATE_F"; PART_KB=0
 		prog "Syncing with $PEER..."
 		miss=0; i=0; PEER_GOT=""; HALT=0
 		while [ "$miss" -lt 5 ] && [ "$i" -lt 10800 ]; do
@@ -1298,6 +1301,9 @@ Pick Sync again there."
 			# divide BEFORE multiplying: a full ROM set in KB times a file count overflows 32-bit shell
 			# arithmetic, and the bar would jump to garbage
 			DONE_N=$n; [ "$TOT_N" -gt 0 ] && DONE_KB=$(( TOT_KB / TOT_N * n ))
+			if [ -n "$BASE_TX" ]; then tx=$(cat "$TXF" 2>/dev/null); case "$tx" in ''|*[!0-9]*) ;; *)
+				DONE_KB=$(( (tx - BASE_TX) / 1024 * 25 / 26 )); [ "$DONE_KB" -gt "$TOT_KB" ] && DONE_KB=$TOT_KB ;;   # ~4% is TCP/WiFi framing
+			esac; fi
 			prog "Syncing with $PEER..."
 			stopped && { stop_ui; HALT=1; break; }
 			sleep 3; i=$((i+3))
