@@ -413,6 +413,7 @@ hget_c(){ # <secs> <dst> <url>; 0 done, 1 deadline, 3 stopped by the user
 	while kill -0 "$wpid" 2>/dev/null && [ "$k" -lt "$1" ]; do
 		stopped && { kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 3; }
 		sleep 1; k=$((k+1))
+		PART_KB=$(( $(file_bytes "$2") / 1024 )); [ -n "${PLABEL:-}" ] && prog "$PLABEL"   # the chunk growing = visible progress
 	done
 	if kill -0 "$wpid" 2>/dev/null; then kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 1; fi
 	wait "$wpid"; }
@@ -654,6 +655,9 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 	# One stream first (see bundle_plan). A truncated or missing archive is harmless: whatever it did not
 	# deliver at the right size is exactly what the resume split below fetches file by file.
 	PULL_BUNDLED=0; bn=$(plan_count "$2")
+	# totals BEFORE the bundle stage, so the screen never reads "0 KB of  KB" while chunks download; the
+	# exact split is recomputed after resume-check below (the bundle chunks count as progress meanwhile)
+	TOT_KB=$(plan_kb "$2"); TOT_N=$bn; DONE_KB=0; DONE_N=0
 	if [ "$bn" -gt 1 ]; then
 		BT="$DS_DIR/bundle.tar"; rm -f "$BT"
 		bdl=$(( $(plan_kb "$2") / 50 + 40 ))     # assume >= 50 KB/s, plus slack: never shorter than the data
@@ -666,6 +670,7 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 			[ "$hrc" = 0 ] && [ -s "$BT" ] || break
 			mkdir -p "$STAGE" 2>/dev/null; tar -xf "$BT" -C "$STAGE" 2>/dev/null
 			PULL_BUNDLED=1; dbg "pull: bundle $k $(file_bytes "$BT") bytes extracted"
+			DONE_KB=$((DONE_KB + $(file_bytes "$BT") / 1024)); PART_KB=0; prog "$3"
 			rm -f "$BT"; k=$((k+1)); [ "$k" -le 64 ] || break
 		done
 		rm -f "$BT"
