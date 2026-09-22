@@ -635,7 +635,12 @@ fetch_file(){ # <url> <dst> <bytes>
 	if [ "${3:-0}" -lt 4194304 ]; then hget 20 -O "$2" "$1"; return 0; fi
 	# stderr goes to the log: four big files failed three ~1.5 s tries each right after a 27-chunk bundle
 	# (BRICKTEST Pro, 2026-09-22) and the log could not say whether wget was refused, got a 404 or was cut
-	FRC=""; wget -q -O "$2" "$1" 2>>"$LOGF" & wp=$!
+	# -c resumes a partial from its current size (HTTP Range): a Stop or a cut at 367 MB of a 1.2 GB game no
+	# longer starts that file over (Dan, 2026-09-22). busybox httpd answers 206 and wget -c verified on the Miyoo
+	# (1.20.2); a server without Range makes wget -c fail once, the caller then drops the partial and the next try
+	# is a plain full download. A leftover at or past the wanted size can never resume: drop it first.
+	have=$(file_bytes "$2"); [ "${have:-0}" -ge "${3:-0}" ] 2>/dev/null && rm -f "$2"
+	FRC=""; wget -q -c -O "$2" "$1" 2>>"$LOGF" & wp=$!
 	last=-1; stall=0
 	while kill -0 "$wp" 2>/dev/null; do
 		stopped && { kill "$wp" 2>/dev/null; return 3; }
@@ -753,10 +758,13 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 		while [ "$try" -lt 3 ]; do
 			try=$((try+1))
 			fetch_file "$1/$(net urlenc "$rel")" "$STAGE/$rel" "$sz"; frc=$?
-			[ "$frc" = 3 ] && { rm -f "$STAGE/$rel"; halt=1; break; }
+			# a Stop keeps a partial big file: the next Sync resumes it by Range (small files are refetched whole)
+			[ "$frc" = 3 ] && { [ "${sz:-0}" -ge 4194304 ] 2>/dev/null || rm -f "$STAGE/$rel"; halt=1; break; }
 			staged_ok "$rel" "$sz" "${hash:--}" && { okf=1; break; }
 			dbg "pull: try $try of $rel landed $(file_bytes "$STAGE/$rel") of $sz bytes (wget ${FRC:-?})"
-			rm -f "$STAGE/$rel"
+			# first failure of a big file keeps what landed for a Range resume; the second starts clean, in
+			# case the partial itself (or a server without Range) is what keeps failing
+			if [ "$try" = 1 ] && [ "${sz:-0}" -ge 4194304 ] 2>/dev/null && [ "$(file_bytes "$STAGE/$rel")" -lt "$sz" ] 2>/dev/null; then :; else rm -f "$STAGE/$rel"; fi
 			stopped && { halt=1; break; }     # B during a small file: give up between attempts
 			sleep "$try"                      # 1 s, then 2 s: a blip gets time to pass
 		done
