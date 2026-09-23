@@ -6180,7 +6180,13 @@ static void Menu_loop(void) {
 			int max_width = screen->w - SCALE1(PADDING * 2) - ow;
 			
 			char display_name[256];
-			int text_width = GFX_truncateText(font.large, rom_name, display_name, max_width, SCALE1(BUTTON_PADDING*2));
+			// a favorited game carries a star before its name: the state shows beside the title, so the Y pill
+			// can always read FAVORITE (Dan, 2026-09-23). The star is U+2605, added to our font by
+			// tools/add-star-glyph.py (SDL_ttf has no fallback font).
+			char titled[260];
+			if (!flagExists(NO_FAVORITES_PATH) && Favorites_has((char*)game.path)) snprintf(titled, sizeof(titled), "\xe2\x98\x85 %s", rom_name);
+			else snprintf(titled, sizeof(titled), "%s", rom_name);
+			int text_width = GFX_truncateText(font.large, titled, display_name, max_width, SCALE1(BUTTON_PADDING*2));
 			max_width = MIN(max_width, text_width);
 
 			SDL_Surface* text;
@@ -6204,7 +6210,7 @@ static void Menu_loop(void) {
 
 			if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
 			else if (!flagExists(NO_FAVORITES_PATH)) // Y favorites the running game; the label doubles as its state
-				GFX_blitButtonGroup((char*[]){ "Y", Favorites_has((char*)game.path) ? "FAVORITED" : "FAVORITE", NULL }, 0, screen, 0); // positive wording (Dan): the pill states where you are, Y still toggles
+				GFX_blitButtonGroup((char*[]){ "Y", "FAVORITE", NULL }, 0, screen, 0); // positive wording (Dan): the pill states where you are, Y still toggles
 			else GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"POWER":"MENU","SLEEP", NULL }, 0, screen, 0);
 			GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OKAY", NULL }, 1, screen, 1);
 			

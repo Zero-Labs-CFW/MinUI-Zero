@@ -74,3 +74,11 @@ The base release zip ships three prebuilt third-party programs alongside the emu
   `workspace/tg5040/makefile`). Inherited from upstream MinUI, which ships the same program. The source tree
   carries no license file (OpenDingux-scene lineage, original by Mia); provenance and
   corresponding source are recorded here and in `LICENSES/SOURCES.txt`.
+
+## BPreplay (modified: BPreplay Zero)
+
+`skeleton/SYSTEM/res/BPreplayBold-unhinted.otf` is BPreplay Bold, (c) 2004 Magenta, 2008 George Triantafyllakos, released under the SIL Open Font License 1.1. MinUI Zero adds one glyph (U+2605, a solid star) with `tools/add-star-glyph.py` and renames the family to "BPreplay Zero" as the OFL asks of modified versions.
+
+## Heroicons (star outline)
+
+The star glyph's outline is the Heroicons v2 solid "star" icon, (c) Tailwind Labs, Inc., MIT License (https://github.com/tailwindlabs/heroicons/blob/master/LICENSE).
