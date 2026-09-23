@@ -1265,7 +1265,7 @@ Nothing to copy."; exit 0
 					# gated rows start as Skip, so only an explicit Sync is echoed back; a gate is never remembered as
 					# a user skip (the day the emulator lands, the system syncs by default again)
 					case "$v" in Sync) forced="${forced:+$forced
-}$sn: no $st emulator on $(awk -F"$TAB" -v t="$st" '$1==t{print $3; exit}' "$W/noemu")" ;; *) nskip="${nskip:+$nskip,}$st" ;; esac
+}$sn"; fwho=$(awk -F"$TAB" -v t="$st" '$1==t{print $3; exit}' "$W/noemu") ;; *) nskip="${nskip:+$nskip,}$st" ;; esac
 					continue
 				fi
 				case "$v" in Skip) nskip="${nskip:+$nskip,}$st" ;; Sync) ;; *) in_csv "$st" "$GSKIP" && nskip="${nskip:+$nskip,}$st" ;; esac
@@ -1275,10 +1275,12 @@ Nothing to copy."; exit 0
 			# (Codex round 4: the gate erased a real user skip)
 			GSKIP=""; for st in $(printf '%s' "$nskip" | tr ',' ' '); do if grep -q "^$st$TAB" "$W/noemu" 2>/dev/null && ! in_csv "$st" "$GSKIP0"; then :; else GSKIP="${GSKIP:+$GSKIP,}$st"; fi; done; save_prefs
 			GSKIP=$nskip   # for THIS sync the gated systems are skipped too (prefs keep the user's list only)
-			if [ -n "$forced" ]; then tell "These games will copy, but stay
-hidden until the emulator is added:
+			# short lines: the long version ran off the Miyoo's 640 px screen (Dan, 2026-09-23)
+			if [ -n "$forced" ]; then tell "No emulator on $fwho for:
+$forced
 
-$forced"; fi
+Those games stay hidden
+until one is added."; fi
 			drop_systems "$W/merge" "$GSKIP" > "$W/merge.f" && mv "$W/merge.f" "$W/merge"
 			dbg "review: games skip=[$GSKIP] peer=[$QK]"
 		fi
