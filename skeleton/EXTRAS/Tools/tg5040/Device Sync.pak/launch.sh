@@ -329,7 +329,9 @@ sys_dirs(){ # <merge>
 		if ($1=="to-a") a[tag]=1; else if ($1=="to-b") b[tag]=1; seen[tag]=1 }
 		END { for (t in seen) print t, ((t in a) && (t in b) ? "both" : (t in a) ? "to-a" : "to-b") }' "$1" | sort; }
 # a device runs a tag when it has the Emus pak for it; an EMPTY list means unknown (an older peer), never "none"
-has_emu(){ [ -s "$2" ] || return 0; grep -qx "$1" "$2"; }
+# awk, not grep -x: the Miyoo busybox (1.20.2) grep may lack -x, and an erroring grep read as "no emulator"
+# for EVERY system (a Brick Pro with GBC was told it had none, 2026-09-23). CRs stripped for safety.
+has_emu(){ [ -s "$2" ] || return 0; awk -v t="$1" '{ sub(/\r$/, "") } $0 == t { f = 1 } END { exit !f }' "$2"; }
 sys_rows(){ # <merge> [sysmap] -> TAG \t NAME \t games \t KB, one line per system with a game to move
 	awk -F"$TAB" -v OFS="$TAB" 'FILENAME==ARGV[1] { if ($1!="") folder[$1]=$2; next }
 		$1!="skip" && $2=="rom" && $4 ~ /^Roms\// {
