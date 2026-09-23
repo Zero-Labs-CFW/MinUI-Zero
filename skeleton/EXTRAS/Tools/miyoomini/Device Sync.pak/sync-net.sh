@@ -270,11 +270,9 @@ ap_up() { # <ssid> <psk> : raise AP on wlan1 at wlan0's channel; leaves wlan0 al
   # 2026-09-19: AP-ENABLED on wlan1, home WiFi kept (concurrent), and a Brick discovers the SSID. The
   # config mirrors OnionOS (ctrl_interface + CCMP/TKIP); channel follows wlan0 so a concurrent AP does
   # not knock the station off.
-  # 40 MHz + short guard interval: the Brick's XR829 is 2.4 GHz only (no 5 GHz to move to, probed
-  # 2026-09-22) but does HT40 with SGI, so the PHY rate can go 65 -> 150 Mbit. The secondary channel
-  # must exist: HT40+ pairs ch 1-7 with ch+4, HT40- pairs 5-13 with ch-4, else hostapd refuses to start.
-  # A station without HT40 (or a crowded band, via the 20/40 coexistence scan) simply falls back to HT20.
-  if [ "$ch" -le 7 ] 2>/dev/null; then htc='[HT40+][SHORT-GI-20][SHORT-GI-40]'; else htc='[HT40-][SHORT-GI-20][SHORT-GI-40]'; fi
+  # 40 MHz (HT40) was tried on 2026-09-22 and measured: 699 MB Brick-to-Brick Pro at 2.26 MB/s, no better than
+  # the 20 MHz channel (coexistence with neighbouring networks likely forced it back), and untested on the
+  # Miyoo/Anbernic hosts, so it is not shipped. The XR829 is 2.4 GHz only; there is no 5 GHz to move to.
   HOSTAPD=$(command -v hostapd 2>/dev/null || echo "${SYSTEM_PATH:-/mnt/SDCARD/.system/miyoomini}/bin/hostapd")
   if [ -x "$HOSTAPD" ]; then
     cat > /tmp/dsync-hostapd.conf <<EOC
@@ -284,8 +282,6 @@ ssid=$ssid
 channel=$ch
 hw_mode=g
 ieee80211n=1
-wmm_enabled=1
-ht_capab=$htc
 macaddr_acl=0
 auth_algs=1
 wpa=2
