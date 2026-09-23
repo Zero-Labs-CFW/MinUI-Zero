@@ -39,7 +39,7 @@ export SAVES_PATH="$SDCARD_PATH/Saves"
 rm -f "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._* 2>/dev/null
 # the & belongs OUTSIDE the subshell: inside it backgrounded only the find, and the sleep 15 ran in the
 # foreground of every boot (menu-ready 7 s -> 22 s on the Brick and Smart Pro, 2026-09-22)
-( sleep 15; while pidof minarch.elf >/dev/null 2>&1; do sleep 30; done; nice -n 19 find "$ROMS_PATH" "$BIOS_PATH" "$SAVES_PATH" "$SDCARD_PATH/Collections" \( -name "._*" -o -name ".DS_Store" -o -name "Thumbs.db" -o -name "ehthumbs.db" -o -name "desktop.ini" \) -delete 2>/dev/null ) &
+( sleep 15; while pidof minarch.elf >/dev/null 2>&1; do sleep 30; done; nice -n 19 find "$ROMS_PATH" "$BIOS_PATH" "$SAVES_PATH" "$SDCARD_PATH/Collections" \( -name "._*" -o -name ".DS_Store" -o -name "Thumbs.db" -o -name "ehthumbs.db" -o -name "desktop.ini" \) -exec rm -f {} + 2>/dev/null ) &
 export CHEATS_PATH="$SDCARD_PATH/Cheats"
 export USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM"
 export SHARED_USERDATA_PATH="$SDCARD_PATH/.userdata/shared"
