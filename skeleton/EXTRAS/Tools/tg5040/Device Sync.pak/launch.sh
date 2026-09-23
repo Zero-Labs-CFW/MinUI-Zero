@@ -214,13 +214,10 @@ disambiguate(){ if [ "$1" = "$2" ]; then printf '%s (this one)\n%s (other)\n' "$
 # finished line and serve it verbatim -- but the labels above are viewer-relative, so on two devices of
 # the same model the joiner's screen read "(this one) received 8" about the HOST's 8 (2026-09-18 review).
 done_text(){ # <A received> <B received> <skipped> <A name> <B name> [saves held from A] [saves held from B]
-	# ONE line of detail after the two received lines: eight lines pushed "Synced!" off the top of the Brick
-	# (Dan, 2026-09-22: "too much on screen"). Held saves come back on their own once the game is there.
-	held=$(( ${6:-0} + ${7:-0} )); t=""
-	[ "${3:-0}" -gt 0 ] && t="$3 game(s) skipped"
-	[ "$held" -gt 0 ] && t="${t:+$t, }$held save(s) held back"
-	if [ -n "$t" ]; then t="$t."; else t="Both devices are up to date."; fi
-	printf 'Synced!\n\n%s received %s.\n%s received %s.\n\n%s' "$4" "$1" "$5" "$2" "$t"; }
+	# Just what was synced. The skipped/held tallies are the user's own choices and the game rule; listing
+	# them here read as a reproach (Dan, 2026-09-23). Held saves come back on their own once the game is there.
+	if [ "${1:-0}" -eq 0 ] && [ "${2:-0}" -eq 0 ] 2>/dev/null; then printf 'Synced!\n\nBoth devices are up to date.'
+	else printf 'Synced!\n\n%s received %s.\n%s received %s.' "$4" "$1" "$5" "$2"; fi; }
 
 # Free space a device must have to RECEIVE <kb>: the transfer once (apply MOVES staged files into place,
 # same card), a 10% margin for backups of replaced saves, and one bundle chunk (200 MB cap) of slack
@@ -634,7 +631,7 @@ prog(){ PLABEL="$1"; shown=$(( ${DONE_KB:-0} + ${PART_KB:-0} )); [ "$shown" -gt 
 	rate=$(awk -v n="$pnow" '$1 >= n-60 && !f { t0=$1; k0=$2; f=1 } { t1=$1; k1=$2 } END { if (f && t1-t0 >= 5 && k1 > k0) printf "%d", (k1-k0)/(t1-t0); else print 0 }' "$RATE_F" 2>/dev/null </dev/null)
 	left=$((TOT_KB - shown)); [ "$left" -lt 0 ] && left=0   # per-file rounding can overshoot the total
 	# published for the other device: its "waiting for X to finish" can then show what X is doing
-	[ -d "${SERVE:-}" ] && printf 'copying, %s of %s\n' "$DONE_N" "$TOT_N" > "$SERVE/_dsync_progress" 2>/dev/null
+	[ -d "${SERVE:-}" ] && printf 'copy %s %s %s %s %s\n' "$shown" "$TOT_KB" "$DONE_N" "$TOT_N" "$rate" > "$SERVE/_dsync_progress" 2>/dev/null
 	smsg "$1
 
 $(fmt_kb "$shown") of $(fmt_kb "$TOT_KB"), $DONE_N of $TOT_N
@@ -649,12 +646,33 @@ $(fmt_kb "${TOT_KB:-0}") of $(fmt_kb "${TOT_KB:-0}"), ${TOT_N:-0} of ${TOT_N:-0}
 $2"
 	else t="$1
 
-Nothing to copy here.
-$2"; fi   # "0 KB of 0 KB, 0 of 0" read as broken (Brick, 2026-09-22)
+$2"; fi
 	# u = update the text only: never relaunch status.elf per tick (one process per phase, the Plus CMA rule)
 	if [ "${3:-}" = u ]; then smsg "$t"; return 0; fi
 	if [ "${3:-}" = b ]; then status_b "$t"; else status_off; status "$t"; fi
 	printf '%s/%s\n' "${TOT_KB:-1}" "${TOT_KB:-1}" > "$SPROG"; }
+# BOTH screens show the same thing during a transfer, named by the RECEIVING device: "Copying to Trimui
+# Brick Pro..." with the same numbers and bar, on the Pro (its own progress) and on the Brick (this mirror
+# of the numbers the Pro publishes). One sentence, one set of numbers, no "from"/"waiting"/"nothing" states
+# (Dan, 2026-09-23). Returns 1 when the peer publishes nothing yet, so the caller keeps its fallback.
+mirror_show(){ # <receiver name> [b|u]
+	mp=$(hget 4 -O - "$PEER_BASE/_dsync_progress" 2>/dev/null | head -1 | tr -cd 'a-z0-9 '); set -- "$1" "${2:-u}" $mp
+	case "${3:-}" in
+		copy) [ "${5:-x}" -ge 0 ] 2>/dev/null || return 1
+			k=${4:-0}; t=${5:-0}; n=${6:-0}; m=${7:-0}; r=${8:-0}; left=$((t - k)); [ "$left" -lt 0 ] && left=0
+			mt="Copying to $1...
+
+$(fmt_kb "$k") of $(fmt_kb "$t"), $n of $m
+$(eta "$left" "$r") left"; mb="$k/$t" ;;
+		save) [ "${5:-x}" -ge 0 ] 2>/dev/null || return 1
+			mt="Copying to $1...
+
+$(fmt_kb "${6:-0}") of $(fmt_kb "${6:-0}"), ${7:-0} of ${7:-0}
+saving, ${4:-0} of ${5:-0}"; mb="1/1" ;;
+		*) return 1 ;;
+	esac
+	if [ "$2" = b ] && [ "$SCANCEL" != 1 ]; then status_b "$mt"; else smsg "$mt"; fi
+	printf '%s\n' "$mb" > "$SPROG"; return 0; }
 # B makes status.elf exit, which runs GFX_quit and blacks the panel -- so the instant we notice a stop,
 # put an UNCANCELLABLE status straight back. The script keeps working for a moment after a stop (finishing
 # the file, tidying up), and a phase that runs with a dark screen is exactly what the plan forbids.
@@ -850,11 +868,11 @@ apply_plan(){ # <plan>
 	an=$(plan_count "$1"); alast=-1
 	while kill -0 "$apid" 2>/dev/null; do
 		sleep 1; ad=$(awk -F"$TAB" '$1=="DONE"{n++} END{print n+0}' "$BK/journal.log" 2>/dev/null)
-		if [ "$ad" != "$alast" ]; then alast=$ad; smsg "Copying from $PEER...
+		if [ "$ad" != "$alast" ]; then alast=$ad; smsg "Copying to $NAME...
 
 $(fmt_kb "${TOT_KB:-0}") of $(fmt_kb "${TOT_KB:-0}"), ${TOT_N:-0} of ${TOT_N:-0}
-saving to this device, $ad of $an"
-			[ -d "${SERVE:-}" ] && printf 'saving, %s of %s\n' "$ad" "$an" > "$SERVE/_dsync_progress" 2>/dev/null; fi
+saving, $ad of $an"
+			[ -d "${SERVE:-}" ] && printf 'save %s %s %s %s\n' "$ad" "$an" "${TOT_KB:-0}" "${TOT_N:-0}" > "$SERVE/_dsync_progress" 2>/dev/null; fi
 	done
 	wait "$apid"; arc=$?
 	printf '%s, %s' "$PEER" "$(date '+%b %d %H:%M' 2>/dev/null)" > "$BK/label" 2>/dev/null
@@ -1407,7 +1425,7 @@ sync)
 		try=0
 		while :; do
 			try=$((try+1))
-			pull_plan "$PEER_BASE" "$W/plan.me" "Syncing with $PEER..."; rc=$?
+			pull_plan "$PEER_BASE" "$W/plan.me" "Copying to $NAME..."; rc=$?
 			[ "$rc" = 0 ] && break
 			[ "$rc" = 2 ] && break          # the user stopped: do not retry behind their back
 			[ "$try" -ge 3 ] && break
@@ -1429,7 +1447,7 @@ Pick Sync again to finish." "SYNC AGAIN"; then STATE=find; continue; else exit 0
 Pick Sync again to finish;
 what already arrived is kept." "SYNC AGAIN"; then STATE=find; continue; else exit 0; fi
 		fi
-		prog_hold "Copying from $PEER..." "saving to this device"      # B off: nothing here can stop safely
+		prog_hold "Copying to $NAME..." "saving"      # B off: nothing here can stop safely
 		apply_plan "$W/plan.me" > "$W/got"; arc=$?
 		GOT=$(cat "$W/got" 2>/dev/null); [ -n "$GOT" ] || GOT=0
 		if [ "$arc" != 0 ]; then
@@ -1442,7 +1460,7 @@ Nothing was lost.
 Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 		fi
 		[ -n "${BPID:-}" ] && { wait "$BPID" 2>/dev/null; BPID=""; }   # our bundle for the host must be complete before it hears "applied"
-		prog_hold "Copying from $PEER..." "waiting for $PEER to finish" b
+		prog_hold "Copying to $PEER..." "" b   # the host copies next: from here on this screen mirrors the host
 		# Wait for the host to finish its half and publish the Done counts. Five lost pings (~25 s) mean
 		# it is gone. The _dsync_applied request goes out EVERY pass, not once: the host learns we applied
 		# only from that request, and a single fire-and-forget one that got lost hung both devices for
@@ -1453,7 +1471,7 @@ Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 			DONE_RAW=$(hget 8 -O - "$PEER_BASE/_dsync_done") || DONE_RAW=""  # ditto: half a line is not a report
 			[ -n "$DONE_RAW" ] && break
 			# mirror what the host is doing, so this wait is never a frozen full bar (Dan, 2026-09-22)
-			hp=$(hget 4 -O - "$PEER_BASE/_dsync_progress" 2>/dev/null | head -1 | tr -cd 'A-Za-z0-9 ,'); [ -n "$hp" ] && prog_hold "Copying from $PEER..." "$PEER is $hp" u
+			mirror_show "$PEER" u   # the host's own numbers, in the host's own layout
 			if ping -c1 -W2 "$PEER_IP" >/dev/null 2>&1; then miss=0; else miss=$((miss+1)); fi
 			stopped && { stop_ui; HALT=1; break; }
 			sleep 3; i=$((i+3))
@@ -1481,7 +1499,7 @@ Pick Sync again there."
 		# (the request count stood still for minutes and the host looked frozen, Dan 2026-09-22)
 		TXF="/sys/class/net/$AP_IF/statistics/tx_bytes"; BASE_TX=$(cat "$TXF" 2>/dev/null); case "$BASE_TX" in ''|*[!0-9]*) BASE_TX="" ;; esac
 		TOT_N=$(plan_count "$W/plan.peer"); TOT_KB=$(plan_kb "$W/plan.peer"); DONE_N=0; DONE_KB=0; RATE_F="$W/rate"; : > "$RATE_F"; PART_KB=0
-		prog "Syncing with $PEER..."
+		prog "Copying to $PEER..."
 		miss=0; i=0; PEER_GOT=""; HALT=0
 		while [ "$miss" -lt 5 ] && [ "$i" -lt 10800 ]; do
 			PEER_GOT=$(grep -o "_dsync_applied_[0-9]*" /tmp/dsync-httpd.log 2>/dev/null | tail -1)
@@ -1500,7 +1518,7 @@ Pick Sync again there."
 				# to 400 files), so the host read "69 of 90" while the joiner had 85 (Dan, 2026-09-22): derive the count
 				# from the bytes instead, so it tracks the bar and lands on the total exactly when the bytes do
 				[ "${TOT_KB:-0}" -gt 0 ] && DONE_N=$(awk -v k="$DONE_KB" -v t="$TOT_KB" -v n="$TOT_N" 'BEGIN { c = int(k * n / t); if (c > n) c = n; printf "%d", c }')
-			prog "Syncing with $PEER..."
+			mirror_show "$PEER" u || prog "Copying to $PEER..."
 			stopped && { stop_ui; HALT=1; break; }
 			sleep 3; i=$((i+3))
 		done
@@ -1525,7 +1543,7 @@ nothing was half-copied." "SYNC AGAIN"; then STATE=find; continue; else exit 0; 
 		try=0
 		while :; do
 			try=$((try+1))
-			pull_plan "$PEER_BASE" "$W/plan.me" "Copying from $PEER..."; rc=$?
+			pull_plan "$PEER_BASE" "$W/plan.me" "Copying to $NAME..."; rc=$?
 			[ "$rc" = 0 ] && break
 			[ "$rc" = 2 ] && break          # the user stopped: do not retry behind their back
 			[ "$try" -ge 3 ] && break
@@ -1544,7 +1562,7 @@ nothing was half-copied." "SYNC AGAIN"; then STATE=find; continue; else exit 0; 
 $PEER is up to date.
 Pick Sync again to finish this one." "SYNC AGAIN"; then STATE=sync; continue; else exit 0; fi
 		fi
-		prog_hold "Copying from $PEER..." "saving to this device"      # B off: nothing here can stop safely
+		prog_hold "Copying to $NAME..." "saving"      # B off: nothing here can stop safely
 		apply_plan "$W/plan.me" > "$W/got"; arc=$?
 		GOT=$(cat "$W/got" 2>/dev/null); [ -n "$GOT" ] || GOT=0
 		if [ "$arc" != 0 ]; then
@@ -1563,7 +1581,7 @@ Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 		# line rendered here read backwards on the joiner whenever both devices are the same model.
 		printf '%s %s %s %s %s\n' "$GOT" "$PEER_GOT" "$NSKIP" "${HELD_A:-0}" "${HELD_B:-0}" > "$SERVE/_dsync_done"
 		# hold the AP up briefly so the joiner can read it before we tear the radio down
-		prog_hold "Copying from $PEER..." "finishing"
+		prog_hold "Copying to $NAME..." "finishing"
 		i=0; while [ "$i" -lt 30 ] && ! grep -q "_dsync_done" /tmp/dsync-httpd.log 2>/dev/null; do sleep 1; i=$((i+1)); done
 	fi
 	STATE=done ;;
