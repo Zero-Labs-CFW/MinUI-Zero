@@ -499,7 +499,12 @@ int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int ma
 	
 	while (text_width>max_width) {
 		int len = strlen(out_name);
-		strcpy(&out_name[len-4], "...\0");
+		if (len <= 4) break; // nothing left to shorten
+		// never cut inside a UTF-8 character: step back over continuation bytes (10xxxxxx), or a title
+		// ending in a multibyte character becomes invalid UTF-8 and renders wrong (Codex r5)
+		int p = len-4;
+		while (p > 0 && (((unsigned char)out_name[p]) & 0xC0) == 0x80) p--;
+		strcpy(&out_name[p], "...");
 		TTF_SizeUTF8(font, out_name, &text_width, NULL);
 		text_width += padding;
 	}

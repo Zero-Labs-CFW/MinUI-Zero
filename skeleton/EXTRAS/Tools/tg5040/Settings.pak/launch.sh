@@ -115,7 +115,9 @@ while :; do
 	set -- "$@" datetime "Date & Time" "" "$NOW" "Press A to set. The clock can also\nshow on the main menu."
 
 	# last row: what this card runs, for anyone reporting a problem (Dan, 2026-09-23). Display only.
-	VER=$(head -1 "$CARD/.system/version.txt" 2>/dev/null); VSHORT=${VER%% *}
+	# two stamp formats: "v1.8.0 (20260923-0)" (TrimUI, Miyoo) and "MinUI Zero (v1.8.0)" (the h700 image)
+	VER=$(head -1 "$CARD/.system/version.txt" 2>/dev/null); VER=${VER#MinUI Zero }
+	VSHORT=$(printf '%s' "$VER" | tr -d '()' | tr ' ' '\n' | grep '^v[0-9]' | head -1)
 	set -- "$@" version "Version" "" "${VSHORT:-unknown}" "MinUI Zero ${VER:-unknown}\n$(model)"
 	OUT=$(settings.elf --title "Settings" "$@")
 	AGAIN=0

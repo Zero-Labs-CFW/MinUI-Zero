@@ -64,11 +64,20 @@ for t in f["cmap"].tables:
 f["maxp"].numGlyphs = len(f.getGlyphOrder())
 
 # OFL: a modified font does not keep the original family name
+RENAME = {"BPreplay-Bold": "BPreplayZero-Bold", "BPreplay Bold": "BPreplay Zero Bold", "BPreplay": "BPreplay Zero"}
+def zero(txt):  # longest match first, each piece replaced once (a chained replace gave "ZeroZero", Codex r5)
+    if "Zero" in txt:
+        return txt
+    for old in sorted(RENAME, key=len, reverse=True):
+        if old in txt:
+            return txt.replace(old, RENAME[old])
+    return txt
 for rec in f["name"].names:
-    txt = rec.toUnicode()
-    if "BPreplay" in txt and "Zero" not in txt and rec.nameID in (1, 3, 4, 6):
-        rec.string = txt.replace("BPreplay-Bold", "BPreplayZero-Bold").replace("BPreplay", "BPreplay Zero")
+    if rec.nameID in (1, 3, 4, 6):
+        rec.string = zero(rec.toUnicode())
 cff.fontNames = ["BPreplayZero-Bold"]
+top.FamilyName = zero(top.FamilyName)
+top.FullName = zero(top.FullName)
 
 f.save(str(FONT))
 print(f"star added as {NAME} (U+{CODE:04X}), adv {adv}, family renamed BPreplay Zero")

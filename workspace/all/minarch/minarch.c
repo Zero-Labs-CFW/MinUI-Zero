@@ -6179,7 +6179,7 @@ static void Menu_loop(void) {
 			int ow = GFX_blitHardwareGroup(screen, show_setting);
 			int max_width = screen->w - SCALE1(PADDING * 2) - ow;
 			
-			char display_name[256];
+			char display_name[264]; // room for the 4-byte "star + space" prefix on a 255-byte name (Codex r5)
 			// a favorited game carries a star before its name: the state shows beside the title, so the Y pill
 			// can always read FAVORITE (Dan, 2026-09-23). The star is U+2605, added to our font by
 			// tools/add-star-glyph.py (SDL_ttf has no fallback font).

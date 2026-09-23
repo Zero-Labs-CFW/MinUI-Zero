@@ -1620,7 +1620,10 @@ done)
 	dbg "done got=$GOT complete=$OKDONE"
 	# remembered for the next run: the partner and time (the entry line) and our role, so a host skips the
 	# opening scan next time and a repeat pairing is up in seconds (Dan, 2026-09-23)
-	if [ "$OKDONE" = 1 ]; then LAST_ROLE=$ROLE; LAST_PEER=$PEER; nw=$(now); [ "$nw" != 0 ] && LAST_AT=$nw; save_prefs; fi
+	# only a sync BOTH sides finished (the Done text starts "Synced!"; a lost or stopped host leaves "Stopped."),
+	# and only with a readable clock, so a new partner is never shown with an old time (Codex r5)
+	nw=$(now)
+	case "$DONE_TEXT" in "Synced!"*) [ "$OKDONE" = 1 ] && [ "$nw" != 0 ] && { LAST_ROLE=$ROLE; LAST_PEER=$PEER; LAST_AT=$nw; save_prefs; } ;; esac
 	if [ "$OKDONE" = 0 ]; then
 		RESUME_BK="$BK"
 		if oops "Could not save everything.
