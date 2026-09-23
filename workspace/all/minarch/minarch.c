@@ -6093,7 +6093,7 @@ static void Menu_loop(void) {
 		
 		// Favorites: Y here favorites or unfavorites THE GAME BEING PLAYED (Dan, 2026-09-16). Doing it
 		// from the pause menu keeps it a deliberate act on this game, not a stray press on a launcher
-		// row. The footer label flips (FAVORITE <-> UNFAVORITE), which is the only feedback needed.
+		// row. The footer label flips (FAVORITE <-> FAVORITED) and the title gains a star, which is the only feedback needed.
 		if (PAD_justPressed(BTN_Y) && !flagExists(NO_FAVORITES_PATH)) {
 			Favorites_toggle((char*)game.path);
 			dirty = 1;
@@ -6180,8 +6180,7 @@ static void Menu_loop(void) {
 			int max_width = screen->w - SCALE1(PADDING * 2) - ow;
 			
 			char display_name[264]; // room for the 4-byte "star + space" prefix on a 255-byte name (Codex r5)
-			// a favorited game carries a star before its name: the state shows beside the title, so the Y pill
-			// can always read FAVORITE (Dan, 2026-09-23). The star is U+2605, added to our font by
+			// a favorited game carries a star before its name, and the Y pill reads FAVORITED (Dan, 2026-09-23). The star is U+2605, added to our font by
 			// tools/add-star-glyph.py (SDL_ttf has no fallback font).
 			char titled[260];
 			if (!flagExists(NO_FAVORITES_PATH) && Favorites_has((char*)game.path)) snprintf(titled, sizeof(titled), "\xe2\x98\x85 %s", rom_name);
@@ -6210,7 +6209,7 @@ static void Menu_loop(void) {
 
 			if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
 			else if (!flagExists(NO_FAVORITES_PATH)) // Y favorites the running game; the label doubles as its state
-				GFX_blitButtonGroup((char*[]){ "Y", "FAVORITE", NULL }, 0, screen, 0); // positive wording (Dan): the pill states where you are, Y still toggles
+				GFX_blitButtonGroup((char*[]){ "Y", Favorites_has((char*)game.path) ? "FAVORITED" : "FAVORITE", NULL }, 0, screen, 0); // positive wording (Dan): the pill states where you are, Y still toggles; FAVORITED restored beside the star (Dan, 2026-09-23)
 			else GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"POWER":"MENU","SLEEP", NULL }, 0, screen, 0);
 			GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OKAY", NULL }, 1, screen, 1);
 			
