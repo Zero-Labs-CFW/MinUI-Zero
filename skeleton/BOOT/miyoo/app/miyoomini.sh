@@ -103,6 +103,7 @@ if ! mv "$STAGE" "$SDCARD_PATH/.tmp_update"; then
 fi
 sync                      # commit the bootstrap BEFORE deleting our way back to it
 rm -rf "$SDCARD_PATH/.tmp_update.old"
+rm -f "$SDCARD_PATH/MinUI-install-failed.txt"   # a later install succeeded: the old note is now false
 rm -rf "$MIYOO_PATH"
 sync
 $SDCARD_PATH/.tmp_update/updater

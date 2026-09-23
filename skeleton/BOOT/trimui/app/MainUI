@@ -89,6 +89,8 @@ if [ "$INSTALL_OK" != "1" ]; then
 	exit 1
 fi
 
+# a later install succeeded: a failure note from an earlier boot is now false (Dan, 2026-09-22)
+rm -f "$SDCARD_PATH/MinUI-install-failed.txt"
 rm -rf "$SDCARD_PATH/trimui"
 sync
 $SDCARD_PATH/.tmp_update/updater

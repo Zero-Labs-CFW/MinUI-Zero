@@ -86,15 +86,20 @@ mkdir -p "$(dirname "$LOGF")" "$DS_DIR" "$RES" "$STAGE" "$W" 2>/dev/null
 # (a whole missing library is 24 GB / hours over WiFi); opt in per device. Game settings (.cfg) never
 # sync: minarch reads exactly minarch-<device>.cfg with no fallback, so a Brick file is invisible on a
 # Brick Pro, and rewriting the tag in flight is guesswork across panels (Dan, 2026-09-22).
-PREFS="$DS_DIR/prefs"; PS=1; PG=0; GSKIP=""
+PREFS="$DS_DIR/prefs"; PS=1; PG=0; GSKIP=""; LAST_ROLE=""; LAST_PEER=""; LAST_AT=0
 if [ -f "$PREFS" ]; then
-	while IFS='=' read -r k v; do case "$k" in SAVES) PS=$v ;; GAMES) PG=$v ;; GAMES_SKIP) GSKIP=$v ;; esac; done < "$PREFS"
+	while IFS='=' read -r k v; do case "$k" in SAVES) PS=$v ;; GAMES) PG=$v ;; GAMES_SKIP) GSKIP=$v ;;
+		LAST_ROLE) LAST_ROLE=$v ;; LAST_PEER) LAST_PEER=$v ;; LAST_AT) LAST_AT=$v ;; esac; done < "$PREFS"
 fi
 # normalize to EXACTLY 0 or 1: a damaged/legacy prefs file (empty or stray value) must not leave PS/PG
 # as "" -- that reads as off on screen but slips past the all-off guard and serves an ambiguous "S=" the
 # peer treats as on (Codex, 2026-09-18). Anything that is not literal 1 becomes 0.
 [ "$PS" = 1 ] || PS=0; [ "$PG" = 1 ] || PG=0
-save_prefs(){ printf 'SAVES=%s\nGAMES=%s\nGAMES_SKIP=%s\n' "$PS" "$PG" "$GSKIP" > "$PREFS.tmp" && mv "$PREFS.tmp" "$PREFS"; }
+save_prefs(){ printf 'SAVES=%s\nGAMES=%s\nGAMES_SKIP=%s\nLAST_ROLE=%s\nLAST_PEER=%s\nLAST_AT=%s\n' "$PS" "$PG" "$GSKIP" "$LAST_ROLE" "$LAST_PEER" "$LAST_AT" > "$PREFS.tmp" && mv "$PREFS.tmp" "$PREFS"; }
+# "Last synced with X, 2 h ago" under the first screen (Dan, 2026-09-23); nothing when unknown or the clock went back
+last_line(){ [ -n "$LAST_PEER" ] || return 0; nw=$(now); ag=$((nw - ${LAST_AT:-0})); [ "$nw" != 0 ] && [ "$ag" -ge 0 ] 2>/dev/null || return 0
+	if [ "$ag" -lt 120 ]; then a="just now"; elif [ "$ag" -lt 5400 ]; then a="$((ag / 60)) min ago"; elif [ "$ag" -lt 172800 ]; then a="$(( (ag + 1800) / 3600 )) h ago"; else a="$((ag / 86400)) days ago"; fi
+	printf '\nLast synced with %s, %s' "$LAST_PEER" "$a"; }
 onoff(){ [ "$1" = 1 ] && printf On || printf Off; }
 
 # human-friendly model name (Trimui Brick / Brick Pro / Smart Pro) -- how the fork already detects it
@@ -736,7 +741,7 @@ bundle_plan(){ # <plan> <out.tar> -> 0 when the archive was written
 	while IFS="$TAB" read -r act cls sz rel hash mtime; do
 		[ -n "$rel" ] || continue
 		[ -f "$SERVE/$rel" ] || continue     # gone since the manifest: one missing path failed the whole tar (QA 2026-09-20)
-		[ "${sz:-0}" -lt 4194304 ] 2>/dev/null || continue   # >= 4 MiB streams on its own (fetch_file); the bundle is for the MANY small files
+		[ "${sz:-0}" -lt 33554432 ] 2>/dev/null || continue   # >= 32 MiB streams on its own (fetch_file); the bundle is for the MANY small files
 		# a chunk closes at 400 paths OR 200 MB, and BEFORE a file that would push it past the cap, so a chunk
 		# is never bigger than max(200 MB, one file): the receiver holds one chunk beside its extracted files
 		if [ "$c" -gt 0 ] && [ $((cb + ${sz:-0})) -gt 209715200 ]; then
@@ -766,7 +771,8 @@ bundle_out(){ # <plan> -> 0 when chunks are linked into $SERVE
 	# bod, not bo: bundle_plan uses bo for ITS output path and clobbered ours (no local in busybox sh),
 	# so this loop looked inside the tar for chunks and linked none: every bundle 404 today (2026-09-21)
 	bod="$DS_DIR/out"; rm -rf "$bod"; rm -f "$SERVE"/_dsync_bundle.tar*
-	sm=$(awk -F"$TAB" '$3 < 4194304 { b += $3 } END { printf "%d", (b + 1023) / 1024 }' "$1")   # only the small files ride in the bundle
+	# up to 32 MiB rides in the bundle: GBA/SNES carts went one request each (2026-09-23)
+	sm=$(awk -F"$TAB" '$3 < 33554432 { b += $3 } END { printf "%d", (b + 1023) / 1024 }' "$1")   # only the small files ride in the bundle
 	[ "${sm:-0}" -gt 0 ] || { dbg "bundle: nothing under 4 MiB to bundle"; return 1; }
 	need=$(( sm * 11 / 10 + 2048 ))
 	free=$(df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}')
@@ -956,7 +962,7 @@ whenever a sync replaces a file."; STATE=entry; continue
 
 find)
 	status_steps "1
-Open Device Sync on the other device"
+Open Device Sync on the other device$(last_line)"
 	net stop-serve >/dev/null 2>&1      # a retry must not leave the previous run's httpd orphaned
 	# ...and must not leave the previous pass's RADIO up either. An AP left running keeps broadcasting
 	# while we start a fresh pass, and ap_alive is only `pidof hostapd`, so the stale process reports the
@@ -968,6 +974,10 @@ Open Device Sync on the other device"
 	radio_up
 	# 1) is somebody already hosting? an iw scan takes ~2 s of its own, so two passes is the ~4 s window
 	FOUND=""; i=0
+	# hosted last time: skip the ~10 s opening scan and open the hotspot at once; the partner joined us last
+	# time and will scan for us. If two devices both remember "host", the rival scans at 0/8/20 s in the host
+	# wait still elect one, exactly as when both Sync presses land together (Dan, 2026-09-23).
+	[ "$LAST_ROLE" = host ] && { i=2; dbg "find: hosted last time, opening the hotspot straight away"; }
 	while [ "$i" -lt 2 ]; do
 		FOUND=$(peer_ssid "$MYSSID" "$(net scan 2>/dev/null)")
 		[ -n "$FOUND" ] && break
@@ -1048,7 +1058,7 @@ Found a device"   # a station associated -> Connecting
 			esac
 			sleep 2; i=$((i+2))
 			step "1
-Open Device Sync on the other device, ${i}s"   # the count proves the wait is alive
+Open Device Sync on the other device, ${i}s$(last_line)"   # the count proves the wait is alive
 		done
 	fi
 	if [ "$HALT" = 1 ]; then
@@ -1608,6 +1618,9 @@ done)
 		rm -rf "$STAGE"; mkdir -p "$STAGE" # staged copies are applied; free the card
 	fi
 	dbg "done got=$GOT complete=$OKDONE"
+	# remembered for the next run: the partner and time (the entry line) and our role, so a host skips the
+	# opening scan next time and a repeat pairing is up in seconds (Dan, 2026-09-23)
+	if [ "$OKDONE" = 1 ]; then LAST_ROLE=$ROLE; LAST_PEER=$PEER; nw=$(now); [ "$nw" != 0 ] && LAST_AT=$nw; save_prefs; fi
 	if [ "$OKDONE" = 0 ]; then
 		RESUME_BK="$BK"
 		if oops "Could not save everything.

@@ -191,7 +191,7 @@ if [ -f "$UPDATE_PATH" ]; then
 		sync
 		rm -rf "$STAGE"
 		if [ "${COPY_OK:-0}" = "1" ]; then
-			rm -f "$UPDATE_PATH"
+			rm -f "$UPDATE_PATH" "$SDCARD_PATH/MinUI-update-failed.txt"   # success: an old failure note is now false
 			UPDATED=yes
 		else
 			echo "$(date '+%F %T') Update failed while installing (the card may be full). MinUI.zip was kept - free some space and reboot to retry." > "$SDCARD_PATH/MinUI-update-failed.txt"
