@@ -631,7 +631,10 @@ prog(){ PLABEL="$1"; shown=$(( ${DONE_KB:-0} + ${PART_KB:-0} )); [ "$shown" -gt 
 	rate=$(awk -v n="$pnow" '$1 >= n-60 && !f { t0=$1; k0=$2; f=1 } { t1=$1; k1=$2 } END { if (f && t1-t0 >= 5 && k1 > k0) printf "%d", (k1-k0)/(t1-t0); else print 0 }' "$RATE_F" 2>/dev/null </dev/null)
 	left=$((TOT_KB - shown)); [ "$left" -lt 0 ] && left=0   # per-file rounding can overshoot the total
 	# published for the other device: its "waiting for X to finish" can then show what X is doing
-	[ -d "${SERVE:-}" ] && printf 'copy %s %s %s %s %s\n' "$shown" "$TOT_KB" "$DONE_N" "$TOT_N" "$rate" > "$SERVE/_dsync_progress" 2>/dev/null
+	# only while THIS device is receiving (PROG_PUB, set in pull_plan): the host's own estimate of the joiner's
+	# pull must never be published as "the host's progress" (code review, 2026-09-23). tmp + mv: a reader never
+	# catches the file empty and falls back to a different set of numbers.
+	[ "${PROG_PUB:-0}" = 1 ] && [ -d "${SERVE:-}" ] && printf 'copy %s %s %s %s %s\n' "$shown" "$TOT_KB" "$DONE_N" "$TOT_N" "$rate" > "$SERVE/_dsync_progress.tmp" 2>/dev/null && mv "$SERVE/_dsync_progress.tmp" "$SERVE/_dsync_progress" 2>/dev/null
 	smsg "$1
 
 $(fmt_kb "$shown") of $(fmt_kb "$TOT_KB"), $DONE_N of $TOT_N
@@ -659,11 +662,13 @@ mirror_show(){ # <receiver name> [b|u]
 	mp=$(hget 4 -O - "$PEER_BASE/_dsync_progress" 2>/dev/null | head -1 | tr -cd 'a-z0-9 '); set -- "$1" "${2:-u}" $mp
 	case "${3:-}" in
 		copy) [ "${5:-x}" -ge 0 ] 2>/dev/null || return 1
+			if [ "${5:-0}" -le 0 ]; then mt="Copying to $1..."; mb=""   # an empty plan: never "0 KB of 0 KB, 0 of 0"
+			else
 			k=${4:-0}; t=${5:-0}; n=${6:-0}; m=${7:-0}; r=${8:-0}; left=$((t - k)); [ "$left" -lt 0 ] && left=0
 			mt="Copying to $1...
 
 $(fmt_kb "$k") of $(fmt_kb "$t"), $n of $m
-$(eta "$left" "$r") left"; mb="$k/$t" ;;
+$(eta "$left" "$r") left"; mb="$k/$t"; fi ;;
 		save) [ "${5:-x}" -ge 0 ] 2>/dev/null || return 1
 			mt="Copying to $1...
 
@@ -672,7 +677,7 @@ saving, ${4:-0} of ${5:-0}"; mb="1/1" ;;
 		*) return 1 ;;
 	esac
 	if [ "$2" = b ] && [ "$SCANCEL" != 1 ]; then status_b "$mt"; else smsg "$mt"; fi
-	printf '%s\n' "$mb" > "$SPROG"; return 0; }
+	if [ -n "$mb" ]; then printf '%s\n' "$mb" > "$SPROG"; else : > "$SPROG"; fi; return 0; }
 # B makes status.elf exit, which runs GFX_quit and blacks the panel -- so the instant we notice a stop,
 # put an UNCANCELLABLE status straight back. The script keeps working for a moment after a stop (finishing
 # the file, tidying up), and a phase that runs with a dark screen is exactly what the plan forbids.
@@ -772,6 +777,7 @@ bundle_out(){ # <plan> -> 0 when chunks are linked into $SERVE
 	bn=0; for bf in "$bod"/_dsync_bundle.tar*; do [ -f "$bf" ] && { ln -s "$bf" "$SERVE/${bf##*/}"; bn=$((bn+1)); }; done
 	dbg "bundle: $bn chunk(s) linked, $(file_bytes "$bod/_dsync_bundle.tar") bytes first"; return 0; }
 pull_plan(){ # <base url> <plan> <status label> : stage every planned file
+	PROG_PUB=1   # this device is the receiver now: its progress is what the other screen mirrors
 	RATE_F="$W/rate"; : > "$RATE_F"; PART_KB=0
 	# One stream first (see bundle_plan). A truncated or missing archive is harmless: whatever it did not
 	# deliver at the right size is exactly what the resume split below fetches file by file.
@@ -872,7 +878,7 @@ apply_plan(){ # <plan>
 
 $(fmt_kb "${TOT_KB:-0}") of $(fmt_kb "${TOT_KB:-0}"), ${TOT_N:-0} of ${TOT_N:-0}
 saving, $ad of $an"
-			[ -d "${SERVE:-}" ] && printf 'save %s %s %s %s\n' "$ad" "$an" "${TOT_KB:-0}" "${TOT_N:-0}" > "$SERVE/_dsync_progress" 2>/dev/null; fi
+			[ -d "${SERVE:-}" ] && printf 'save %s %s %s %s\n' "$ad" "$an" "${TOT_KB:-0}" "${TOT_N:-0}" > "$SERVE/_dsync_progress.tmp" 2>/dev/null && mv "$SERVE/_dsync_progress.tmp" "$SERVE/_dsync_progress" 2>/dev/null; fi
 	done
 	wait "$apid"; arc=$?
 	printf '%s, %s' "$PEER" "$(date '+%b %d %H:%M' 2>/dev/null)" > "$BK/label" 2>/dev/null
@@ -1460,7 +1466,7 @@ Nothing was lost.
 Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 		fi
 		[ -n "${BPID:-}" ] && { wait "$BPID" 2>/dev/null; BPID=""; }   # our bundle for the host must be complete before it hears "applied"
-		prog_hold "Copying to $PEER..." "" b   # the host copies next: from here on this screen mirrors the host
+		PROG_PUB=0; status_b "Copying to $PEER..."   # the host copies next: title only until it publishes, then its numbers
 		# Wait for the host to finish its half and publish the Done counts. Five lost pings (~25 s) mean
 		# it is gone. The _dsync_applied request goes out EVERY pass, not once: the host learns we applied
 		# only from that request, and a single fire-and-forget one that got lost hung both devices for
@@ -1499,7 +1505,8 @@ Pick Sync again there."
 		# (the request count stood still for minutes and the host looked frozen, Dan 2026-09-22)
 		TXF="/sys/class/net/$AP_IF/statistics/tx_bytes"; BASE_TX=$(cat "$TXF" 2>/dev/null); case "$BASE_TX" in ''|*[!0-9]*) BASE_TX="" ;; esac
 		TOT_N=$(plan_count "$W/plan.peer"); TOT_KB=$(plan_kb "$W/plan.peer"); DONE_N=0; DONE_KB=0; RATE_F="$W/rate"; : > "$RATE_F"; PART_KB=0
-		prog "Copying to $PEER..."
+		rm -f "$SERVE/_dsync_progress"; PROG_PUB=0
+		if [ "$TOT_N" -gt 0 ]; then prog "Copying to $PEER..."; else smsg "Copying to $PEER..."; fi
 		miss=0; i=0; PEER_GOT=""; HALT=0
 		while [ "$miss" -lt 5 ] && [ "$i" -lt 10800 ]; do
 			PEER_GOT=$(grep -o "_dsync_applied_[0-9]*" /tmp/dsync-httpd.log 2>/dev/null | tail -1)
@@ -1518,7 +1525,7 @@ Pick Sync again there."
 				# to 400 files), so the host read "69 of 90" while the joiner had 85 (Dan, 2026-09-22): derive the count
 				# from the bytes instead, so it tracks the bar and lands on the total exactly when the bytes do
 				[ "${TOT_KB:-0}" -gt 0 ] && DONE_N=$(awk -v k="$DONE_KB" -v t="$TOT_KB" -v n="$TOT_N" 'BEGIN { c = int(k * n / t); if (c > n) c = n; printf "%d", c }')
-			mirror_show "$PEER" u || prog "Copying to $PEER..."
+			mirror_show "$PEER" u || { [ "$TOT_N" -gt 0 ] && prog "Copying to $PEER..."; }
 			stopped && { stop_ui; HALT=1; break; }
 			sleep 3; i=$((i+3))
 		done
