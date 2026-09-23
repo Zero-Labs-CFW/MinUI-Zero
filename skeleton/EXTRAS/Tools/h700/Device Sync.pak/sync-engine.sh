@@ -53,6 +53,19 @@ SYSMAP_STR=""
 if [ -n "${DSYNC_SYSMAP:-}" ] && [ -f "$DSYNC_SYSMAP" ]; then
 	SYSMAP_STR="$(awk -F"$TAB" '$1!="" && $2!="" { printf "|%s=%s", $1, $2 }' "$DSYNC_SYSMAP")|"
 fi
+# A favorites.txt / Collection line is an SD-relative path naming the SENDER's console folder
+# ("/Roms/6) PlayStation (PS)/FF7.chd"). On a card that calls that system "Sony PlayStation (PS)" the
+# launcher drops the entry as non-existent, so the favorite never arrived even though the game did
+# (Codex round 4). Rewrite the folder to this card's folder for the same tag; unknown tags pass through.
+_fix_list() { # <staged list file>: rewritten in place
+	[ -n "$SYSMAP_STR" ] && [ -f "$1" ] || return 0
+	awk -v map="$SYSMAP_STR" '
+		{ line=$0; if (line ~ /^\/Roms\/[^\/]+\//) {
+			f=line; sub(/^\/Roms\//,"",f); sub(/\/.*/,"",f); tag=f
+			if (match(f,/\([^()]*\)[^()]*$/)) { tag=substr(f,RSTART+1); sub(/\).*/,"",tag) }
+			k="|" tag "="; i=index(map,k)
+			if (i) { lf=substr(map,i+length(k)); sub(/\|.*/,"",lf); if (lf!="" && lf!=f) { rest=line; sub(/^\/Roms\/[^\/]+/,"",rest); line="/Roms/" lf rest } }
+		  } print line }' "$1" > "$1.fixed" 2>/dev/null && mv "$1.fixed" "$1" 2>/dev/null || rm -f "$1.fixed"; }
 local_rel() { # <rel> -> sets LREL (no subshell: this runs once per file)
 	LREL=$1
 	case "$1" in Roms/*/*)
@@ -558,6 +571,7 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 			fi
 		fi
 		ld=${LREL%/*}; [ "$ld" = "$LREL" ] || [ -d "$dst/$ld" ] || mkdir -p "$dst/$ld"
+		{ [ "$pcls" = favorite ] || [ "$pcls" = collection ]; } && _fix_list "$staging/$rel"
 		if { [ "$pcls" = favorite ] || [ "$pcls" = collection ]; } && [ -f "$dst/$LREL" ]; then
 			# a LIST file: write the union of both sides, one entry per line, sorted (the launcher sorts these
 			# lists itself, so file order carries nothing). Both devices compute the same bytes and stamp the
@@ -568,7 +582,9 @@ _apply_plan() { # <new|resume> <planfile> <staging> <dst> <backupdir>
 			[ "$lm" -gt "${mtime:-0}" ] 2>/dev/null && mtime=$lm
 			# accepted only when sort succeeded and no live entry went missing (a full card can leave a partial file)
 			lcnt=$(grep -v '^$' "$dst/$LREL" 2>/dev/null | sort -u | wc -l | tr -d ' '); ucnt=$(grep -c . "$dst/$LREL.dsync.tmp" 2>/dev/null)
-			if [ "$urc" = 0 ] && [ "${ucnt:-0}" -gt 0 ] && [ "${ucnt:-0}" -ge "${lcnt:-0}" ] 2>/dev/null && mv "$dst/$LREL.dsync.tmp" "$dst/$LREL" 2>/dev/null; then
+			# an EMPTY union is right when the local list was empty too (both devices with a blank favorites.txt,
+			# Codex round 4): only a union that LOST local entries is refused
+			if [ "$urc" = 0 ] && { [ "${ucnt:-0}" -gt 0 ] || [ "${lcnt:-0}" -eq 0 ]; } && [ "${ucnt:-0}" -ge "${lcnt:-0}" ] 2>/dev/null && mv "$dst/$LREL.dsync.tmp" "$dst/$LREL" 2>/dev/null; then
 				set_mtime "$dst/$LREL" "${mtime:-0}"
 				printf 'UPDATE\t%s\t%s\n' "$(file_size "$dst/$LREL")" "$rel" >> "$bdir/ops.log"
 				printf 'DONE\t%s\t%s\n' "$action" "$rel" >> "$jl"

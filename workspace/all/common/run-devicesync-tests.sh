@@ -303,6 +303,23 @@ check "symlinked file: size is the target's (1)" "$(printf '%s\n' "$RLINE" | cut
 check "symlinked file: hash column is '-' (hashless)" "$(printf '%s\n' "$RLINE" | cut -f5)" "-"
 
 ######################################################################
+echo "########## SCENARIO R4: round-4 fixes: empty union, list folder rewrite, export tag with trailing text ##########"
+R4="$WORK/r4"; mkdir -p "$R4/stage/.userdata/shared/.minui" "$R4/card/.userdata/shared/.minui" "$R4/bk" "$R4/card/Roms/Sony PlayStation (PS)" "$R4/stage/Collections" "$R4/card/Collections"
+: > "$R4/stage/.userdata/shared/.minui/favorites.txt"; : > "$R4/card/.userdata/shared/.minui/favorites.txt"
+printf 'take\tfavorite\t0\t.userdata/shared/.minui/favorites.txt\t-\t1767268800\n' > "$R4/plan"
+E apply-plan "$R4/plan" "$R4/stage" "$R4/card" "$R4/bk" >/dev/null 2>&1; r4rc=$?
+check "R4: two empty favorites lists apply cleanly"   "$r4rc" "0"
+check "R4: and the journal is COMPLETE"               "$(E journal-status "$R4/bk" | cut -f1)" "COMPLETE"
+printf 'PS\tSony PlayStation (PS)\n' > "$R4/sysmap"
+printf '/Roms/6) PlayStation (PS)/FF7.chd\n/Roms/GB/Tetris.gb\n' > "$R4/stage/Collections/Best.txt"
+printf 'take\tcollection\t%s\tCollections/Best.txt\t-\t1767268800\n' "$(wc -c < "$R4/stage/Collections/Best.txt" | tr -d ' ')" > "$R4/plan2"
+DSYNC_SYSMAP="$R4/sysmap" E apply-plan "$R4/plan2" "$R4/stage" "$R4/card" "$R4/bk2" >/dev/null 2>&1
+has   "/Roms/Sony PlayStation (PS)/FF7.chd" "$(cat "$R4/card/Collections/Best.txt")"   # R4: a collection line is rewritten to this card folder
+has   "/Roms/GB/Tetris.gb" "$(cat "$R4/card/Collections/Best.txt")"                    # R4: an unknown tag passes through
+mkdir -p "$R4/x/Roms/Sony PlayStation (PS) [redump]"; printf R > "$R4/x/Roms/Sony PlayStation (PS) [redump]/g.chd"
+sh "$NET" build-export "$R4/x" "$R4/xs" "Roms" >/dev/null 2>&1
+check "R4: export tag ignores text after the (TAG)"   "$([ -e "$R4/xs/Roms/PS/g.chd" ] && echo yes || echo no)" "yes"
+
 echo "########## SCENARIO 7: v2 -- one authoritative plan, crash-safe apply, backup-first restore ##########"
 # v2 computes the merge ONCE (on the host) and hands BOTH devices the same plan file:
 #   ACTION \t CLASS \t SIZE \t REL [\t HASH \t MTIME]   -- "take" = copy staging -> dst.

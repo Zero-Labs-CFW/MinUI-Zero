@@ -280,7 +280,9 @@ build_plan(){ # <merge> <decisions> <skipped classes csv> <to-a|to-b> <A manifes
 		FILENAME==ARGV[1] { dec[$1]=$2; next }
 		# a game is indexed under its file name AND its name without the extension: MinUI saves are
 		# <rom file>.sav ("Zelda.gbc.sav"), other firmwares write "Zelda.srm"; both belong to Zelda.gbc
-		function romadd(arr, r,   k,b) { k=romkey(r); if (k=="") return; arr[k]=1; b=k; sub(/\.[^.]*$/,"",b); if (b!=k) arr[b]=1 }
+		function romadd(arr, r,   k,b,t,d) { k=romkey(r); if (k=="") return; arr[k]=1; b=k; sub(/\.[^.]*$/,"",b); if (b!=k) arr[b]=1
+			# a game in its own folder (Roms/PS/Game/Disc 1.cue) is also known as "Game" (Codex round 4)
+			if (r ~ /^Roms\/[^\/]+\/[^\/]+\//) { t=tagof(r); d=r; sub(/^Roms\/[^\/]+\//,"",d); sub(/\/.*/,"",d); arr[t SUBSEP d]=1 } }
 		# the systems a card has games for (TAG), so a BIOS travels only where its system is
 		function tagof(r,   t) { if (r !~ /^Roms\/[^\/]+\/./) return ""; t=r; sub(/^Roms\//,"",t); sub(/\/.*/,"",t); if (match(t,/\([^()]*\)[^()]*$/)) { t=substr(t,RSTART+1); sub(/\).*/,"",t) } return t }
 		function biostag(r,   t) { if (r !~ /^Bios\/[^\/]+\/./) return ""; t=r; sub(/^Bios\//,"",t); sub(/\/.*/,"",t); return t }
@@ -824,7 +826,7 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 # tags this card has no folder for yet, so a new system lands under the name the sender used
 write_sysmap(){ : > "$W/sysmap"
 	for d in "$LOCAL"/Roms/*/; do [ -d "$d" ] || continue; d=${d%/}; n=${d##*/}
-		case "$n" in .*) continue ;; *"("*")") t=${n##*(}; t=${t%)} ;; *) t=$n ;; esac
+		case "$n" in .*) continue ;; *"("*")"*) t=${n##*(}; t=${t%%)*} ;; *) t=$n ;; esac   # "(PS) [redump]" is PS too (Codex round 4)
 		printf '%s\t%s\n' "$t" "$n" >> "$W/sysmap"; done
 	[ -s "$W/peer.sys" ] && awk -F"$TAB" 'FILENAME==ARGV[1] { h[$1]=1; next } $1!="" && !($1 in h) && !s[$1]++' "$W/sysmap" "$W/peer.sys" >> "$W/sysmap"
 	export DSYNC_SYSMAP="$W/sysmap"; }
@@ -1187,7 +1189,7 @@ Nothing to copy."; exit 0
 		if [ -n "$QK" ]; then drop_systems "$W/merge" "$QK" > "$W/merge.f" && mv "$W/merge.f" "$W/merge"; fi   # the peer's skips first: not offered here
 		write_sysmap; sys_rows "$W/merge" "$W/sysmap" > "$W/sys"
 		if [ -s "$W/sys" ]; then
-			sys_dirs "$W/merge" > "$W/sysdir"; : > "$W/noemu"
+			sys_dirs "$W/merge" > "$W/sysdir"; : > "$W/noemu"; GSKIP0=$GSKIP   # the skips the user had BEFORE this picker
 			set --
 			while IFS="$TAB" read -r st sn sc sk; do
 				cur=Sync; in_csv "$st" "$GSKIP" && cur=Skip
@@ -1217,7 +1219,9 @@ Nothing to copy."; exit 0
 				case "$v" in Skip) nskip="${nskip:+$nskip,}$st" ;; Sync) ;; *) in_csv "$st" "$GSKIP" && nskip="${nskip:+$nskip,}$st" ;; esac
 			done < "$W/sys"
 			# remember only the user's own skips: strip the gated systems before saving
-			GSKIP=""; for st in $(printf '%s' "$nskip" | tr ',' ' '); do grep -q "^$st$TAB" "$W/noemu" 2>/dev/null || GSKIP="${GSKIP:+$GSKIP,}$st"; done; save_prefs
+			# a gated system is dropped from the saved list ONLY if the user had not skipped it themselves before
+			# (Codex round 4: the gate erased a real user skip)
+			GSKIP=""; for st in $(printf '%s' "$nskip" | tr ',' ' '); do if grep -q "^$st$TAB" "$W/noemu" 2>/dev/null && ! in_csv "$st" "$GSKIP0"; then :; else GSKIP="${GSKIP:+$GSKIP,}$st"; fi; done; save_prefs
 			GSKIP=$nskip   # for THIS sync the gated systems are skipped too (prefs keep the user's list only)
 			if [ -n "$forced" ]; then tell "These games will copy, but stay
 hidden until the emulator is added:
@@ -1365,8 +1369,11 @@ sync)
 	# ...but a RETRY of the same plan (connection lost, Sync again) KEEPS what already arrived: the plan
 	# file is the identity, and resume-check re-verifies every staged file by size and hash. Without
 	# this a blip at 1.9 GB of 2 GB restarted from zero (QA 2026-09-20).
-	if [ -f "$STAGE/.plan" ] && cmp -s "$STAGE/.plan" "$W/plan.me" 2>/dev/null; then dbg "sync: same plan, staging kept"
-	else rm -rf "$STAGE"; mkdir -p "$STAGE" 2>/dev/null; cp "$W/plan.me" "$STAGE/.plan" 2>/dev/null; fi
+	# ...and only from the SAME peer: a ROM plan line is name, size and mtime 0, so a different device with the
+	# same file name and size would produce a byte-identical plan and a Range resume would splice its bytes onto
+	# the first device's partial (Codex round 4)
+	if [ -f "$STAGE/.plan" ] && cmp -s "$STAGE/.plan" "$W/plan.me" 2>/dev/null && [ "$(cat "$STAGE/.peer" 2>/dev/null)" = "$PEER" ]; then dbg "sync: same plan, staging kept"
+	else rm -rf "$STAGE"; mkdir -p "$STAGE" 2>/dev/null; cp "$W/plan.me" "$STAGE/.plan" 2>/dev/null; printf '%s' "$PEER" > "$STAGE/.peer" 2>/dev/null; fi
 	# ONE status process per PHASE, not per tick -- allocating the display once was the CMA fix (killing
 	# and relaunching a GFX tool per update is what fragmented the DE's contiguous memory and crashed the
 	# Plus, 2026-09-18). The apply gets its own, WITHOUT --cancel-b: it cannot be stopped half-way, and

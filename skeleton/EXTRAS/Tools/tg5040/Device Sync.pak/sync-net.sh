@@ -68,7 +68,7 @@ build_export() { # <cardroot> <servedir> <scope-relpath>...  |  <cardroot> <serv
 	# duplicates, Dan 2026-09-22). _dsync_systems tells the peer our folder name per tag, for tags it lacks.
 	_link_roms() { mkdir -p "$sv/Roms"; : > "$sv/_dsync_systems"
 		for d in "$card"/Roms/*/; do [ -d "$d" ] || continue; d=${d%/}; n=${d##*/}
-			case "$n" in .*) continue ;; *"("*")") t=${n##*(}; t=${t%)} ;; *) t=$n ;; esac
+			case "$n" in .*) continue ;; *"("*")"*) t=${n##*(}; t=${t%%)*} ;; *) t=$n ;; esac   # last (TAG) even with text after it, as MinUI reads it
 			[ -e "$sv/Roms/$t" ] && continue   # two folders with one tag: the first wins
 			ln -s "$d" "$sv/Roms/$t"; printf '%s\t%s\n' "$t" "$n" >> "$sv/_dsync_systems"
 		done; }
@@ -244,7 +244,7 @@ ap_up() { # <ssid> <psk> : raise AP on wlan1 at wlan0's channel; leaves wlan0 al
   # hw_mode=g below is 2.4 GHz only: a dual-band station on channel 36+ (5 GHz home WiFi) would make
   # hostapd refuse the channel and the wpa fallback ask for a 2.5 GHz frequency. The Brick hosts on a
   # separate radio and the single-radio devices dropped the station before this, so 6 is always free.
-  [ "$ch" -gt 14 ] 2>/dev/null && ch=6
+  [ "$ch" -ge 14 ] 2>/dev/null && ch=6   # 14 is 11b-only (Japan) and takes no HT40: hostapd would refuse it (Codex round 4)
   # A shared-radio device (Miyoo 8188fu, Anbernic RTL8821CS: DSYNC_CONCURRENT=0) cannot beacon on wlan1
   # while wlan0 is still associated -- that is the "Could not open the hotspot" on the MMP. Drop home
   # WiFi first, exactly as OnionOS does; teardown's restore_wifi brings it back. The Brick (=1) skips
