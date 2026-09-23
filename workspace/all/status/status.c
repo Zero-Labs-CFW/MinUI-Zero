@@ -15,6 +15,8 @@
 //   --steps "a|b|c" stepper mode: draw a dot-and-label progress row instead of a message; the message
 //                  file then holds the CURRENT step number (1-based) and the caller advances it live, so
 //                  one screen replaces a flurry of separate "Searching/Connecting/Comparing" texts.
+//   --header TEXT  one quiet line at the top (e.g. "Last sync: ..."): context sits above the stepper, apart
+//                  from the instruction under it, which read as crowded when stacked (Dan, 2026-09-23)
 // Exit code: 0 = proceeded / timed out / killed; 1 = user pressed B.
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,11 +90,13 @@ int main(int argc, char* argv[]) {
 	int timeout = 0, countdown = 0, cancel_b = 0, options_y = 0;
 	char* cancel_label = "STOP";
 	char* steps_arg = NULL;
+	char* header = NULL;
 	for (int i = 1; i < argc; i++) {
 		if      (!strcmp(argv[i], "--timeout")   && i+1 < argc) timeout   = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "--countdown") && i+1 < argc) countdown = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "--cancel-label") && i+1 < argc) cancel_label = argv[++i];
 		else if (!strcmp(argv[i], "--steps") && i+1 < argc) steps_arg = argv[++i];
+		else if (!strcmp(argv[i], "--header") && i+1 < argc) header = argv[++i];
 		else if (!strcmp(argv[i], "--cancel-b")) cancel_b = 1;
 		else if (!strcmp(argv[i], "--options-y")) options_y = 1;   // Y exits 2: the caller opens its options
 		else if (!msgpath)  msgpath  = argv[i];
@@ -164,6 +168,10 @@ int main(int argc, char* argv[]) {
 					SDL_FillRect(screen, &(SDL_Rect){bx, by, bw, bh}, track);
 					SDL_FillRect(screen, &(SDL_Rect){bx, by, (int)(bw * frac), bh}, fill);
 				}
+			}
+			if (header && header[0]) {   // dim, small, top-centered: context, not an instruction
+				int w=0,h=0; GFX_sizeText(font.small, header, SCALE1(12), &w, &h);
+				GFX_blitText(font.small, header, SCALE1(12), (SDL_Color){0x9a,0x9a,0x9a,0xff}, screen, &(SDL_Rect){(screen->w - w)/2, SCALE1(PADDING + 8), w, h});
 			}
 			// B is ALWAYS the bottom-left pill (the universal back button), same as every other screen
 			if (cancel_b) GFX_blitButtonGroup((char*[]){ "B", cancel_label, NULL }, 0, screen, 0);

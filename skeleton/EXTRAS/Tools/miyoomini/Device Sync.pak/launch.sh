@@ -99,7 +99,7 @@ save_prefs(){ printf 'SAVES=%s\nGAMES=%s\nGAMES_SKIP=%s\nLAST_ROLE=%s\nLAST_PEER
 # "Last synced with X, 2 h ago" under the first screen (Dan, 2026-09-23); nothing when unknown or the clock went back
 last_line(){ [ -n "$LAST_PEER" ] || return 0; nw=$(now); ag=$((nw - ${LAST_AT:-0})); [ "$nw" != 0 ] && [ "$ag" -ge 0 ] 2>/dev/null || return 0
 	if [ "$ag" -lt 120 ]; then a="just now"; elif [ "$ag" -lt 5400 ]; then a="$((ag / 60)) min ago"; elif [ "$ag" -lt 172800 ]; then a="$(( (ag + 1800) / 3600 )) h ago"; else a="$((ag / 86400)) days ago"; fi
-	printf '\nLast synced with %s, %s' "$LAST_PEER" "$a"; }
+	printf 'Last sync: %s, %s' "$LAST_PEER" "$a"; }   # the stepper's --header line, above the dots
 onoff(){ [ "$1" = 1 ] && printf On || printf Off; }
 
 # human-friendly model name (Trimui Brick / Brick Pro / Smart Pro) -- how the fork already detects it
@@ -138,7 +138,7 @@ status_sync(){ status_b "$1"; }                                       # the long
 # file holds the current step number, optionally followed by a caption line. B stops, like status_b.
 STEPLABELS="Searching|Connecting|Connected"
 status_steps(){ status_off; smsg "${1:-1}"; : > "$SPROG"; SCANCEL=1
-	status.elf "$SMSG" --steps "$STEPLABELS" --cancel-b --cancel-label "Stop" --options-y >/dev/null 2>&1 & SPID=$!; }
+	status.elf "$SMSG" --steps "$STEPLABELS" --cancel-b --cancel-label "Stop" --options-y ${2:+--header "$2"} >/dev/null 2>&1 & SPID=$!; }   # $2 = optional top line
 step(){ smsg "$1"; }                                                  # advance the live stepper
 stopped(){ [ -n "$SPID" ] && ! kill -0 "$SPID" 2>/dev/null || return 1
 	wait "$SPID" 2>/dev/null; STOP_RC=$?; return 0; }   # status.elf exited: 1 = B (stop), 2 = Y (options)
@@ -974,7 +974,7 @@ whenever a sync replaces a file."; STATE=entry; continue
 
 find)
 	status_steps "1
-Open Device Sync on the other device$(last_line)"
+Open Device Sync on the other device" "$(last_line)"
 	net stop-serve >/dev/null 2>&1      # a retry must not leave the previous run's httpd orphaned
 	# ...and must not leave the previous pass's RADIO up either. An AP left running keeps broadcasting
 	# while we start a fresh pass, and ap_alive is only `pidof hostapd`, so the stale process reports the
@@ -1070,7 +1070,7 @@ Found a device"   # a station associated -> Connecting
 			esac
 			sleep 2; i=$((i+2))
 			step "1
-Open Device Sync on the other device, ${i}s$(last_line)"   # the count proves the wait is alive
+Open Device Sync on the other device, ${i}s"   # the count proves the wait is alive
 		done
 	fi
 	if [ "$HALT" = 1 ]; then
