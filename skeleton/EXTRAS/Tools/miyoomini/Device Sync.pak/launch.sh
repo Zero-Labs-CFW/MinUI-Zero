@@ -214,14 +214,12 @@ disambiguate(){ if [ "$1" = "$2" ]; then printf '%s (this one)\n%s (other)\n' "$
 # finished line and serve it verbatim -- but the labels above are viewer-relative, so on two devices of
 # the same model the joiner's screen read "(this one) received 8" about the HOST's 8 (2026-09-18 review).
 done_text(){ # <A received> <B received> <skipped> <A name> <B name> [saves held from A] [saves held from B]
-	if [ "${3:-0}" -gt 0 ]; then t="$3 game(s) in skipped systems."; else t="Both devices are up to date."; fi
-	# two short lines each: one long line clipped on the Miyoo (640 px, 2026-09-22)
-	[ "${6:-0}" -gt 0 ] && t="$t
-$6 save(s) held back:
-no game on $4."
-	[ "${7:-0}" -gt 0 ] && t="$t
-$7 save(s) held back:
-no game on $5."
+	# ONE line of detail after the two received lines: eight lines pushed "Synced!" off the top of the Brick
+	# (Dan, 2026-09-22: "too much on screen"). Held saves come back on their own once the game is there.
+	held=$(( ${6:-0} + ${7:-0} )); t=""
+	[ "${3:-0}" -gt 0 ] && t="$3 game(s) skipped"
+	[ "$held" -gt 0 ] && t="${t:+$t, }$held save(s) held back"
+	if [ -n "$t" ]; then t="$t."; else t="Both devices are up to date."; fi
 	printf 'Synced!\n\n%s received %s.\n%s received %s.\n\n%s' "$4" "$1" "$5" "$2" "$t"; }
 
 # Free space a device must have to RECEIVE <kb>: the transfer once (apply MOVES staged files into place,
