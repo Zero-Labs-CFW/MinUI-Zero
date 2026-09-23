@@ -306,7 +306,7 @@ _apply_rich() {
 	while IFS="$TAB" read -r action mtime rel; do
 		if [ "$action" = CONFLICT ]; then
 			# apply an approved conflict as an UPDATE (backup+atomic); otherwise keep local
-			if [ -n "$DS_TAKE" ] && grep -qxF "$rel" "$DS_TAKE" 2>/dev/null; then action=UPDATE; else continue; fi
+			if [ -n "$DS_TAKE" ] && awk -v r="$rel" '$0 == r { f = 1 } END { exit !f }' "$DS_TAKE" 2>/dev/null; then action=UPDATE; else continue; fi
 		fi
 		case "$action" in
 		ADD|UPDATE)

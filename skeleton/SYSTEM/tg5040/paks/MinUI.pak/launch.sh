@@ -374,7 +374,7 @@ fi
 # wifi-less fallback, so it is killed only in the non-dev branch below.
 # (Found on the Brick Pro with wifi enabled, 2026-08-30; adbd carve-out added in review.)
 killall MtpDaemon 2>/dev/null
-killall ntpd 2>/dev/null # MinUI keeps its own clock
+for p in $(pidof ntpd 2>/dev/null); do kill "$p"; done # MinUI keeps its own clock (by pid: busybox killall skips applets)
 # DEV MODE is now unified on devmode.txt (Dan, 2026-09-08: "stay awake should just be Dev Mode ...
 # add it to all the devices when devmode is active"). devmode.txt at the card root already arms
 # stay-awake in C (PWR_init), so gating SSH on the SAME flag is what stops the reconnect rodeo: the
@@ -388,8 +388,7 @@ if devmode || [ -f "$SHARED_USERDATA_PATH/enable-ssh" ]; then
 	sh "$SYSTEM_PATH/bin/dev-net.sh" &
 else
 	killall adbd 2>/dev/null
-	killall wpa_supplicant
-	killall udhcpc
+	for p in $(pidof wpa_supplicant udhcpc 2>/dev/null); do kill "$p"; done   # by pid: busybox killall skips applets
 	rfkill block bluetooth
 	rfkill block wifi
 fi

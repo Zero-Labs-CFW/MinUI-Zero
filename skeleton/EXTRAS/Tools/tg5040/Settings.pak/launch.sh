@@ -48,8 +48,8 @@ wifi_row() { # sets WIFI_VALUES WIFI_CURRENT WIFI_DESC
 wifi_off() {
 	mv "$WTXT" "$WOFF"; sync
 	# take the radio down NOW, not just at next boot
-	killall wpa_supplicant 2>/dev/null
-	killall udhcpc 2>/dev/null
+	# by pid: the Brick's busybox killall does nothing to applets, so udhcpc kept running (audit 2026-09-23)
+	for p in $(pidof wpa_supplicant udhcpc 2>/dev/null); do kill "$p" 2>/dev/null; done
 	ifconfig wlan0 down 2>/dev/null
 	command -v rfkill >/dev/null 2>&1 && rfkill block wifi 2>/dev/null
 	# Miyoo: the PMIC can cut the radio's power rail entirely (guarded no-op elsewhere)

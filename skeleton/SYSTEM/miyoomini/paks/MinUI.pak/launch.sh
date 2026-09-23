@@ -242,7 +242,7 @@ if [ -s "$MODEL_CACHE" ]; then
 	export MY_MODEL=`cat "$MODEL_CACHE"`
 else
 	export MY_MODEL=`strings -n 5 /customer/app/MainUI | grep MY`
-	echo "$MY_MODEL" > "$MODEL_CACHE"
+	[ -n "$MY_MODEL" ] && echo "$MY_MODEL" > "$MODEL_CACHE"   # never cache a failed probe: it stuck forever (audit 2026-09-23)
 fi
 
 MIYOO_VERSION=`/etc/fw_printenv miyoo_version`

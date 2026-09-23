@@ -207,7 +207,9 @@ auto_resolve(){ # <my.mf> <peer.mf> <merge> -> decisions (REL \t a|b) on stdout
 	awk -F"$TAB" -v OFS="$TAB" -v off="${CLK_OFF:-0}" -v pboot="${PEER_BOOT:-0}" -v aboot="${MY_BOOT:-0}" '
 		FILENAME==ARGV[1] { amt[$1]=$3; next }
 		FILENAME==ARGV[2] { bmt[$1]=$3; next }
-		FILENAME==ARGV[3] && $1=="conflict" { rel=$4; bm = ((pboot > 0 && (bmt[rel]+0) < pboot) || (aboot > 0 && (amt[rel]+0) < aboot)) ? bmt[rel]+0 : bmt[rel]+0+off; print rel, ((amt[rel]+0) >= bm ? "a" : "b") }
+		# an mtime of 0 means the date could not be read: that copy is not "oldest", it is unknown, so the
+		# conflict stays undecided and nothing moves (audit 2026-09-23)
+		FILENAME==ARGV[3] && $1=="conflict" && (amt[$4]+0) > 0 && (bmt[$4]+0) > 0 { rel=$4; bm = ((pboot > 0 && (bmt[rel]+0) < pboot) || (aboot > 0 && (amt[rel]+0) < aboot)) ? bmt[rel]+0 : bmt[rel]+0+off; print rel, ((amt[rel]+0) >= bm ? "a" : "b") }
 	' "$1" "$2" "$3"; }
 
 # Two devices of the same model report the same name, and the review screen names both sides, so make
