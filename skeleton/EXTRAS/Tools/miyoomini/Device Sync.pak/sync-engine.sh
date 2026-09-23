@@ -186,7 +186,7 @@ rule_for() { case "$1" in rom) echo additive ;; *) echo newer ;; esac; }  # rom 
 # shell _classify (single source of truth) with no fork. Filenames with spaces are preserved; the
 # only unsupported names are ones containing a tab or newline.
 manifest() {
-	( cd "$1" 2>/dev/null || exit 0
+	( cd "$1" 2>/dev/null || exit 1   # an unreadable root is an ERROR, never "this card is empty" (audit 2026-09-23)
 	  t=$(tmpf)
 	  # Identity is SIZE + MTIME, never a content hash. Hashing read every save/state off the card and was
 	  # the slow part; size+mtime is a pure stat. An emulator bumps mtime on every write, and apply stamps

@@ -1131,7 +1131,10 @@ Reading this device's library"; dbg "compare: export begin"
 	# emulator (MinUI hides a system folder without one, so such games would sit invisible; Dan 2026-09-22)
 	{ for d in "$SYSTEM_PATH"/paks/Emus/*.pak "$SDCARD"/Emus/"$PLATFORM"/*.pak; do [ -f "$d/launch.sh" ] && { d=${d%.pak}; printf '%s\n' "${d##*/}"; }; done; } 2>/dev/null | sort -u > "$SERVE/_dsync_emus"
 	cp "$SERVE/_dsync_emus" "$W/my.emus" 2>/dev/null
-	printf 'S=%s G=%s P=%s F=%s V=%s K=%s\n' "$PS" "$PG" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" "$GSKIP" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label) + skipped systems
+	# N = save files on this card, counted independently of the manifest walk: the other side checks the manifest
+	# against it, so a listing that silently failed can never read as "this card has no saves" (audit 2026-09-23)
+	NSAV=$(find "$LOCAL/Saves" -type f 2>/dev/null | wc -l | tr -d ' ')
+	printf 'S=%s G=%s P=%s F=%s V=%s K=%s N=%s\n' "$PS" "$PG" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" "$GSKIP" "${NSAV:-0}" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label) + skipped systems
 	df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}' > "$SERVE/_dsync_free"
 	cp "$SERVE/_dsync_manifest" "$W/my.mf" 2>/dev/null
 	# bind to the sync interface only: a concurrent host (Brick, Miyoo) would otherwise serve its saves
@@ -1210,6 +1213,21 @@ This device: $DSYNC_FORK $DSYNC_VER (sync v$DSYNC_PROTO)
 
 Update $WHO, then try again.
 Nothing was copied."; exit 0
+	fi
+	# FAIL CLOSED, never guess (audit 2026-09-23): prefs that never arrived used to default to "Saves on, skip
+	# nothing, protocol OK"; a library list that came back empty or short read as "that card has no saves",
+	# which sends every save the wrong way. Every build on this protocol publishes both, so a gap is a failure.
+	list_short(){ # <manifest> <save count on that card> -> 0 when the manifest lists under half of the saves
+		ms=$(awk -F"$TAB" '$1 ~ /^Saves\// {n++} END {print n+0}' "$1" 2>/dev/null)
+		[ "${2:-0}" -gt 0 ] 2>/dev/null && [ "$((ms * 2))" -lt "$2" ]; }
+	PN_SAV=$(printf '%s\n' "$PP" | sed -n 's/.* N=\([0-9]*\).*/\1/p' | head -1)
+	if [ -z "$PP" ] || list_short "$W/my.mf" "$NSAV" || list_short "$W/peer.mf" "$PN_SAV"; then
+		dbg "compare: refused, prefs=[$PP] my.mf=$(awk 'END{print NR+0}' "$W/my.mf") saves=$NSAV peer.mf=$(awk 'END{print NR+0}' "$W/peer.mf") peer saves=$PN_SAV"
+		printf 'ABORT\n' > "$SERVE/_dsync_totals"
+		if oops "Couldn't read both libraries.
+
+Nothing was copied.
+Try again?"; then STATE=find; continue; else exit 0; fi
 	fi
 	# A is ALWAYS the host and B always the joiner, on both devices, so the one plan reads the same way
 	# on each. "(this one)" always lands on the device you are holding.
