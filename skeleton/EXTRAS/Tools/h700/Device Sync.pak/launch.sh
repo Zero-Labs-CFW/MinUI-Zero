@@ -1339,10 +1339,7 @@ to start the sync."
 		[ -n "$TOTALS" ] && break
 		if ping -c1 -W2 "$PEER_IP" >/dev/null 2>&1; then miss=0; else miss=$((miss+1)); fi
 		stopped && { stop_ui; HALT=1; break; }
-		sleep 2; i=$((i+2)); smsg "Use $PEER
-to start the sync.
-
-${i}s"
+		sleep 2; i=$((i+2))   # no seconds here: this wait is the other person reading a list, not a machine (Dan, 2026-09-23)
 	done
 	if [ "$HALT" = 1 ]; then
 		if [ "${STOP_RC:-1}" = 2 ]; then STOP_RC=1; net ap-down >/dev/null 2>&1; STATE=options; continue; fi
