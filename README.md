@@ -70,7 +70,6 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 | Optimize CPU | Stock / Optimized | per-chip undervolting; A runs or manages it (TrimUI) |
 | WiFi | On / Off | shown once `wifi.txt` exists; On also starts SSH |
 | Date & Time | | A opens the clock setter, which also owns the menu clock |
-| Version | | the MinUI Zero version and the device model, for bug reports |
 
 Every setting is also a small file on the card, so you can set it from a computer, and a few things are files only. Card-root files go at the top of the SD card and work with or without a `.txt` extension; delete the file to undo.
 

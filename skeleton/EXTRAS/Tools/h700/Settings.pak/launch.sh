@@ -17,14 +17,6 @@ WTXT="$CARD/wifi.txt"
 WOFF="$CARD/wifi.txt.off"
 
 flag_off() { if [ -f "$1" ]; then echo Off; else echo On; fi; } # file present = Off (the opt-out flags)
-# the model, for the Version row (the same names Device Sync shows); every line is guarded per platform
-model() {
-	if [ -n "${TRIMUI_MODEL:-}" ]; then echo "$TRIMUI_MODEL"
-	elif [ "${IS_FLIP:-}" = true ]; then echo "Miyoo Mini Flip"
-	elif [ "${IS_PLUS:-}" = true ]; then echo "Miyoo Mini Plus"
-	elif [ "$PLATFORM" = miyoomini ]; then echo "Miyoo Mini"
-	else case "${DEVICE:-}" in rg35xx-plus|plus) echo "RG35XX Plus" ;; rg35xx-h|h) echo "RG35XX H" ;; brick) echo "Trimui Brick" ;; brickpro) echo "Trimui Brick Pro" ;; *) echo "$PLATFORM" ;; esac; fi
-}
 
 # WiFi: the card's wifi.txt stays the ONE source of truth (SSID:password, opt-in by existing). The
 # row shows the real state and flips the file between wifi.txt and wifi.txt.off. No file, no row
@@ -114,11 +106,6 @@ while :; do
 	if [ -f "$USERDATA_PATH/show_24hour" ]; then NOW=$(date '+%H:%M'); else NOW=$(date '+%l:%M %p' | sed 's/^ *//'); fi
 	set -- "$@" datetime "Date & Time" "" "$NOW" "Press A to set. The clock can also\nshow on the main menu."
 
-	# last row: what this card runs, for anyone reporting a problem (Dan, 2026-09-23). Display only.
-	# two stamp formats: "v1.8.0 (20260923-0)" (TrimUI, Miyoo) and "MinUI Zero (v1.8.0)" (the h700 image)
-	VER=$(head -1 "$CARD/.system/version.txt" 2>/dev/null); VER=${VER#MinUI Zero }
-	VSHORT=$(printf '%s' "$VER" | tr -d '()' | tr ' ' '\n' | grep '^v[0-9]' | head -1)
-	set -- "$@" version "Version" "" "${VSHORT:-unknown}" "MinUI Zero ${VER:-unknown}\n$(model)"
 	OUT=$(settings.elf --title "Settings" "$@")
 	AGAIN=0
 	for line in $OUT; do # KEY=VALUE tokens; a value never contains a space
@@ -145,7 +132,6 @@ opens Tools anyway." "HIDE" "BACK"; then touch "$HIDE_TOOLS"; else AGAIN=1; fi ;
 			wifi=Off)      [ -f "$WTXT" ] && wifi_off; AGAIN=1 ;;
 			OPEN=datetime) clock.elf; AGAIN=1 ;;
 			OPEN=optimize) sh "$UV_PAK"; AGAIN=1 ;;
-			OPEN=version)  AGAIN=1 ;;   # display only: A just redraws
 		esac
 	done
 	sync
