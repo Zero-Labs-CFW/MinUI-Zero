@@ -1476,6 +1476,10 @@ Pick Sync again there."
 			if [ -n "$BASE_TX" ]; then tx=$(cat "$TXF" 2>/dev/null); case "$tx" in ''|*[!0-9]*) ;; *)
 				DONE_KB=$(awk -v a="$BASE_TX" -v b="$tx" -v t="$TOT_KB" 'BEGIN { k = (b - a) / 1024 * 25 / 26; if (k > t) k = t; if (k < 0) k = 0; printf "%d", k }') ;;   # awk: byte counts overflow 32-bit shell math; ~4% is TCP/WiFi framing
 			esac; fi
+				# the request count above is NOT a file count once bundles are in play (one chunk = one request = up
+				# to 400 files), so the host read "69 of 90" while the joiner had 85 (Dan, 2026-09-22): derive the count
+				# from the bytes instead, so it tracks the bar and lands on the total exactly when the bytes do
+				[ "${TOT_KB:-0}" -gt 0 ] && DONE_N=$(awk -v k="$DONE_KB" -v t="$TOT_KB" -v n="$TOT_N" 'BEGIN { c = int(k * n / t); if (c > n) c = n; printf "%d", c }')
 			prog "Syncing with $PEER..."
 			stopped && { stop_ui; HALT=1; break; }
 			sleep 3; i=$((i+3))
