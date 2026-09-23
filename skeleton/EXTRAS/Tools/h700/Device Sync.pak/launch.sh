@@ -536,6 +536,12 @@ peer_probe(){ k=10
 radio_up(){ command -v rfkill >/dev/null 2>&1 && rfkill unblock wifi 2>/dev/null   # Zero blocks the radio at non-devmode boot
 	if [ ! -e "/sys/class/net/$STA_IF" ]; then
 		[ -x /customer/app/axp_test ] && /customer/app/axp_test wifion >/dev/null 2>&1
+		# Anbernic: the WiFi DRIVER only loads at boot when wifi.txt is on the card, so a card without one
+		# had no wlan0 at all and could neither host nor join (RG35XX H, 2026-09-23). Load it the way the OS
+		# does: muOS's own loader (it knows the per-board quirks), else our rootfs's rcS module.
+		if [ -x /opt/muos/script/device/network.sh ]; then /opt/muos/script/device/network.sh load >/dev/null 2>&1
+		elif [ -f /lib/modules/4.9.170/kernel/drivers/net/wireless/rtl8821cs/8821cs.ko ]; then
+			insmod /lib/modules/4.9.170/kernel/drivers/net/wireless/rtl8821cs/8821cs.ko >/dev/null 2>&1; fi
 		# a real power-on re-enumerates the USB radio; give the interfaces time to appear
 		i=0; while [ ! -e "/sys/class/net/$STA_IF" ] && [ "$i" -lt 15 ]; do sleep 1; i=$((i+1)); done
 	fi
