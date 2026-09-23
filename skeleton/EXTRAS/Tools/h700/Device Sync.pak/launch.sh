@@ -540,6 +540,9 @@ case "$HOMEIP" in 192.168.42.*|"") HAD_WIFI=0 ;; *) HAD_WIFI=1 ;; esac
 # no lease yet is not "no WiFi": a supplicant or dhcpcd already running means the home network was
 # configured and merely associating, and wifi-off at teardown would have killed it (QA 2026-09-20)
 pidof wpa_supplicant >/dev/null 2>&1 && HAD_WIFI=1; pidof dhcpcd >/dev/null 2>&1 && HAD_WIFI=1
+# ...but WiFi turned Off in Settings (wifi.txt renamed to wifi.txt.off) or never set up is "no WiFi", whatever
+# leftover supplicant is running: "Reconnecting WiFi..." showed with WiFi off (Dan, 2026-09-22)
+[ -f "$SDCARD/wifi.txt" ] || HAD_WIFI=0
 TORN=0
 teardown(){ [ -n "${BPID:-}" ] && { kill "$BPID" 2>/dev/null; wait "$BPID" 2>/dev/null; BPID=""; }
 	[ "$TORN" = 1 ] && return 0
@@ -555,11 +558,11 @@ teardown(){ [ -n "${BPID:-}" ] && { kill "$BPID" 2>/dev/null; wait "$BPID" 2>/de
 	# (the Plus sat on a black screen for good here, 2026-09-21).
 	if [ "$HAD_WIFI" = 1 ]; then
 		rm -f "$BUSY"   # the force-quit guard restores only while BUSY names us: not twice
-		status "Reconnecting WiFi..."
-		( net restore-wifi >/dev/null 2>&1 ) & rp=$!
-		i=0; while kill -0 "$rp" 2>/dev/null && [ "$i" -lt 40 ]; do sleep 1; i=$((i+1)); done
-		[ "$i" -ge 40 ] && dbg "teardown: restore-wifi still running after 40 s, menu returns"
-		status_off
+		# the menu comes back NOW and the 5-30 s reconnect finishes behind it (Dan, 2026-09-22: the
+		# "Reconnecting WiFi..." wait felt like nothing happening). HUP-immune: the Brick has no nohup and
+		# the launcher takes the terminal back the moment this script exits.
+		( trap "" HUP; sh "$NET" restore-wifi >/dev/null 2>&1 ) &
+		dbg "teardown: restore-wifi running in the background"
 	else net wifi-off >/dev/null 2>&1; fi
 	rm -rf "$SERVE" "$DS_DIR/out"; rm -f "$BUSY"
 	stay_off; dbg "teardown: done"; }
@@ -630,6 +633,8 @@ prog(){ PLABEL="$1"; shown=$(( ${DONE_KB:-0} + ${PART_KB:-0} )); [ "$shown" -gt 
 	pnow=$(now); printf '%s %s\n' "$pnow" "$shown" >> "$RATE_F" 2>/dev/null
 	rate=$(awk -v n="$pnow" '$1 >= n-60 && !f { t0=$1; k0=$2; f=1 } { t1=$1; k1=$2 } END { if (f && t1-t0 >= 5 && k1 > k0) printf "%d", (k1-k0)/(t1-t0); else print 0 }' "$RATE_F" 2>/dev/null </dev/null)
 	left=$((TOT_KB - shown)); [ "$left" -lt 0 ] && left=0   # per-file rounding can overshoot the total
+	# published for the other device: its "waiting for X to finish" can then show what X is doing
+	[ -d "${SERVE:-}" ] && printf 'copying, %s of %s\n' "$DONE_N" "$TOT_N" > "$SERVE/_dsync_progress" 2>/dev/null
 	smsg "$1
 
 $(fmt_kb "$shown") of $(fmt_kb "$TOT_KB"), $DONE_N of $TOT_N
@@ -646,6 +651,8 @@ $2"
 
 Nothing to copy here.
 $2"; fi   # "0 KB of 0 KB, 0 of 0" read as broken (Brick, 2026-09-22)
+	# u = update the text only: never relaunch status.elf per tick (one process per phase, the Plus CMA rule)
+	if [ "${3:-}" = u ]; then smsg "$t"; return 0; fi
 	if [ "${3:-}" = b ]; then status_b "$t"; else status_off; status "$t"; fi
 	printf '%s/%s\n' "${TOT_KB:-1}" "${TOT_KB:-1}" > "$SPROG"; }
 # B makes status.elf exit, which runs GFX_quit and blacks the panel -- so the instant we notice a stop,
@@ -767,6 +774,10 @@ pull_plan(){ # <base url> <plan> <status label> : stage every planned file
 			hget_c "$bdl" "$BT" "$bu"; hrc=$?
 			[ "$hrc" = 3 ] && { rm -f "$BT"; stop_ui; dbg "pull: stopped by user during bundle $k"; return 2; }
 			[ "$hrc" = 0 ] && [ -s "$BT" ] || break
+			smsg "$3
+
+$(fmt_kb "$((DONE_KB + PART_KB))") of $(fmt_kb "$TOT_KB"), $DONE_N of $TOT_N
+unpacking"   # the bar stands still while tar runs: say so
 			mkdir -p "$STAGE" 2>/dev/null; tar -xf "$BT" -C "$STAGE" 2>/dev/null
 			PULL_BUNDLED=1; dbg "pull: bundle $k $(file_bytes "$BT") bytes extracted"
 			DONE_KB=$((DONE_KB + $(file_bytes "$BT") / 1024)); PART_KB=0; prog "$3"
@@ -842,7 +853,8 @@ apply_plan(){ # <plan>
 		if [ "$ad" != "$alast" ]; then alast=$ad; smsg "Copying from $PEER...
 
 $(fmt_kb "${TOT_KB:-0}") of $(fmt_kb "${TOT_KB:-0}"), ${TOT_N:-0} of ${TOT_N:-0}
-saving to this device, $ad of $an"; fi
+saving to this device, $ad of $an"
+			[ -d "${SERVE:-}" ] && printf 'saving, %s of %s\n' "$ad" "$an" > "$SERVE/_dsync_progress" 2>/dev/null; fi
 	done
 	wait "$apid"; arc=$?
 	printf '%s, %s' "$PEER" "$(date '+%b %d %H:%M' 2>/dev/null)" > "$BK/label" 2>/dev/null
@@ -1011,6 +1023,8 @@ Found a device"   # a station associated -> Connecting
 				fi ;;
 			esac
 			sleep 2; i=$((i+2))
+			step "1
+Open Device Sync on the other device, ${i}s"   # the count proves the wait is alive
 		done
 	fi
 	if [ "$HALT" = 1 ]; then
@@ -1033,7 +1047,8 @@ Found $PN"   # found a hotspot, joining it -> Connecting
 		j=0
 		while kill -0 "$JPID" 2>/dev/null && [ "$j" -lt 150 ]; do
 			stopped && { HALT=1; break; }
-			sleep 2; j=$((j+2))
+			sleep 2; j=$((j+2)); step "2
+Found $PN, joining, ${j}s"
 		done
 		if kill -0 "$JPID" 2>/dev/null; then kill "$(cat "$W/join.pid" 2>/dev/null)" "$JPID" 2>/dev/null; fi
 		MYIP=$(head -1 "$W/joinip" 2>/dev/null)
@@ -1066,7 +1081,10 @@ compare)
 Comparing with $PN"; else step "3
 Comparing libraries"; fi
 	scope_list > "$W/scope"
+	step "3
+Reading this device's library"; dbg "compare: export begin"
 	net build-export "$LOCAL" "$SERVE" --list "$W/scope" >/dev/null 2>&1
+	dbg "compare: export done"
 	printf '%s' "$NAME" > "$SERVE/_dsync_name"
 	date +%s > "$SERVE/_dsync_now"        # our clock, so the peer can correct our mtimes into ITS time
 	# and when this session's clock started: a no-RTC device restores its clock at boot, so only files
@@ -1099,8 +1117,9 @@ Try again?"; then STATE=find; continue; else exit 0; fi
 	# to the name that rode in its SSID, and refresh once the list fetch below has proven it is up
 	[ -z "$PEER" ] && PEER="${PN:-the other device}"
 	step "3
-Comparing with $PEER"
+Reading $PEER's library"
 	fetch_live "$PEER_BASE/_dsync_manifest" "$W/peer.mf" 240 "$PEER_IP"; rc=$?
+	dbg "compare: peer manifest fetched rc=$rc"
 	hget 8 -O "$W/peer.sys" "$PEER_BASE/_dsync_systems" >/dev/null 2>&1 || : > "$W/peer.sys"   # its folder name per tag
 	hget 8 -O "$W/peer.emus" "$PEER_BASE/_dsync_emus" >/dev/null 2>&1 || : > "$W/peer.emus"   # the systems it can run (empty = unknown)
 	if [ "$rc" = 0 ] && { [ "$PEER" = "${PN:-}" ] || [ "$PEER" = "the other device" ]; }; then pn2=$(hget 6 -O - "$PEER_BASE/_dsync_name" | head -c 200 | tr -cd 'A-Za-z0-9 ._()+-' | cut -c1-40); [ -n "$pn2" ] && PEER=$pn2; fi
@@ -1171,6 +1190,7 @@ review)
 	# Games are never touched destructively -- a ROM on both devices is skip-by-name, a ROM on one is
 	# copied to the other, nothing is ever overwritten or deleted, so a game can never be lost.
 	eng merge "$W/my.mf" "$W/peer.mf" "${CLK_OFF:-0}" "${PEER_BOOT:-0}" "${MY_BOOT:-0}" > "$W/merge"   # skew-corrected newest-wins for every class
+	dbg "compare: merge done"
 	if [ "$(awk -F"$TAB" '$1!="skip"{n++} END{print n+0}' "$W/merge")" -eq 0 ]; then
 		# the peer is still waiting on us, so say WHY we are finishing (a "cancelled" here would be a lie)
 		printf 'NOTHING\n' > "$SERVE/_dsync_totals"
@@ -1319,7 +1339,10 @@ to start the sync."
 		[ -n "$TOTALS" ] && break
 		if ping -c1 -W2 "$PEER_IP" >/dev/null 2>&1; then miss=0; else miss=$((miss+1)); fi
 		stopped && { stop_ui; HALT=1; break; }
-		sleep 2; i=$((i+2))
+		sleep 2; i=$((i+2)); smsg "Use $PEER
+to start the sync.
+
+${i}s"
 	done
 	if [ "$HALT" = 1 ]; then
 		if [ "${STOP_RC:-1}" = 2 ]; then STOP_RC=1; net ap-down >/dev/null 2>&1; STATE=options; continue; fi
@@ -1432,6 +1455,8 @@ Finish it now?" "FINISH"; then STATE=resume; continue; else exit 0; fi
 			hget 8 -O /dev/null "$PEER_BASE/_dsync_applied_$GOT"
 			DONE_RAW=$(hget 8 -O - "$PEER_BASE/_dsync_done") || DONE_RAW=""  # ditto: half a line is not a report
 			[ -n "$DONE_RAW" ] && break
+			# mirror what the host is doing, so this wait is never a frozen full bar (Dan, 2026-09-22)
+			hp=$(hget 4 -O - "$PEER_BASE/_dsync_progress" 2>/dev/null | head -1 | tr -cd 'A-Za-z0-9 ,'); [ -n "$hp" ] && prog_hold "Copying from $PEER..." "$PEER is $hp" u
 			if ping -c1 -W2 "$PEER_IP" >/dev/null 2>&1; then miss=0; else miss=$((miss+1)); fi
 			stopped && { stop_ui; HALT=1; break; }
 			sleep 3; i=$((i+3))
