@@ -287,6 +287,14 @@ build_plan(){ # <merge> <decisions> <skipped classes csv> <to-a|to-b> <A manifes
 			if (r ~ /^Roms\/[^\/]+\/[^\/]+\//) { t=tagof(r); d=r; sub(/^Roms\/[^\/]+\//,"",d); sub(/\/.*/,"",d); arr[t SUBSEP d]=1 } }
 		# the systems a card has games for (TAG), so a BIOS travels only where its system is
 		function tagof(r,   t) { if (r !~ /^Roms\/[^\/]+\/./) return ""; t=r; sub(/^Roms\//,"",t); sub(/\/.*/,"",t); if (match(t,/\([^()]*\)[^()]*$/)) { t=substr(t,RSTART+1); sub(/\).*/,"",t) } return t }
+		# the system a SHARED save belongs to (a PS memory card, PICO-8 cartdata): no single game owns it, but it
+		# still only means something where that system is (Dan, 2026-09-23). Saves/<TAG>/..., or the core folder
+		# .userdata/shared/<TAG>-core/... and its .minui twin; "" = no system, so it goes as before
+		function savetag(r,   t) { t=""
+			if (r ~ /^Saves\/[^\/]+\//) { t=r; sub(/^Saves\//,"",t); sub(/\/.*/,"",t) }
+			else if (r ~ /^\.userdata\/shared\/\.minui\/[^\/]+\//) { t=r; sub(/^\.userdata\/shared\/\.minui\//,"",t); sub(/\/.*/,"",t); sub(/-.*/,"",t) }
+			else if (r ~ /^\.userdata\/shared\/[^\/.][^\/]*\//) { t=r; sub(/^\.userdata\/shared\//,"",t); sub(/\/.*/,"",t); sub(/-.*/,"",t) }
+			return t }
 		function biostag(r,   t) { if (r !~ /^Bios\/[^\/]+\/./) return ""; t=r; sub(/^Bios\//,"",t); sub(/\/.*/,"",t); return t }
 		FILENAME==ARGV[2] { asz[$1]=$2; amt[$1]=$3; ah[$1]=$5; romadd(arom, $1); t=tagof($1); if (t!="") atag[t]=1; next }
 		FILENAME==ARGV[3] { bsz[$1]=$2; bmt[$1]=$3; bh[$1]=$5; romadd(brom, $1); t=tagof($1); if (t!="") btag[t]=1; next }
@@ -306,12 +314,18 @@ build_plan(){ # <merge> <decisions> <skipped classes csv> <to-a|to-b> <A manifes
 		  g=""; if (c=="save") g=gamekey(rel)
 		  bt=biostag(rel)
 		  if (bt!="") { nc++; cline[nc]=line; ctag[nc]=bt }                                  # a BIOS waits: its games may be later in the merge
-		  else if (g=="") print line; else { nb++; sline[nb]=line; skey[nb]=g; srel[nb]=rel } }   # saves wait: their game may be later in the merge
+		  else if (g=="") { st=(c=="save") ? savetag(rel) : ""
+			if (st=="") print line; else { nx++; xline[nx]=line; xtag[nx]=st; xrel[nx]=rel } }   # a shared save waits for its system
+		  else { nb++; sline[nb]=line; skey[nb]=g; srel[nb]=rel } }   # saves wait: their game may be later in the merge
 		END { for (i=1;i<=nb;i++) {
 			if ((want=="to-b" && (skey[i] in brom)) || (want=="to-a" && (skey[i] in arom)) || (skey[i] in prom)) print sline[i]
 			else print srel[i] > held }
 		  # a BIOS for a system with no games on the receiving card (and none coming) stays home, quietly:
 		  # Bios/ZQUEST and Bios/PUAE showed up as "Games" on a card with neither system (Dan, 2026-09-22)
+		  # a shared save goes where its SYSTEM is (any game of it there, or coming); else it is held like a game save
+		  for (i=1;i<=nx;i++) {
+			if ((want=="to-b" && (xtag[i] in btag)) || (want=="to-a" && (xtag[i] in atag)) || (xtag[i] in ptag)) print xline[i]
+			else print xrel[i] > held }
 		  for (i=1;i<=nc;i++) if ((want=="to-b" && (ctag[i] in btag)) || (want=="to-a" && (ctag[i] in atag)) || (ctag[i] in ptag)) print cline[i] }
 	' "$2" "$5" "$6" "$1"; }
 
