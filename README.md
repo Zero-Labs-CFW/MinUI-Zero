@@ -70,7 +70,7 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 | Tools | Shown / Hidden | SELECT + START at the main menu opens Tools even when hidden | `hide-tools` = Hidden |
 | Deep Sleep | On / Off | suspend to RAM when idle (TrimUI, Anbernic); Off sleeps like stock | `.userdata/shared/disable-deep-sleep` = Off |
 | Optimize CPU | Stock / Optimized | per-chip undervolting; A runs or manages it (TrimUI) | |
-| WiFi | On / Off | shown once `wifi.txt` exists; on TrimUI, On also starts SSH (key only, see `authorized_keys`) | `wifi.txt` (renamed `wifi.txt.off` when Off) |
+| WiFi | On / Off | shown once `wifi.txt` exists; on TrimUI, On also starts SSH on port 2022 (key only, see `authorized_keys`) | `wifi.txt` (renamed `wifi.txt.off` when Off) |
 | Date & Time | | A opens the clock setter, which also owns the menu clock | `.userdata/shared/show-clock` = clock on the menu |
 
 **Files only** (no Settings row)
