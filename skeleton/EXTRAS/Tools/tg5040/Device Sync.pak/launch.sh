@@ -138,10 +138,10 @@ status_sync(){ status_b "$1"; }                                       # the long
 # file holds the current step number, optionally followed by a caption line. B stops, like status_b.
 STEPLABELS="Searching|Connecting|Connected"
 status_steps(){ status_off; smsg "${1:-1}"; : > "$SPROG"; SCANCEL=1
-	status.elf "$SMSG" --steps "$STEPLABELS" --cancel-b --cancel-label "Stop" --options-y ${2:+--header "$2"} >/dev/null 2>&1 & SPID=$!; }   # $2 = optional top line
+	status.elf "$SMSG" --steps "$STEPLABELS" --cancel-b --cancel-label "Stop" ${2:+--header "$2"} >/dev/null 2>&1 & SPID=$!; }   # $2 = optional top line
 step(){ smsg "$1"; }                                                  # advance the live stepper
 stopped(){ [ -n "$SPID" ] && ! kill -0 "$SPID" 2>/dev/null || return 1
-	wait "$SPID" 2>/dev/null; STOP_RC=$?; return 0; }   # status.elf exited: 1 = B (stop), 2 = Y (options)
+	wait "$SPID" 2>/dev/null; STOP_RC=$?; return 0; }   # status.elf exited: 1 = B (stop). No Y: Options is the home screen, not a mid-sync button (Dan, 2026-09-24)
 # busybox sleep may have no fractional support; probe ONCE so the short waits below stay short instead
 # of silently becoming 1 s each (a 20-step reap would be a 20 s black screen).
 if sleep 0.1 2>/dev/null; then NAPN=20; nap(){ sleep 0.1; }; else NAPN=2; nap(){ sleep 1; }; fi
@@ -951,10 +951,10 @@ Your files were not changed." ; fi ;;
 		esac
 	fi
 	# Opening the Tool IS pressing Sync: go straight to Searching (Dan, 2026-09-20: fewer screens). The
-	# toggles live behind Y on the stepper (the options state below), and the first run ever, with
+	# toggles live on the options state below, and the first run ever, with
 	# nothing turned on, lands there so there is something to sync.
 	# Home first (Dan, 2026-09-20): the toggles and Backups stay visible and X Sync states intent before any
-	# radio work starts. Y on the stepper still reopens this screen.
+	# radio work starts.
 	STATE=options; continue ;;
 
 options)
@@ -1088,7 +1088,6 @@ Open Device Sync on the other device, ${i}s"   # the count proves the wait is al
 		done
 	fi
 	if [ "$HALT" = 1 ]; then
-		if [ "${STOP_RC:-1}" = 2 ]; then STOP_RC=1; net ap-down >/dev/null 2>&1; STATE=options; continue; fi
 		tell "Stopped.
 
 Nothing was copied."; exit 0
@@ -1115,7 +1114,6 @@ Found $PN, joining, ${j}s"
 		PEER_IP="$AP_IP"; [ -n "$MYIP" ] || PEER_IP=""
 		dbg "find: joined $FOUND as $MYIP"
 		if [ "$HALT" = 1 ]; then
-			if [ "${STOP_RC:-1}" = 2 ]; then STOP_RC=1; net ap-down >/dev/null 2>&1; STATE=options; continue; fi
 			tell "Stopped.
 
 Nothing was copied."; exit 0
@@ -1422,7 +1420,6 @@ to start the sync."
 		sleep 2; i=$((i+2))   # no seconds here: this wait is the other person reading a list, not a machine (Dan, 2026-09-23)
 	done
 	if [ "$HALT" = 1 ]; then
-		if [ "${STOP_RC:-1}" = 2 ]; then STOP_RC=1; net ap-down >/dev/null 2>&1; STATE=options; continue; fi
 		tell "Stopped.
 
 Nothing was copied."; exit 0
