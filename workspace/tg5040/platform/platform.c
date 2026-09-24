@@ -1319,14 +1319,14 @@ void PLAT_setUndervolt(int millivolts) { (void)millivolts; } // superseded by th
 #define RUMBLE_PATH "/sys/class/gpio/gpio227/value"
 #define RUMBLE_VOLTAGE_PATH "/sys/class/motor/voltage"
 // The motor needs a drive voltage before the enable pin does anything (the Smart Pro boots with none).
-// GAME rumble follows the strength the core asks for (libretro 0..0xFFFF), 0.5 V up to a per-model cap,
-// as NextUI's tg5040 PLAT_setRumble does: 2.5 V on the Brick Pro (NextUI: 3.3 V there is "very
-// annoying"), 3.3 V on the Brick and Smart Pro. We used to drive games at a fixed 0.9 V (Brick Pro) /
-// 1.5 V, which were NextUI's MUTE-SWITCH buzz values, not its game rumble: the Brick Pro felt weak
-// (Dan, 2026-09-24). NextUI's 2.5 V Brick Pro cap then felt a little too strong in hand, so ours is
-// 1.5 V (Dan, 2026-09-24, after trying 2.0 V). SYSTEM buzzes (strength 1) keep those short-buzz values.
+// GAME rumble follows the strength the core asks for (libretro 0..0xFFFF), 0.5 V up to a 1.5 V cap, the
+// scaling NextUI's tg5040 PLAT_setRumble uses. Games used to run at a FIXED 0.9 V on the Brick Pro (NextUI's
+// mute-switch buzz value, which felt weak) and 1.5 V elsewhere. NextUI's caps (2.5 V Brick Pro, 3.3 V others)
+// and 2.0 V all felt too strong in hand, so every model caps at the old Brick's 1.5 V: full strength feels
+// as it always did there, lighter effects are softer, the Brick Pro gets its bump (Dan, 2026-09-24).
+// SYSTEM buzzes (strength 1) keep the short-buzz values.
 #define RUMBLE_MIN_UV 500000
-#define RUMBLE_MAX_UV (is_brickpro ? 1500000 : 3300000)
+#define RUMBLE_MAX_UV 1500000
 static void setRumble(int strength, int system) {
 	static int motor_uv = -1;   // last voltage written: sysfs is touched only when it changes
 	if (strength) {
