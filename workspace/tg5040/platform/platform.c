@@ -1318,21 +1318,27 @@ void PLAT_setUndervolt(int millivolts) { (void)millivolts; } // superseded by th
 
 #define RUMBLE_PATH "/sys/class/gpio/gpio227/value"
 #define RUMBLE_VOLTAGE_PATH "/sys/class/motor/voltage"
-static void setRumble(int strength, int respect_mute) {
-	// the motor needs a drive voltage before the enable pin does anything — the Brick
-	// boots with a usable default, the Smart Pro with none (silent motor). 1.5V per
-	// NextUI's tg5040 implementation. Set once, lazily, only when rumble is first used.
-	// The Brick Pro drives its motor at 0.9V, not 1.5V (NextUI's tg5040 keymon, the only tested
-	// Brick Pro reference). Same enable pin, different drive; 1.5V here would over-drive it.
-	static int motor_powered = 0;
-	if (strength && !motor_powered) {
-		putInt(RUMBLE_VOLTAGE_PATH, is_brickpro ? 900000 : 1500000);
-		motor_powered = 1;
+// The motor needs a drive voltage before the enable pin does anything (the Smart Pro boots with none).
+// GAME rumble follows the strength the core asks for (libretro 0..0xFFFF), 0.5 V up to a per-model cap,
+// as NextUI's tg5040 PLAT_setRumble does: 2.5 V on the Brick Pro (NextUI: 3.3 V there is "very
+// annoying"), 3.3 V on the Brick and Smart Pro. We used to drive games at a fixed 0.9 V (Brick Pro) /
+// 1.5 V, which were NextUI's MUTE-SWITCH buzz values, not its game rumble: the Brick Pro felt weak
+// (Dan, 2026-09-24). SYSTEM buzzes (strength 1) keep those short-buzz values.
+#define RUMBLE_MIN_UV 500000
+#define RUMBLE_MAX_UV (is_brickpro ? 2500000 : 3300000)
+static void setRumble(int strength, int system) {
+	static int motor_uv = -1;   // last voltage written: sysfs is touched only when it changes
+	if (strength) {
+		int uv;
+		if (system)                uv = is_brickpro ? 900000 : 1500000;
+		else if (strength >= 0xFFFF) uv = RUMBLE_MAX_UV;
+		else                       uv = RUMBLE_MIN_UV + (int)((long long)strength * (RUMBLE_MAX_UV - RUMBLE_MIN_UV) / 0xFFFF);
+		if (uv != motor_uv) { putInt(RUMBLE_VOLTAGE_PATH, uv); motor_uv = uv; }
 	}
-	putInt(RUMBLE_PATH, (strength && (!respect_mute || !GetMute()))?1:0);
+	putInt(RUMBLE_PATH, (strength && (system || !GetMute()))?1:0);
 }
-void PLAT_setRumble(int strength) { setRumble(strength, 1); }
-void PLAT_setSystemRumble(int strength) { setRumble(strength, 0); }
+void PLAT_setRumble(int strength) { setRumble(strength, 0); }
+void PLAT_setSystemRumble(int strength) { setRumble(strength, 1); }
 
 int PLAT_pickSampleRate(int requested, int max) {
 	return MIN(requested, max);
