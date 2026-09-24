@@ -571,6 +571,20 @@ pidof wpa_supplicant >/dev/null 2>&1 && HAD_WIFI=1; pidof dhcpcd >/dev/null 2>&1
 # ...but WiFi turned Off in Settings (wifi.txt renamed to wifi.txt.off) or never set up is "no WiFi", whatever
 # leftover supplicant is running: "Reconnecting WiFi..." showed with WiFi off (Dan, 2026-09-22)
 [ -f "$SDCARD/wifi.txt" ] || HAD_WIFI=0
+# How the radio sat BEFORE we touched it, so a no-WiFi teardown puts it back exactly: TrimUI boot
+# rfkill-blocks WiFi on non-dev cards, and an Anbernic without wifi.txt never loads the driver. Taking
+# the interface down alone left both powered until reboot (audit 2026-09-24).
+RF_WAS_BLOCKED=0; for r in /sys/class/rfkill/rfkill*; do
+	[ "$(cat "$r/type" 2>/dev/null)" = wlan ] && [ "$(cat "$r/state" 2>/dev/null)" = 0 ] && RF_WAS_BLOCKED=1; done
+DRV_WAS_ABSENT=0; [ -e "/sys/class/net/$STA_IF" ] || DRV_WAS_ABSENT=1
+radio_rest(){ # after wifi-off: undo what radio_up did (never the Miyoo rail: unmeasured there)
+	if [ "$DRV_WAS_ABSENT" = 1 ] && [ ! -x /customer/app/axp_test ]; then
+		if [ -x /opt/muos/script/device/network.sh ]; then /opt/muos/script/device/network.sh unload >/dev/null 2>&1
+		else rmmod 8821cs >/dev/null 2>&1; fi
+	fi
+	if [ "$RF_WAS_BLOCKED" = 1 ]; then for r in /sys/class/rfkill/rfkill*; do
+		[ "$(cat "$r/type" 2>/dev/null)" = wlan ] && echo 0 > "$r/state" 2>/dev/null; done; fi
+	dbg "teardown: radio put back (rfkill_blocked=$RF_WAS_BLOCKED driver_absent=$DRV_WAS_ABSENT)"; }
 TORN=0
 teardown(){ [ -n "${BPID:-}" ] && { kill "$BPID" 2>/dev/null; wait "$BPID" 2>/dev/null; BPID=""; }
 	[ "$TORN" = 1 ] && return 0
@@ -591,7 +605,7 @@ teardown(){ [ -n "${BPID:-}" ] && { kill "$BPID" 2>/dev/null; wait "$BPID" 2>/de
 		# the launcher takes the terminal back the moment this script exits.
 		( trap "" HUP; sh "$NET" restore-wifi >/dev/null 2>&1 ) &
 		dbg "teardown: restore-wifi running in the background"
-	else net wifi-off >/dev/null 2>&1; fi
+	else net wifi-off >/dev/null 2>&1; radio_rest; fi
 	rm -rf "$SERVE" "$DS_DIR/out"; rm -f "$BUSY"
 	stay_off; dbg "teardown: done"; }
 # Dev cards run a net-keeper that bounces wlan0 when the gateway is unreachable for 60 s; our join
