@@ -2240,6 +2240,7 @@ static struct VIB_Context {
 	int queued_strength;
 	int strength;
 	int quit;
+	int off;   // Settings > Rumble: Off (no-rumble flag), read once per game at VIB_init
 } vib = {0};
 static void* VIB_thread(void *arg) {
 	// Event-driven: the worker sleeps on the condvar until a strength change or quit —
@@ -2276,6 +2277,7 @@ static void* VIB_thread(void *arg) {
 void VIB_init(void) {
 	vib.queued_strength = vib.strength = 0;
 	vib.quit = 0;
+	vib.off = flagExists(NO_RUMBLE_PATH);
 	pthread_mutex_init(&vib.mx, NULL);
 	pthread_cond_init(&vib.cv, NULL);
 	pthread_create(&vib.pt, NULL, &VIB_thread, NULL);
@@ -2293,6 +2295,7 @@ void VIB_quit(void) {
 }
 void VIB_setStrength(int strength) {
 	if (!vib.initialized) return;
+	if (vib.off) strength = 0;   // game rumble only: PLAT_setSystemRumble does not come through here
 	pthread_mutex_lock(&vib.mx);
 	if (vib.queued_strength != strength) {
 		vib.queued_strength = strength;

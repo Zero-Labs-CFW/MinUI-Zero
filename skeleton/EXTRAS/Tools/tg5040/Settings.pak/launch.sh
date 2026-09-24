@@ -12,6 +12,7 @@ NO_RECENTS="$CARD/no-recents"
 NO_FAVORITES="$CARD/no-favorites"
 FOCUS="$CARD/focus"
 HIDE_TOOLS="$CARD/hide-tools"
+NO_RUMBLE="$CARD/no-rumble"
 DEEP_SLEEP_OFF="$SHARED/disable-deep-sleep"
 WTXT="$CARD/wifi.txt"
 WOFF="$CARD/wifi.txt.off"
@@ -71,6 +72,8 @@ while :; do
 	set -- "$@" favorites "Favorites" "Off|On|Focus" "$FAV" "Y in a game's menu makes it a favorite.\nOn: Favorites appears on the main menu.\nFocus: the main menu is only your favorites."
 	if [ -f "$HIDE_TOOLS" ]; then TOOLS=Hidden; else TOOLS=Shown; fi
 	set -- "$@" tools "Tools" "Shown|Hidden" "$TOOLS" "Hidden: SELECT + START at the main menu\nstill opens Tools."
+	# every platform has a motor (TrimUI and Miyoo GPIO, Anbernic PMIC); Off stops game rumble only (Dan, 2026-09-24)
+	set -- "$@" rumble "Rumble" "On|Off" "$(flag_off "$NO_RUMBLE")" "Off: games never rumble. The mute\nswitch also turns it off, with sound."
 	# deep sleep exists on TrimUI and Anbernic; the Miyoo cannot (its bin/suspend is the faux sleep)
 	if [ "$PLATFORM" != "miyoomini" ]; then
 		set -- "$@" deepsleep "Deep Sleep" "On|Off" "$(flag_off "$DEEP_SLEEP_OFF")" "On: suspends to RAM when idle. Near-zero\npower, wakes instantly. Off: sleeps like stock."
@@ -126,6 +129,8 @@ Focus starts with your first favorite." ;;
 
 SELECT + START at the main menu
 opens Tools anyway." "HIDE" "BACK"; then touch "$HIDE_TOOLS"; else AGAIN=1; fi ;;
+			rumble=On)     rm -f "$NO_RUMBLE" ;;
+			rumble=Off)    touch "$NO_RUMBLE" ;;
 			deepsleep=On)  rm -f "$DEEP_SLEEP_OFF" ;;
 			deepsleep=Off) touch "$DEEP_SLEEP_OFF" ;;
 			wifi=On)       [ -f "$WOFF" ] && wifi_on; AGAIN=1 ;;
