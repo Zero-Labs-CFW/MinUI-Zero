@@ -64,7 +64,7 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 | Row | Values | What it does |
 |---|---|---|
 | Recents | On / Off | Recently Played on the main menu |
-| Favorites | Off / On / Focus | favorite a game with Y in its in-game menu (a star beside the title shows it is one); On adds Favorites to the main menu, Focus makes the main menu only your favorites |
+| Favorites | Off / On / Focus | favorite a game with Y in its in-game menu (a star beside the title and a Favorited button show it is one); On adds Favorites to the main menu, Focus makes the main menu only your favorites |
 | Tools | Shown / Hidden | SELECT + START at the main menu opens Tools even when hidden |
 | Deep Sleep | On / Off | suspend to RAM when idle (TrimUI, Anbernic) |
 | Optimize CPU | Stock / Optimized | per-chip undervolting; A runs or manages it (TrimUI) |
