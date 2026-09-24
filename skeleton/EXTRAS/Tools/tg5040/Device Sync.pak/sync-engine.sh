@@ -149,11 +149,6 @@ sweep_tmp_plan() { # <plan-or-manifest> <dst> [relcol]   (rel column: 4 for a pl
 		[ -d "$2/$d" ] && find "$2/$d" -maxdepth 1 -type f \( -name '*.dsync.tmp' -o -name '*.dsync.part' \) -exec rm -f {} + 2>/dev/null
 	done; return 0
 }
-sweep_tmp() { # <dir>
-	[ -d "$1" ] || return 0
-	find "$1" -follow -type f \( -name '*.dsync.tmp' -o -name '*.dsync.part' \) -exec rm -f {} + 2>/dev/null
-	return 0
-}
 
 # ---- classification: relpath -> class, class -> merge rule ----
 # _classify sets CLS with no fork (manifest() calls it once per file); classify is the echoing/CLI form.
@@ -342,8 +337,8 @@ plan()  { src="$1"; dst="$2"; t=$(tmpf); manifest "$src" > "$t"; _plan_rich "$t"
 apply() { src="$1"; dst="$2"; bdir="$3"; t=$(tmpf); manifest "$src" > "$t"; _apply_rich "$t" "$src" "$dst" "$bdir"; rc=$?; rm -f "$t"; return $rc; }
 
 # ---- public: networked (manifest fetched over the wire, bytes downloaded into staging) ----
+plan_net(){ _plan_rich "$1" "$2" | cut -f1,3; }            # dry-run preview (ACTION \t REL): the test suite checks the merge rules through it
 delta()   { _plan_rich "$1" "$2" | grep -E "^(ADD|UPDATE|CONFLICT)$TAB" | cut -f3; }   # receiver: files to download (conflicts staged too, applied only if approved)
-plan_net(){ _plan_rich "$1" "$2" | cut -f1,3; }            # receiver: dry-run preview (ACTION \t REL)
 # ---- the at-a-glance delta: what actually needs to sync, per category (Dan 2026-09-18) ----
 # plan_rich joins the plan with the manifest so every planned file carries its class + size; the
 # at-a-glance screen and the per-category drill-in are both built from it.
@@ -772,9 +767,6 @@ restore() { # <dst> <backupdir> [file of rels: restore ONLY these]
 	rm -f "$t" "$t.work"
 	return $rc
 }
-# undo: kept as the old name for the v1 caller; same backup-first restore, no guessing.
-undo() { restore "$@"; }
-
 # ---- pick tree (Device Sync send): consoles, their games, and the files a game brings along ----
 # "1) Game Boy Color (GBC)" -> name "Game Boy Color", tag "GBC". Saves live at Saves/<tag>/<rom file>.sav
 # and states at .userdata/shared/<tag>-<core>/<rom stem>.st0..9 (MinUI convention), so a game's stem
@@ -846,13 +838,11 @@ case "$cmd" in
 	journal-status) journal_status "$@" ;;
 	resume-check)   resume_check "$@" ;;
 	plan-need)      plan_need "$@" ;;
-	sweep-tmp)      sweep_tmp "$@" ;;
 	restore)   restore "$@" ;;
-	undo)      undo "$@" ;;
 	prune)     prune "$@" ;;
 	classify)  classify "$@" ;;
 	systems)   systems "$@" ;;
 	games)     games "$@" ;;
 	game-files) game_files "$@" ;;
-	*) echo "usage: sync-engine.sh {manifest|plan|apply|delta|plan-net|plan-rich|plan-summary|merge|merge-summary|apply-net|apply-plan|resume-apply|journal-status|resume-check|plan-need|sweep-tmp|restore|undo|prune|classify|systems|games|game-files} ..." >&2; exit 2 ;;
+	*) echo "usage: sync-engine.sh {manifest|plan|apply|delta|plan-net|plan-rich|plan-summary|merge|merge-summary|apply-net|apply-plan|resume-apply|journal-status|resume-check|plan-need|restore|prune|classify|systems|games|game-files} ..." >&2; exit 2 ;;
 esac

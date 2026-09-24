@@ -4,10 +4,8 @@
 // optionally draws a progress bar from a second file ("<done>/<total>"), and exits CLEANLY on
 // SIGTERM/SIGINT/SIGHUP (say.elf ignores SIGTERM via SDL, which is why backgrounded says stacked).
 //
-//   status.elf <message-file> [progress-file] [--timeout N] [--countdown N] [--cancel-b]
+//   status.elf <message-file> [progress-file] [--cancel-b] [--cancel-label W] [--steps a|b|c] [--header T]
 //
-//   --timeout N    exit 0 on its own after N seconds (auto-dismissing "Done" screens)
-//   --countdown N  append "Starting in N..." and exit 0 when it reaches 0 (auto-proceed)
 //   --cancel-b     poll the pad; B exits 1 (a veto). ONLY B is read, so it never reads as "tap OK".
 //                  Draws the standard bottom-left B pill, so the affordance looks like every other
 //                  screen in the OS instead of being typed into the message (Dan, 2026-09-18).
@@ -17,7 +15,7 @@
 //                  one screen replaces a flurry of separate "Searching/Connecting/Comparing" texts.
 //   --header TEXT  one quiet line at the top (e.g. "Last sync: ..."): context sits above the stepper, apart
 //                  from the instruction under it, which read as crowded when stacked (Dan, 2026-09-23)
-// Exit code: 0 = proceeded / timed out / killed; 1 = user pressed B.
+// Exit code: 0 = killed by the caller; 1 = user pressed B.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,18 +85,15 @@ static void read_file(const char* path, char* out, int cap) {
 
 int main(int argc, char* argv[]) {
 	const char* msgpath = NULL; const char* progpath = NULL;
-	int timeout = 0, countdown = 0, cancel_b = 0, options_y = 0;
+	int cancel_b = 0;
 	char* cancel_label = "STOP";
 	char* steps_arg = NULL;
 	char* header = NULL;
 	for (int i = 1; i < argc; i++) {
-		if      (!strcmp(argv[i], "--timeout")   && i+1 < argc) timeout   = atoi(argv[++i]);
-		else if (!strcmp(argv[i], "--countdown") && i+1 < argc) countdown = atoi(argv[++i]);
-		else if (!strcmp(argv[i], "--cancel-label") && i+1 < argc) cancel_label = argv[++i];
+		if      (!strcmp(argv[i], "--cancel-label") && i+1 < argc) cancel_label = argv[++i];
 		else if (!strcmp(argv[i], "--steps") && i+1 < argc) steps_arg = argv[++i];
 		else if (!strcmp(argv[i], "--header") && i+1 < argc) header = argv[++i];
 		else if (!strcmp(argv[i], "--cancel-b")) cancel_b = 1;
-		else if (!strcmp(argv[i], "--options-y")) options_y = 1;   // Y exits 2: the caller opens its options
 		else if (!msgpath)  msgpath  = argv[i];
 		else if (!progpath) progpath = argv[i];
 	}
@@ -115,27 +110,21 @@ int main(int argc, char* argv[]) {
 
 	PWR_setCPUSpeed(CPU_SPEED_MENU);
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
-	if (cancel_b || options_y) PAD_init();
+	if (cancel_b) PAD_init();
 	PWR_init();
 	InitSettings();
 
-	uint32_t start = SDL_GetTicks();
 	int rc = 0;
 	char msg[1024] = "", prog[64] = "", shown[1280] = "";
 	char lastshown[1280] = "\x01", lastprog[64] = "\x01";
 
 	while (!g_quit) {
-		uint32_t el = (SDL_GetTicks() - start) / 1000;
-		if (cancel_b || options_y) { PAD_poll(); if (cancel_b && PAD_justPressed(BTN_B)) { rc = 1; break; } if (options_y && PAD_justPressed(BTN_Y)) { rc = 2; break; } }
-		if (timeout && el >= (uint32_t)timeout) break;
-		int remain = countdown ? countdown - (int)el : 0;
-		if (countdown && remain <= 0) break;          // auto-proceed
+		if (cancel_b) { PAD_poll(); if (PAD_justPressed(BTN_B)) { rc = 1; break; } }
 
 		read_file(msgpath,  msg,  sizeof msg);
 		read_file(progpath, prog, sizeof prog);
 		// the B pill below carries the cancel affordance, so it is never spelled out in the text
-		if (countdown) snprintf(shown, sizeof shown, "%s\n\nStarting in %d...", msg, remain);
-		else           snprintf(shown, sizeof shown, "%s", msg);
+		snprintf(shown, sizeof shown, "%s", msg);
 
 		// stepper mode repaints every frame so the active dot can breathe; other modes repaint on change
 		if (strcmp(shown, lastshown) != 0 || strcmp(prog, lastprog) != 0 || nsteps > 0) {
@@ -175,7 +164,6 @@ int main(int argc, char* argv[]) {
 			}
 			// B is ALWAYS the bottom-left pill (the universal back button), same as every other screen
 			if (cancel_b) GFX_blitButtonGroup((char*[]){ "B", cancel_label, NULL }, 0, screen, 0);
-			if (options_y) GFX_blitButtonGroup((char*[]){ "Y", "Options", NULL }, 0, screen, 1);
 			GFX_flip(screen);
 			strcpy(lastshown, shown);
 			strcpy(lastprog, prog);
@@ -185,7 +173,7 @@ int main(int argc, char* argv[]) {
 
 	QuitSettings();
 	PWR_quit();
-	if (cancel_b || options_y) PAD_quit();
+	if (cancel_b) PAD_quit();
 	GFX_quit();
 	return rc;
 }

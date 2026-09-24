@@ -80,8 +80,8 @@ has  "SKIP${TAB}Saves/GBA/save4.srm" "$P"
 nohas "localonly.srm" "$P"
 
 echo "== apply =="; E apply "$A" "$B" "$BK"; assert_applied "$B" "$BK"
-echo "== undo (the v1 name, now the backup-first restore) =="
-E undo "$B" "$BK" >/dev/null
+echo "== restore (backup-first) =="
+E restore "$B" "$BK" >/dev/null
 if diff -r "$REF" "$B" >/dev/null 2>&1; then ok "undo restored EXACT pre-sync state"; else bad "undo mismatch"; diff -r "$REF" "$B" | sed 's/^/    /'; fi
 
 ######################################################################
@@ -113,7 +113,7 @@ check "save2 mtime = sender's (manifest authoritative)" "$(mt "$B2/Saves/GBA/sav
 check "save1 mtime = sender's (manifest authoritative)" "$(mt "$B2/Saves/GBA/save1.srm")" "$(mt "$A2/Saves/GBA/save1.srm")"
 
 echo "== undo (networked) =="
-E undo "$B2" "$BK2" >/dev/null
+E restore "$B2" "$BK2" >/dev/null
 if diff -r "$REF2" "$B2" >/dev/null 2>&1; then ok "undo restored EXACT pre-sync state"; else bad "undo mismatch"; diff -r "$REF2" "$B2" | sed 's/^/    /'; fi
 
 ######################################################################
@@ -132,7 +132,7 @@ A3b="$WORK/s3b/sender"; B3b="$WORK/s3b/local"; BK3b="$WORK/s3b/bk"; mkdir -p "$A
 mk "$A3b" "Saves/GBA/y.srm" "Y-NEW" 202602010000; mk "$B3b" "Saves/GBA/y.srm" "Y-OLD" 202601010000
 E apply "$A3b" "$B3b" "$BK3b"
 rm -f "$BK3b/Saves/GBA/y.srm"
-E undo "$B3b" "$BK3b" >/dev/null 2>&1
+E restore "$B3b" "$BK3b" >/dev/null 2>&1
 check "B: undo w/ lost backup leaves save intact (not truncated)" "$(cat "$B3b/Saves/GBA/y.srm")" "Y-NEW"
 
 echo "== C: unsafe manifest paths (.. and absolute) are rejected =="
@@ -156,7 +156,7 @@ check "D: prior snapshot ops.log intact" "$(cat "$BK3d/ops.log")" "$OPS1"
 echo "== E: undo restores the ORIGINAL mtime, not undo's cp time =="
 A3e="$WORK/s3e/sender"; B3e="$WORK/s3e/local"; BK3e="$WORK/s3e/bk"; mkdir -p "$A3e" "$B3e"
 mk "$A3e" "Saves/GBA/m.srm" "M-NEW" 202602010000; mk "$B3e" "Saves/GBA/m.srm" "M-OLD" 202601010000
-OMT=$(mt "$B3e/Saves/GBA/m.srm"); E apply "$A3e" "$B3e" "$BK3e"; E undo "$B3e" "$BK3e" >/dev/null
+OMT=$(mt "$B3e/Saves/GBA/m.srm"); E apply "$A3e" "$B3e" "$BK3e"; E restore "$B3e" "$BK3e" >/dev/null
 check "E: undo restored original content" "$(cat "$B3e/Saves/GBA/m.srm")" "M-OLD"
 check "E: undo restored original mtime"   "$(mt "$B3e/Saves/GBA/m.srm")" "$OMT"
 
