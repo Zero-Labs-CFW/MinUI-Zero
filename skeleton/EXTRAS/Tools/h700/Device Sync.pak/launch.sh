@@ -1645,7 +1645,11 @@ nothing was half-copied." "SYNC AGAIN"; then STATE=find; continue; else exit 0; 
 			if oops "$MM
 
 $PEER is up to date.
-Pick Sync again to finish this one." "SYNC AGAIN"; then STATE=sync; continue; else exit 0; fi
+Pick Sync again to finish this one." "SYNC AGAIN"; then
+				# a peer that already left gets found again first: retrying copies from a gone device waited out every
+				# file's timeouts (audit 2026-09-24). Staging is kept for the same plan and peer, so nothing restarts.
+				if ping -c1 -W2 "$PEER_IP" >/dev/null 2>&1; then STATE=sync; else STATE=find; fi; continue
+			else exit 0; fi
 		fi
 		prog_hold "Copying to $NAME..." "saving"      # B off: nothing here can stop safely
 		apply_plan "$W/plan.me" > "$W/got"; arc=$?
