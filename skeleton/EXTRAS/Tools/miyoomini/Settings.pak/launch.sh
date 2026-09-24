@@ -16,7 +16,11 @@ DEEP_SLEEP_OFF="$SHARED/disable-deep-sleep"
 WTXT="$CARD/wifi.txt"
 WOFF="$CARD/wifi.txt.off"
 
-flag_off() { if [ -f "$1" ]; then echo Off; else echo On; fi; } # file present = Off (the opt-out flags)
+# a flag counts with or without .txt, exactly as the launcher reads it (flagExists): a Windows-made
+# no-recents.txt showed On here and could never be cleared from the device (audit 2026-09-24)
+has_flag() { [ -f "$1" ] || [ -f "$1.txt" ]; }
+clear_flag() { rm -f "$1" "$1.txt"; }
+flag_off() { if has_flag "$1"; then echo Off; else echo On; fi; } # file present = Off (the opt-out flags)
 
 # WiFi: the card's wifi.txt stays the ONE source of truth (SSID:password, opt-in by existing). The
 # row shows the real state and flips the file between wifi.txt and wifi.txt.off. No file, no row
@@ -42,7 +46,7 @@ wifi_row() { # sets WIFI_VALUES WIFI_CURRENT WIFI_DESC
 		esac
 	else
 		WIFI_VALUES="On|Off"; WIFI_CURRENT=Off
-		WIFI_DESC="On: connects to \"$(wifi_ssid "$WOFF")\" and starts SSH."
+		WIFI_DESC="On: connects to \"$(wifi_ssid "$WOFF")\"."   # SSH only follows on TrimUI (audit 2026-09-24): not promised here
 	fi
 }
 wifi_off() {
@@ -67,13 +71,13 @@ while :; do
 	# Favorites and Focus are ONE row with three values (Dan, 2026-09-16: two rows made Focus depend
 	# on Favorites in a way the user had to manage). Focus with nothing favorited just waits: the
 	# launcher shows the normal menu until the first favorite exists.
-	if [ -f "$NO_FAVORITES" ]; then FAV=Off; elif [ -f "$FOCUS" ]; then FAV=Focus; else FAV=On; fi
+	if has_flag "$NO_FAVORITES"; then FAV=Off; elif has_flag "$FOCUS"; then FAV=Focus; else FAV=On; fi
 	set -- "$@" favorites "Favorites" "Off|On|Focus" "$FAV" "Y in a game's menu makes it a favorite.\nOn: Favorites appears on the main menu.\nFocus: the main menu is only your favorites."
-	if [ -f "$HIDE_TOOLS" ]; then TOOLS=Hidden; else TOOLS=Shown; fi
+	if has_flag "$HIDE_TOOLS"; then TOOLS=Hidden; else TOOLS=Shown; fi
 	set -- "$@" tools "Tools" "Shown|Hidden" "$TOOLS" "Hidden: SELECT + START at the main menu\nstill opens Tools."
 	# deep sleep exists on TrimUI and Anbernic; the Miyoo cannot (its bin/suspend is the faux sleep)
 	if [ "$PLATFORM" != "miyoomini" ]; then
-		set -- "$@" deepsleep "Deep Sleep" "On|Off" "$(flag_off "$DEEP_SLEEP_OFF")" "On: suspends to RAM when idle. Near-zero\npower, wakes instantly. Off: sleeps like stock."
+		set -- "$@" deepsleep "Deep Sleep" "On|Off" "$(if [ -f "$DEEP_SLEEP_OFF" ]; then echo Off; else echo On; fi)" "On: suspends to RAM when idle. Near-zero\npower, wakes instantly. Off: sleeps like stock."
 	fi
 	# Optimize CPU (TrimUI only; Dan, 2026-09-16: "saying it's been optimized or not"). The pak
 	# keeps its own reviewed state machine; this row only READS this chip's result and hands off
@@ -110,17 +114,17 @@ while :; do
 	AGAIN=0
 	for line in $OUT; do # KEY=VALUE tokens; a value never contains a space
 		case "$line" in
-			recents=On)    rm -f "$NO_RECENTS" ;;
+			recents=On)    clear_flag "$NO_RECENTS" ;;
 			recents=Off)   touch "$NO_RECENTS" ;;
-			favorites=Off)   touch "$NO_FAVORITES"; rm -f "$FOCUS" ;;
-			favorites=On)    rm -f "$NO_FAVORITES" "$FOCUS" ;;
-			favorites=Focus) rm -f "$NO_FAVORITES"; touch "$FOCUS"
+			favorites=Off)   touch "$NO_FAVORITES"; clear_flag "$FOCUS" ;;
+			favorites=On)    clear_flag "$NO_FAVORITES"; clear_flag "$FOCUS" ;;
+			favorites=Focus) clear_flag "$NO_FAVORITES"; touch "$FOCUS"
 				# Focus with nothing favorited shows the normal menu until the first favorite: say so once, here
 				grep -q . "$SHARED/.minui/favorites.txt" 2>/dev/null || say.elf "No favorites yet.
 
 Press Y in a game's menu to add one.
 Focus starts with your first favorite." ;;
-			tools=Shown)   rm -f "$HIDE_TOOLS" ;;
+			tools=Shown)   clear_flag "$HIDE_TOOLS" ;;
 			tools=Hidden)
 				if confirm.elf "Hide Tools?
 

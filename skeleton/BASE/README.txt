@@ -62,9 +62,9 @@ Sleep, quicksave & auto-resume
 
 A short press of POWER sleeps the device. After two minutes asleep it
 suspends to RAM: the device goes fully cold and wakes instantly, right where
-you left off. To disable suspend, run the "Deep Sleep" tool in the Tools
-menu. Sleep then behaves like stock MinUI and the device powers off on a
-timer instead.
+you left off. To disable suspend, set Tools > Settings > Deep Sleep to Off.
+Sleep then behaves like stock MinUI and the device powers off on a timer
+instead.
 
 MinUI creates a quicksave when powering off in-game and resumes from it
 automatically on the next boot.

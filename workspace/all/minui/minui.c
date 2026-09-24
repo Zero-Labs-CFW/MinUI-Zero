@@ -852,7 +852,7 @@ static int hasFavorites(void) {
 	if (!file) return 0;
 	int has = 0;
 	char line[MAX_PATH];
-	while (fgets(line,256,file)!=NULL) {
+	while (fgets(line,sizeof(line),file)!=NULL) {
 		normalizeNewline(line);
 		trimTrailingNewlines(line);
 		if (strlen(line)==0) continue;
@@ -868,7 +868,7 @@ static Array* getFavorites(void) {
 	FILE* file = fopen(FAVORITE_PATH, "r");
 	if (file) {
 		char line[MAX_PATH];
-		while (fgets(line,256,file)!=NULL) {
+		while (fgets(line,sizeof(line),file)!=NULL) {
 			normalizeNewline(line);
 			trimTrailingNewlines(line);
 			if (strlen(line)==0) continue;

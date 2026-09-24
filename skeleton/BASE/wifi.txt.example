@@ -1,5 +1,5 @@
-# WiFi is OFF by default. MinUI Zero has no networking features, so an idle radio is battery and
-# heat spent on nothing. Turn it on only if you want SSH access to the device.
+# WiFi is OFF by default: an idle radio is battery and heat spent on nothing. Device Sync does not
+# need this file (it opens its own hotspot). Turn it on only if you want SSH access to the device.
 #
 # To enable: rename this file to wifi.txt and put your network on one line as SSID:password.
 # Lines starting with # are ignored. The first network listed is the one used.

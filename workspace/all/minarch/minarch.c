@@ -6095,7 +6095,9 @@ static void Menu_loop(void) {
 		// from the pause menu keeps it a deliberate act on this game, not a stray press on a launcher
 		// row. The footer label flips (FAVORITE <-> FAVORITED) and the title gains a star, which is the only feedback needed.
 		if (PAD_justPressed(BTN_Y) && !flagExists(NO_FAVORITES_PATH)) {
-			Favorites_toggle((char*)game.path);
+			// a multi-disc game is ONE favorite, keyed by its .m3u: game.path is the current disc and changes on a
+			// swap, which hid the star on disc 2 and added a second entry (audit 2026-09-24)
+			Favorites_toggle(game.m3u_path[0] ? game.m3u_path : game.path);
 			dirty = 1;
 		}
 
@@ -6183,7 +6185,7 @@ static void Menu_loop(void) {
 			// a favorited game carries a star before its name, and the Y pill reads FAVORITED (Dan, 2026-09-23). The star is U+2605, added to our font by
 			// tools/add-star-glyph.py (SDL_ttf has no fallback font).
 			char titled[260];
-			if (!flagExists(NO_FAVORITES_PATH) && Favorites_has((char*)game.path)) snprintf(titled, sizeof(titled), "\xe2\x98\x85 %s", rom_name);
+			if (!flagExists(NO_FAVORITES_PATH) && Favorites_has(game.m3u_path[0] ? game.m3u_path : game.path)) snprintf(titled, sizeof(titled), "\xe2\x98\x85 %s", rom_name);
 			else snprintf(titled, sizeof(titled), "%s", rom_name);
 			int text_width = GFX_truncateText(font.large, titled, display_name, max_width, SCALE1(BUTTON_PADDING*2));
 			max_width = MIN(max_width, text_width);
@@ -6209,7 +6211,7 @@ static void Menu_loop(void) {
 
 			if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
 			else if (!flagExists(NO_FAVORITES_PATH)) // Y favorites the running game; the label doubles as its state
-				GFX_blitButtonGroup((char*[]){ "Y", Favorites_has((char*)game.path) ? "FAVORITED" : "FAVORITE", NULL }, 0, screen, 0); // positive wording (Dan): the pill states where you are, Y still toggles; FAVORITED restored beside the star (Dan, 2026-09-23)
+				GFX_blitButtonGroup((char*[]){ "Y", Favorites_has(game.m3u_path[0] ? game.m3u_path : game.path) ? "FAVORITED" : "FAVORITE", NULL }, 0, screen, 0); // positive wording (Dan): the pill states where you are, Y still toggles; FAVORITED restored beside the star (Dan, 2026-09-23)
 			else GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"POWER":"MENU","SLEEP", NULL }, 0, screen, 0);
 			GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OKAY", NULL }, 1, screen, 1);
 			

@@ -68,7 +68,7 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 | Tools | Shown / Hidden | SELECT + START at the main menu opens Tools even when hidden |
 | Deep Sleep | On / Off | suspend to RAM when idle (TrimUI, Anbernic) |
 | Optimize CPU | Stock / Optimized | per-chip undervolting; A runs or manages it (TrimUI) |
-| WiFi | On / Off | shown once `wifi.txt` exists; On also starts SSH |
+| WiFi | On / Off | shown once `wifi.txt` exists; on TrimUI, On also starts SSH |
 | Date & Time | | A opens the clock setter, which also owns the menu clock |
 
 Every setting is also a small file on the card, so you can set it from a computer, and a few things are files only. Card-root files go at the top of the SD card and work with or without a `.txt` extension; delete the file to undo.
