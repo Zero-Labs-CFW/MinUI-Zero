@@ -66,7 +66,6 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 | Recents | On / Off | Recently Played on the main menu |
 | Favorites | Off / On / Focus | favorite a game with Y in its in-game menu (a star beside the title and a Favorited button show it is one); On adds Favorites to the main menu, Focus makes the main menu only your favorites |
 | Tools | Shown / Hidden | SELECT + START at the main menu opens Tools even when hidden |
-| Rumble | On / Off | Off stops game rumble (the mute switch also stops it, with the sound) |
 | Deep Sleep | On / Off | suspend to RAM when idle (TrimUI, Anbernic) |
 | Optimize CPU | Stock / Optimized | per-chip undervolting; A runs or manages it (TrimUI) |
 | WiFi | On / Off | shown once `wifi.txt` exists; On also starts SSH |
@@ -82,7 +81,6 @@ Every setting is also a small file on the card, so you can set it from a compute
 | `no-favorites` | Favorites: Off | hides Favorites; the in-game Y does nothing |
 | `focus` | Favorites: Focus | the main menu shows your Favorites instead of the consoles |
 | `hide-tools` | Tools: Hidden | hides Tools (SELECT + START at the main menu opens it anyway) |
-| `no-rumble` | Rumble: Off | games never rumble |
 | `wifi.txt` | WiFi | one network per line as `SSID:password`; file only, the password is yours to type |
 | `timezone` | | an IANA name like `America/New_York`, for the clock and DST (TrimUI) |
 | `devmode` | | stays awake and starts SSH; for development, costs idle battery |
