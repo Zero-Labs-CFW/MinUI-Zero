@@ -1294,18 +1294,20 @@ Nothing to copy."; exit 0
 	# the host only (it owns the plan), B here cancels like B on the item list.
 	if [ "$PG" = 1 ] || [ "$QG" = 1 ]; then
 		NROM0=$(awk -F"$TAB" '$1!="skip" && $2=="rom"' "$W/merge" | wc -l | tr -d ' ')
-		if [ -n "$QK" ]; then drop_systems "$W/merge" "$QK" > "$W/merge.f" && mv "$W/merge.f" "$W/merge"; fi   # the peer's skips first: not offered here
+		# the peer's remembered skips are SHOWN here, preset to Skip, never dropped unseen: a Brick Pro that once
+		# skipped SNES/PS/PICO-8/Ports hid them from an empty H with no way back (Dan, 2026-09-24)
 		write_sysmap; sys_rows "$W/merge" "$W/sysmap" > "$W/sys"
 		if [ -s "$W/sys" ]; then
-			sys_dirs "$W/merge" > "$W/sysdir"; : > "$W/noemu"; GSKIP0=$GSKIP   # the skips the user had BEFORE this picker
+			sys_dirs "$W/merge" > "$W/sysdir"; : > "$W/noemu"; : > "$W/peerskip"; GSKIP0=$GSKIP   # the skips the user had BEFORE this picker
 			set --
 			while IFS="$TAB" read -r st sn sc sk; do
-				cur=Sync; in_csv "$st" "$GSKIP" && cur=Skip
+				cur=Sync; in_csv "$st" "$GSKIP" && cur=Skip; hint=""
+				if in_csv "$st" "$QK" && ! in_csv "$st" "$GSKIP"; then cur=Skip; hint="Skipped on $PEER."; printf '%s\n' "$st" >> "$W/peerskip"; fi
 				# the emulator gate: games heading to a device with no emulator for them start as Skip
 				dr=$(awk -F"$TAB" -v t="$st" '$1==t{print $2; exit}' "$W/sysdir"); who=""
 				case "$dr" in to-b|both) has_emu "$st" "$W/peer.emus" || who="$PEER" ;; esac
 				case "$dr" in to-a|both) has_emu "$st" "$W/my.emus" || who="${who:+$who and }this device" ;; esac
-				hint=""; if [ -n "$who" ]; then cur=Skip; hint="No $st emulator on $who."; printf '%s\t%s\t%s\n' "$st" "$sn" "$who" >> "$W/noemu"; fi
+				if [ -n "$who" ]; then cur=Skip; hint="No $st emulator on $who."; printf '%s\t%s\t%s\n' "$st" "$sn" "$who" >> "$W/noemu"; fi
 				set -- "$@" "sys_$st" "$sn ($sc games, $(fmt_kb "$sk"))" "Sync|Skip" "$cur" "$hint"
 			done < "$W/sys"
 			menu --title "Games to sync" --x-label "Continue" "$@" > "$W/out"
@@ -1324,12 +1326,12 @@ Nothing to copy."; exit 0
 }$sn"; fwho=$(awk -F"$TAB" -v t="$st" '$1==t{print $3; exit}' "$W/noemu") ;; *) nskip="${nskip:+$nskip,}$st" ;; esac
 					continue
 				fi
-				case "$v" in Skip) nskip="${nskip:+$nskip,}$st" ;; Sync) ;; *) in_csv "$st" "$GSKIP" && nskip="${nskip:+$nskip,}$st" ;; esac
+				case "$v" in Skip) nskip="${nskip:+$nskip,}$st" ;; Sync) ;; *) { in_csv "$st" "$GSKIP" || awk -v t="$st" '$0==t{f=1} END{exit !f}' "$W/peerskip"; } && nskip="${nskip:+$nskip,}$st" ;; esac
 			done < "$W/sys"
 			# remember only the user's own skips: strip the gated systems before saving
 			# a gated system is dropped from the saved list ONLY if the user had not skipped it themselves before
 			# (Codex round 4: the gate erased a real user skip)
-			GSKIP=""; for st in $(printf '%s' "$nskip" | tr ',' ' '); do if grep -q "^$st$TAB" "$W/noemu" 2>/dev/null && ! in_csv "$st" "$GSKIP0"; then :; else GSKIP="${GSKIP:+$GSKIP,}$st"; fi; done; save_prefs
+			GSKIP=""; for st in $(printf '%s' "$nskip" | tr ',' ' '); do if { grep -q "^$st$TAB" "$W/noemu" 2>/dev/null || { awk -v t="$st" '$0==t{f=1} END{exit !f}' "$W/peerskip" && [ -z "$(sed -n "s/^sys_$st=//p" "$W/out")" ]; }; } && ! in_csv "$st" "$GSKIP0"; then :; else GSKIP="${GSKIP:+$GSKIP,}$st"; fi; done; save_prefs
 			GSKIP=$nskip   # for THIS sync the gated systems are skipped too (prefs keep the user's list only)
 			# short lines: the long version ran off the Miyoo's 640 px screen (Dan, 2026-09-23)
 			if [ -n "$forced" ]; then tell "No emulator on $fwho for:
