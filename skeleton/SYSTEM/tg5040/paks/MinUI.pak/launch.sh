@@ -380,6 +380,19 @@ for p in $(pidof ntpd 2>/dev/null); do kill "$p"; done # MinUI keeps its own clo
 # stay-awake in C (PWR_init), so gating SSH on the SAME flag is what stops the reconnect rodeo: the
 # device stays awake AND reachable together, the way the Miyoo already works. enable-ssh (which
 # wifi.txt still creates above) stays a valid trigger so existing dev cards keep working.
+# The FIRMWARE's SSH servers accept a root password (Brick Pro: OpenSSH on :22 started by
+# /etc/rc.d/S50sshd at every boot; Brick: dropbear), so turning WiFi on put a password login on
+# the network (checked on-device 2026-09-24). Stop them on every non-dev card; SSH is then only
+# ours, key-only (dev-net.sh). devmode keeps them, so a dev card's access never changes.
+if ! devmode; then
+	[ -x /etc/init.d/sshd ] && /etc/init.d/sshd stop >/dev/null 2>&1
+	[ -x /etc/init.d/dropbear ] && /etc/init.d/dropbear stop >/dev/null 2>&1
+	# by pid (busybox killall skips applets), and never OUR dropbearmulti: pidof dropbear matches it too
+	# (it dropped a live session in the on-device test, 2026-09-24)
+	for p in $(pidof sshd dropbear 2>/dev/null); do
+		case "$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null)" in *dropbearmulti*) ;; *) kill "$p" 2>/dev/null ;; esac
+	done
+fi
 if devmode || [ -f "$SHARED_USERDATA_PATH/enable-ssh" ]; then
 	# adbd SURVIVES in dev mode on purpose: the USB block above keeps stock "data" mode precisely
 	# so adb is available as a wifi-less fallback when ssh cannot be reached. Killing it here too

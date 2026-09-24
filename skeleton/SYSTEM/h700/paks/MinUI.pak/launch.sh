@@ -167,7 +167,7 @@ while : ; do
   DBKEY="$USERDATA_PATH/dropbear_ed25519_host_key"
   if [ -x "$DBM" ] && [ -s /root/.ssh/authorized_keys ] && ! pgrep dropbearmulti >/dev/null 2>&1; then
 	[ -f "$DBKEY" ] || "$DBM" dropbearkey -t ed25519 -f "$DBKEY" 2>/dev/null
-	"$DBM" dropbear -r "$DBKEY" -p 22 2>/dev/null
+	"$DBM" dropbear -s -r "$DBKEY" -p 22 2>/dev/null   # -s: key-only, never a password (2026-09-24)
 	# STAY AWAKE while SSH is up (Dan, 2026-09-08). The h700 has no deep sleep, so MinUI's idle
 	# escalation POWERS IT OFF after ~2 min, which killed every remote debug session. STAY_AWAKE_PATH
 	# is honored by PWR_preventAutosleep (shared api.c), and blocking autosleep also blocks that

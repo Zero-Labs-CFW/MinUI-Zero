@@ -70,7 +70,7 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 | Tools | Shown / Hidden | SELECT + START at the main menu opens Tools even when hidden | `hide-tools` = Hidden |
 | Deep Sleep | On / Off | suspend to RAM when idle (TrimUI, Anbernic); Off sleeps like stock | `.userdata/shared/disable-deep-sleep` = Off |
 | Optimize CPU | Stock / Optimized | per-chip undervolting; A runs or manages it (TrimUI) | |
-| WiFi | On / Off | shown once `wifi.txt` exists; on TrimUI, On also starts SSH | `wifi.txt` (renamed `wifi.txt.off` when Off) |
+| WiFi | On / Off | shown once `wifi.txt` exists; on TrimUI, On also starts SSH (key only, see `authorized_keys`) | `wifi.txt` (renamed `wifi.txt.off` when Off) |
 | Date & Time | | A opens the clock setter, which also owns the menu clock | `.userdata/shared/show-clock` = clock on the menu |
 
 **Files only** (no Settings row)
@@ -80,7 +80,7 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 | `wifi.txt` | one network per line as `SSID:password`; the password is yours to type |
 | `timezone` | an IANA name like `America/New_York`, for the clock and DST (TrimUI) |
 | `devmode` | stays awake and starts SSH; for development, costs idle battery |
-| `authorized_keys` | your SSH public key (Anbernic; SSH never starts without it) |
+| `authorized_keys` | your SSH public key; SSH accepts only this key, never a password (TrimUI keeps it in `.userdata/shared/`) |
 | `.userdata/shared/enable-simple-mode` | hides Tools and replaces Options with Reset in the game menu; no escape hatch and no Settings row on purpose, for a locked-down or kid's device |
 
 ### Five Game Handheld

@@ -185,7 +185,7 @@ if devmode && [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	DBM="$SYSTEM_PATH/bin/dropbearmulti"
 	if [ -x "$DBM" ] && ! _db_up; then
 		[ -f "$HK" ] || "$DBM" dropbearkey -t ed25519 -f "$HK" 2>&1
-		setsid "$DBM" dropbear -B -r "$HK" -p 22 </dev/null >>"$SSH_LOG" 2>&1 &
+		setsid "$DBM" dropbear -s -r "$HK" -p 22 </dev/null >>"$SSH_LOG" 2>&1 & # -s: key-only (was -B, which allowed BLANK-password root logins; 2026-09-24)
 		sleep 1
 	fi
 	# console's own dropbear as a fallback, at the paths stock firmwares use.

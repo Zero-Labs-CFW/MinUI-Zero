@@ -82,10 +82,14 @@ LOG="$SHARED/ssh-ip.txt"
   #    one; the Smart Pro's does NOT — its dev-net log read "dropbear: NOT-running"), then
   #    fall back to the static dropbearmulti we ship in .system. Host key lives on the CARD
   #    so the fingerprint stays stable across boots and devices.
-  /etc/init.d/dropbear start 2>/dev/null \
-    || dropbear -p 2022 2>/dev/null \
-    || /usr/sbin/dropbear -p 2022 2>/dev/null \
-    || true
+  #    The FIRMWARE daemons take a root password, so they run on dev cards only (devmode); a user
+  #    card gets ours alone, key-only (-s), and SSH needs your authorized_keys (2026-09-24).
+  if [ -f "$SD/devmode" ] || [ -f "$SD/devmode.txt" ]; then
+    /etc/init.d/dropbear start 2>/dev/null \
+      || dropbear -s -p 2022 2>/dev/null \
+      || /usr/sbin/dropbear -s -p 2022 2>/dev/null \
+      || true
+  fi
   # Start OUR OWN daemon on 2022 whenever the binary exists, regardless of what holds :22.
   # The old guard skipped it if ANYTHING was listening on :22, which assumed a foreign daemon
   # would accept the key installed above. The Brick Pro disproves that: its firmware ships
@@ -97,7 +101,7 @@ LOG="$SHARED/ssh-ip.txt"
     KEY="$SHARED/dropbear_ed25519_host_key"
     if [ -x "$DBM" ]; then
       [ -f "$KEY" ] || "$DBM" dropbearkey -t ed25519 -f "$KEY" 2>/dev/null
-      "$DBM" dropbear -r "$KEY" -p 2022 2>/dev/null || true
+      "$DBM" dropbear -s -r "$KEY" -p 2022 2>/dev/null || true   # -s: key-only, never a password
     else
       echo "dropbearmulti: MISSING at $DBM"
     fi
