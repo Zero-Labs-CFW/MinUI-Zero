@@ -73,7 +73,7 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 
 ### Five Game Handheld
 
-<img src="docs/img/brickpro-focus.png" width="275" alt="Focus: the main menu is only your favorites" align="right" />
+<img src="docs/img/brickpro-focus-mode.png" width="275" alt="Focus: the main menu is only your favorites" align="right" />
 
 The [Retro Game Corps "Five Game Handheld"](https://retrogamecorps.com/2025/10/24/minui-starter-guide/#Five) idea, a handheld with just a few games on it so you actually play them, takes three settings in Zero, with no files to move:
 
