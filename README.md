@@ -11,7 +11,7 @@ Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**, **Anbernic RG35XX Pl
 <p>
   <img src="docs/img/brickpro-menu.png" width="275" alt="Main menu" />
   <img src="docs/img/brickpro-optimize-cpu.png" width="275" alt="Optimize CPU: per-chip undervolting" />
-  <img src="docs/img/brickpro-ingame-menu.png" width="275" alt="In-game menu" />
+  <img src="docs/img/brickpro-ingame-menu-v2.png" width="275" alt="In-game menu" />
   <br>
   <em>Screenshots from TrimUI Brick Pro.</em>
   <br>
