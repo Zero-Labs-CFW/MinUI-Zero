@@ -31,7 +31,7 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 * **Smooth**: even scrolling and clean audio, even under load
 * **Stock bugs fixed**: hot NES settings, crackling audio, hanging quit menus
 * **Hard to break**: bad ROMs exit cleanly, saves are crash-safe
-* **Device Sync**: move saves between any two Zero handhelds over their own hotspot, no computer or internet
+* **Device Sync**: sync saves/games directly between two handhelds, wirelessly, no WiFi network or internet needed
 * **Focus mode**: a main menu of only your favorites, for a five-game handheld
 * **Still MinUI**: no box art, stores, or themes
 
