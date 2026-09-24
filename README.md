@@ -59,23 +59,33 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 
 ## Settings
 
-Tools > Settings is the one screen for everything you can change, drawn like the in-game Options: a value on each row and a line under the list saying what it does.
+Tools > Settings is the one screen for everything you can change, drawn like the in-game Options: a value on each row and a line under the list saying what it does. Every row is also a small file, so you can set it from a computer: create the file to switch it, delete it to undo. Files at the card root work with or without a `.txt` extension.
 
-| Row | Values | What it does |
-|---|---|---|
-| Recents | On / Off | Recently Played on the main menu |
-| Favorites | Off / On / Focus | favorite a game with Y in its in-game menu (a star beside the title and a Favorited button show it is one); On adds Favorites to the main menu, Focus makes the main menu only your favorites |
-| Tools | Shown / Hidden | SELECT + START at the main menu opens Tools even when hidden |
-| Deep Sleep | On / Off | suspend to RAM when idle (TrimUI, Anbernic) |
-| Optimize CPU | Stock / Optimized | per-chip undervolting; A runs or manages it (TrimUI) |
-| WiFi | On / Off | shown once `wifi.txt` exists; on TrimUI, On also starts SSH |
-| Date & Time | | A opens the clock setter, which also owns the menu clock |
+| Row | Values | What it does | File |
+|---|---|---|---|
+| Recents | On / Off | Recently Played on the main menu; Off also stops recording plays | `no-recents` = Off |
+| Favorites | Off / On / Focus | favorite a game with Y in its in-game menu (a star beside the title and a Favorited button show it is one); On adds Favorites to the main menu, Focus makes the main menu only your favorites | `no-favorites` = Off, `focus` = Focus |
+| Tools | Shown / Hidden | SELECT + START at the main menu opens Tools even when hidden | `hide-tools` = Hidden |
+| Deep Sleep | On / Off | suspend to RAM when idle (TrimUI, Anbernic); Off sleeps like stock | `.userdata/shared/disable-deep-sleep` = Off |
+| Optimize CPU | Stock / Optimized | per-chip undervolting; A runs or manages it (TrimUI) | |
+| WiFi | On / Off | shown once `wifi.txt` exists; on TrimUI, On also starts SSH | `wifi.txt` (renamed `wifi.txt.off` when Off) |
+| Date & Time | | A opens the clock setter, which also owns the menu clock | `.userdata/shared/show-clock` = clock on the menu |
+
+**Files only** (no Settings row)
+
+| File | Effect |
+|---|---|
+| `wifi.txt` | one network per line as `SSID:password`; the password is yours to type |
+| `timezone` | an IANA name like `America/New_York`, for the clock and DST (TrimUI) |
+| `devmode` | stays awake and starts SSH; for development, costs idle battery |
+| `authorized_keys` | your SSH public key (Anbernic; SSH never starts without it) |
+| `.userdata/shared/enable-simple-mode` | hides Tools and replaces Options with Reset in the game menu; no escape hatch and no Settings row on purpose, for a locked-down or kid's device |
 
 ### Five Game Handheld
 
 <img src="docs/img/brickpro-focus-mode.png" width="275" alt="Focus: the main menu is only your favorites" align="right" />
 
-The [Retro Game Corps "Five Game Handheld"](https://retrogamecorps.com/2025/10/24/minui-starter-guide/#Five) idea, a handheld with just a few games on it so you actually play them, takes three settings in Zero, with no files to move:
+The [Retro Game Corps "Five Game Handheld"](https://retrogamecorps.com/2025/10/24/minui-starter-guide/#Five) ([video](https://www.youtube.com/watch?v=t2rMB5z9dQw)) idea, a handheld with just a few games on it so you actually play them, takes three settings in Zero, with no files to move:
 
 1. Favorite your games: press Y in each game's in-game menu.
 2. Tools > Settings > Favorites: **Focus**. The main menu is now only your favorites.
@@ -83,44 +93,19 @@ The [Retro Game Corps "Five Game Handheld"](https://retrogamecorps.com/2025/10/2
 
 Your whole library stays on the card. Set Favorites back to On to see it again.
 
-Every setting is also a small file on the card, so you can set it from a computer, and a few things are files only. Card-root files go at the top of the SD card and work with or without a `.txt` extension; delete the file to undo.
-
-**Card root**
-
-| File | Settings row | Effect |
-|---|---|---|
-| `no-recents` | Recents: Off | hides Recently Played and stops recording plays |
-| `no-favorites` | Favorites: Off | hides Favorites; the in-game Y does nothing |
-| `focus` | Favorites: Focus | the main menu shows your Favorites instead of the consoles |
-| `hide-tools` | Tools: Hidden | hides Tools (SELECT + START at the main menu opens it anyway) |
-| `wifi.txt` | WiFi | one network per line as `SSID:password`; file only, the password is yours to type |
-| `timezone` | | an IANA name like `America/New_York`, for the clock and DST (TrimUI) |
-| `devmode` | | stays awake and starts SSH; for development, costs idle battery |
-| `authorized_keys` | | your SSH public key (Anbernic; SSH never starts without it) |
-
-**In `.userdata/shared/`**
-
-| File | Settings row | Effect |
-|---|---|---|
-| `disable-deep-sleep` | Deep Sleep: Off | sleep works like stock instead of suspending to RAM |
-| `show-clock` | Date & Time | shows a clock in the menu |
-| `enable-simple-mode` | | hides Tools and replaces Options with Reset in the game menu; no escape hatch and no Settings row on purpose, for a locked-down or kid's device |
-
 ## Device Sync
 
-Tools > Device Sync copies your saves between two handhelds directly over a hotspot one of them opens: no computer, no internet, no account. Open it on both devices and press X Sync on each. One device (the one you are holding) shows the list of games whose saves differ; press A and both sides copy in one stream, then return to Tools by themselves.
+Tools > Device Sync copies saves between two handhelds over a hotspot one of them opens. No computer, internet or account, and no `wifi.txt` needed.
 
-* **What it syncs**: Saves (on by default: save files, save states and their thumbnails, Favorites, Collections), and Games (with the BIOS files they need). Each device chooses what it takes: a category copies to a device only when that device has it on, so Games on one side brings games to that side only. Recently Played, game settings and device settings stay per device.
-* **A save follows its game**: a save or save state goes only to a device that has that game, or is getting it in the same sync. Ones held back travel the next time, once the game is there. Saves that belong to no single game (PlayStation memory cards, PICO-8 cart data) go to a device that has games for that system.
-* **Emulator check**: a system the receiving device has no emulator for starts as Skip in the system list, since its games would stay hidden there; you can still choose to sync it.
-* **Lists are merged**: Favorites and Collections end up as the union of both devices, so an entry added on either side is never lost.
-* **Folder names do not matter**: a game is matched by its system tag and file name, so `6) PlayStation (PS)` on one card and `Sony PlayStation (PS)` on another are the same system, and each card keeps its own folder names. A system you do not have yet is created with the sender's folder name.
-* **Games by system**: with Games on, the device you are holding first shows the systems that would move, each with a count and size. Set any to Skip (say, PlayStation) and it is remembered on that device; a skipped system moves in neither direction.
-* **Nothing is ever lost**: a game is never overwritten or deleted, and any save that is replaced is backed up first. Backups (Y on the Device Sync screen) lists each sync; open one to put back everything or just the files you mark, X deletes one backup, Y deletes them all. A restore backs up the current files first, so it can itself be undone from the same list.
-* **Newest wins**: when a save changed on both devices, the newer copy is kept and the older one backed up; clocks are compared across devices so a device without a clock does not win by accident.
-* **No setup**: the hotspot needs no `wifi.txt`. The Miyoo Mini Plus always hosts (it cannot scan), the others join or host as needed, so two Miyoo Mini Plus cannot sync with each other directly. Any two devices running Device Sync can pair, whatever their Zero version; if one is too old to talk to the other, Device Sync says which one to update.
-* If a sync is interrupted (battery, a device walking out of range) nothing is half-written: reopen Device Sync and it finishes what it started, picking up big games from where they stopped.
-* **Repeat syncs are quicker**: each device remembers its last partner, so pairing with the same device again connects faster, and the first screen shows when you last synced.
+1. Open Device Sync on both devices and press X (Sync) on each.
+2. The one you are holding lists what will copy. Press A.
+3. Both copy at once and show the same progress.
+
+* **What syncs**: saves and save states, plus Favorites and Collections (merged, so nothing added on either side is lost). Games are optional and chosen per system. Recently Played and game settings stay per device.
+* **Saves follow games**: a save only goes to a device that has its game, or is getting it. Memory cards and other shared saves go where their system is.
+* **Safe**: nothing is ever deleted, and anything replaced is backed up first. Backups (Y) puts back a whole sync or single files. When a save changed on both devices, the newer one wins.
+* **Resumes**: an interrupted sync finishes the next time you open it, even partway through a big game.
+* **Any pair**: any mix of TrimUI, Miyoo Mini Plus and Anbernic, except two Miyoo Mini Plus (it can only host). Folder names can differ between cards.
 
 ## Devices
 
