@@ -86,16 +86,19 @@ mkdir -p "$(dirname "$LOGF")" "$DS_DIR" "$RES" "$STAGE" "$W" 2>/dev/null
 # (a whole missing library is 24 GB / hours over WiFi); opt in per device. Game settings (.cfg) never
 # sync: minarch reads exactly minarch-<device>.cfg with no fallback, so a Brick file is invisible on a
 # Brick Pro, and rewriting the tag in flight is guesswork across panels (Dan, 2026-09-22).
-PREFS="$DS_DIR/prefs"; PS=1; PG=0; GSKIP=""; LAST_ROLE=""; LAST_PEER=""; LAST_AT=0
+# GSKIP = what THIS sync skips; USKIP = the user's own remembered skips, the only list ever saved or
+# published. One variable for both let the "Synced!" save persist gated and peer-skipped systems as the
+# user's own, and they spread device to device (audit 2026-09-24).
+PREFS="$DS_DIR/prefs"; PS=1; PG=0; GSKIP=""; USKIP=""; LAST_ROLE=""; LAST_PEER=""; LAST_AT=0
 if [ -f "$PREFS" ]; then
-	while IFS='=' read -r k v; do case "$k" in SAVES) PS=$v ;; GAMES) PG=$v ;; GAMES_SKIP) GSKIP=$v ;;
+	while IFS='=' read -r k v; do case "$k" in SAVES) PS=$v ;; GAMES) PG=$v ;; GAMES_SKIP) GSKIP=$v; USKIP=$v ;;
 		LAST_ROLE) LAST_ROLE=$v ;; LAST_PEER) LAST_PEER=$v ;; LAST_AT) LAST_AT=$v ;; esac; done < "$PREFS"
 fi
 # normalize to EXACTLY 0 or 1: a damaged/legacy prefs file (empty or stray value) must not leave PS/PG
 # as "" -- that reads as off on screen but slips past the all-off guard and serves an ambiguous "S=" the
 # peer treats as on (Codex, 2026-09-18). Anything that is not literal 1 becomes 0.
 [ "$PS" = 1 ] || PS=0; [ "$PG" = 1 ] || PG=0
-save_prefs(){ printf 'SAVES=%s\nGAMES=%s\nGAMES_SKIP=%s\nLAST_ROLE=%s\nLAST_PEER=%s\nLAST_AT=%s\n' "$PS" "$PG" "$GSKIP" "$LAST_ROLE" "$LAST_PEER" "$LAST_AT" > "$PREFS.tmp" && mv "$PREFS.tmp" "$PREFS"; }
+save_prefs(){ printf 'SAVES=%s\nGAMES=%s\nGAMES_SKIP=%s\nLAST_ROLE=%s\nLAST_PEER=%s\nLAST_AT=%s\n' "$PS" "$PG" "$USKIP" "$LAST_ROLE" "$LAST_PEER" "$LAST_AT" > "$PREFS.tmp" && mv "$PREFS.tmp" "$PREFS"; }
 # "Last synced with X, 2 h ago" under the first screen (Dan, 2026-09-23); nothing when unknown or the clock went back
 last_line(){ [ -n "$LAST_PEER" ] || return 0; nw=$(now); ag=$((nw - ${LAST_AT:-0})); [ "$nw" != 0 ] && [ "$ag" -ge 0 ] 2>/dev/null || return 0
 	if [ "$ag" -lt 120 ]; then a="just now"; elif [ "$ag" -lt 5400 ]; then a="$((ag / 60)) min ago"; elif [ "$ag" -lt 172800 ]; then a="$(( (ag + 1800) / 3600 )) h ago"; else a="$((ag / 86400)) days ago"; fi
@@ -1169,8 +1172,9 @@ Reading this device's library"; dbg "compare: export begin"
 	cp "$SERVE/_dsync_emus" "$W/my.emus" 2>/dev/null
 	# N = save files on this card, counted independently of the manifest walk: the other side checks the manifest
 	# against it, so a listing that silently failed can never read as "this card has no saves" (audit 2026-09-23)
-	NSAV=$(find "$LOCAL/Saves" -type f 2>/dev/null | wc -l | tr -d ' ')
-	printf 'S=%s G=%s P=%s F=%s V=%s K=%s N=%s\n' "$PS" "$PG" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" "$GSKIP" "${NSAV:-0}" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label) + skipped systems
+	# same filters as the manifest walk: counting ._ twins and .DS_Store refused every sync on a Mac-touched card (audit 2026-09-24)
+	NSAV=$(cd "$LOCAL" 2>/dev/null && find Saves -follow -type f ! -name '.*' ! -path '*/.*/*' ! -name 'Thumbs.db' ! -name 'ehthumbs.db' ! -name 'desktop.ini' ! -name '*.dsync.tmp' ! -name '*.dsync.part' ! -name '*.gov' ! -name '*.thread' 2>/dev/null | wc -l | tr -d ' ')
+	printf 'S=%s G=%s P=%s F=%s V=%s K=%s N=%s\n' "$PS" "$PG" "$DSYNC_PROTO" "$DSYNC_FORK" "$DSYNC_VER" "$USKIP" "${NSAV:-0}" > "$SERVE/_dsync_prefs"   # toggles + protocol (gate) + fork/build (label) + skipped systems
 	df -k "$LOCAL" 2>/dev/null | awk 'NR==2{print $4}' > "$SERVE/_dsync_free"
 	cp "$SERVE/_dsync_manifest" "$W/my.mf" 2>/dev/null
 	# bind to the sync interface only: a concurrent host (Brick, Miyoo) would otherwise serve its saves
@@ -1331,7 +1335,11 @@ Nothing to copy."; exit 0
 			# remember only the user's own skips: strip the gated systems before saving
 			# a gated system is dropped from the saved list ONLY if the user had not skipped it themselves before
 			# (Codex round 4: the gate erased a real user skip)
-			GSKIP=""; for st in $(printf '%s' "$nskip" | tr ',' ' '); do if { grep -q "^$st$TAB" "$W/noemu" 2>/dev/null || { awk -v t="$st" '$0==t{f=1} END{exit !f}' "$W/peerskip" && [ -z "$(sed -n "s/^sys_$st=//p" "$W/out")" ]; }; } && ! in_csv "$st" "$GSKIP0"; then :; else GSKIP="${GSKIP:+$GSKIP,}$st"; fi; done; save_prefs
+			USKIP=""; for st in $(printf '%s' "$nskip" | tr ',' ' '); do if { grep -q "^$st$TAB" "$W/noemu" 2>/dev/null || { awk -v t="$st" '$0==t{f=1} END{exit !f}' "$W/peerskip" && [ -z "$(sed -n "s/^sys_$st=//p" "$W/out")" ]; }; } && ! in_csv "$st" "$GSKIP0"; then :; else USKIP="${USKIP:+$USKIP,}$st"; fi; done
+			# 2. a remembered skip for a system NOT in this sync is kept, not forgotten (audit 2026-09-24)
+			for st in $(printf '%s' "$GSKIP0" | tr ',' ' '); do
+				awk -F"$TAB" -v t="$st" '$1==t{f=1} END{exit !f}' "$W/sys" || in_csv "$st" "$USKIP" || USKIP="${USKIP:+$USKIP,}$st"; done
+			save_prefs
 			GSKIP=$nskip   # for THIS sync the gated systems are skipped too (prefs keep the user's list only)
 			# short lines: the long version ran off the Miyoo's 640 px screen (Dan, 2026-09-23)
 			if [ -n "$forced" ]; then tell "No emulator on $fwho for:
@@ -1484,7 +1492,8 @@ sync)
 	# same file name and size would produce a byte-identical plan and a Range resume would splice its bytes onto
 	# the first device's partial (Codex round 4)
 	if [ -f "$STAGE/.plan" ] && cmp -s "$STAGE/.plan" "$W/plan.me" 2>/dev/null && [ "$(cat "$STAGE/.peer" 2>/dev/null)" = "$PEER" ]; then dbg "sync: same plan, staging kept"
-	else rm -rf "$STAGE"; mkdir -p "$STAGE" 2>/dev/null; cp "$W/plan.me" "$STAGE/.plan" 2>/dev/null; printf '%s' "$PEER" > "$STAGE/.peer" 2>/dev/null; fi
+	else rm -f "$RES_BK" "$RES_PLAN"; rm -rf "$STAGE"; mkdir -p "$STAGE" 2>/dev/null;   # the old resume pointed into this staging (audit 2026-09-24)
+		 cp "$W/plan.me" "$STAGE/.plan" 2>/dev/null; printf '%s' "$PEER" > "$STAGE/.peer" 2>/dev/null; fi
 	# ONE status process per PHASE, not per tick -- allocating the display once was the CMA fix (killing
 	# and relaunching a GFX tool per update is what fragmented the DE's contiguous memory and crashed the
 	# Plus, 2026-09-18). The apply gets its own, WITHOUT --cancel-b: it cannot be stopped half-way, and
