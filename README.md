@@ -33,7 +33,7 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 * **Hard to break**: bad ROMs exit cleanly, saves are crash-safe
 * **Device Sync**: sync saves/games directly between two handhelds, wirelessly, no WiFi network or internet needed
 * **Focus mode**: a main menu of only your favorites, for a five-game handheld
-* **Still MinUI**: no box art, stores, or themes
+* **Still MinUI**: no stores, themes, or LED light shows
 
 *Nothing to configure. Just play.*
 
