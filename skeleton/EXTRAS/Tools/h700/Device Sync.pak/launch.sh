@@ -506,10 +506,10 @@ hget_c(){ # <secs> <dst> <url>; 0 done, 1 deadline or stalled, 3 stopped by the 
 	while kill -0 "$wpid" 2>/dev/null && [ "$ck" -lt "$1" ]; do
 		stopped && { kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 3; }
 		sleep 1; ck=$((ck+1))
-		sz=$(file_bytes "$2"); PART_KB=$((sz / 1024)); [ -n "${PLABEL:-}" ] && prog "$PLABEL"   # the chunk growing = visible progress
+		hsz=$(file_bytes "$2"); PART_KB=$((hsz / 1024)); [ -n "${PLABEL:-}" ] && prog "$PLABEL"   # the chunk growing = visible progress (hsz, never sz: see fetch_file)
 		# a dead connection (a re-join after a loss left one) must fail over to the per-file path, not
 		# wait out a deadline that scales with the plan (5 h for 1 GB, 2026-09-22)
-		if [ "$sz" = "$last" ]; then stall=$((stall+1)); else stall=0; last=$sz; fi
+		if [ "$hsz" = "$last" ]; then stall=$((stall+1)); else stall=0; last=$hsz; fi
 		[ "$stall" -ge 30 ] && { kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 1; }
 	done
 	if kill -0 "$wpid" 2>/dev/null; then kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 1; fi
@@ -761,9 +761,9 @@ fetch_file(){ # <url> <dst> <bytes>
 	while kill -0 "$wp" 2>/dev/null; do
 		stopped && { kill "$wp" 2>/dev/null; return 3; }
 		sleep 1
-		sz=$(file_bytes "$2")
-		if [ "$sz" = "$last" ]; then stall=$((stall+1)); else stall=0; last=$sz; fi
-		PART_KB=$((sz / 1024)); [ -n "${PLABEL:-}" ] && prog "$PLABEL"
+		fsz=$(file_bytes "$2")   # fsz, never sz: pull_plan's loop holds the PLANNED size in sz (no locals; audit 2026-09-24)
+		if [ "$fsz" = "$last" ]; then stall=$((stall+1)); else stall=0; last=$fsz; fi
+		PART_KB=$((fsz / 1024)); [ -n "${PLABEL:-}" ] && prog "$PLABEL"
 		[ "$stall" -ge 30 ] && { PART_KB=0; kill -9 "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; FRC=stall; return 0; }
 	done
 	wait "$wp" 2>/dev/null; FRC=$?   # for the give-up log line only; the size check decides
@@ -875,20 +875,20 @@ unpacking"   # the bar stands still while tar runs: say so
 	while IFS="$TAB" read -r act cls sz rel hash mtime; do
 		[ -n "$rel" ] || continue
 		mkdir -p "$STAGE/$(dirname "$rel")" 2>/dev/null
-		try=0; okf=0; halt=0
+		ftry=0; okf=0; halt=0
 		# retry each file, so a WiFi blip does not fail a whole sync
-		while [ "$try" -lt 3 ]; do
-			try=$((try+1))
+		while [ "$ftry" -lt 3 ]; do
+			ftry=$((ftry+1))
 			fetch_file "$1/$(net urlenc "$rel")" "$STAGE/$rel" "$sz"; frc=$?
 			# a Stop keeps a partial big file: the next Sync resumes it by Range (small files are refetched whole)
 			[ "$frc" = 3 ] && { [ "${sz:-0}" -ge 4194304 ] 2>/dev/null || rm -f "$STAGE/$rel"; halt=1; break; }
 			staged_ok "$rel" "$sz" "${hash:--}" && { okf=1; break; }
-			dbg "pull: try $try of $rel landed $(file_bytes "$STAGE/$rel") of $sz bytes (wget ${FRC:-?})"
+			dbg "pull: try $ftry of $rel landed $(file_bytes "$STAGE/$rel") of $sz bytes (wget ${FRC:-?})"
 			# first failure of a big file keeps what landed for a Range resume; the second starts clean, in
 			# case the partial itself (or a server without Range) is what keeps failing
-			if [ "$try" = 1 ] && [ "${sz:-0}" -ge 4194304 ] 2>/dev/null && [ "$(file_bytes "$STAGE/$rel")" -lt "$sz" ] 2>/dev/null; then :; else rm -f "$STAGE/$rel"; fi
+			if [ "$ftry" = 1 ] && [ "${sz:-0}" -ge 4194304 ] 2>/dev/null && [ "$(file_bytes "$STAGE/$rel")" -lt "$sz" ] 2>/dev/null; then :; else rm -f "$STAGE/$rel"; fi
 			stopped && { halt=1; break; }     # B during a small file: give up between attempts
-			sleep "$try"                      # 1 s, then 2 s: a blip gets time to pass
+			sleep "$ftry"                     # 1 s, then 2 s: a blip gets time to pass
 		done
 		[ "$halt" = 1 ] && { stop_ui; dbg "pull: stopped by user at $DONE_N/$TOT_N"; return 2; }
 		if [ "$okf" = 1 ]; then DONE_N=$((DONE_N+1)); DONE_KB=$((DONE_KB + (sz+1023)/1024))
