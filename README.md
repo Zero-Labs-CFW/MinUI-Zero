@@ -83,8 +83,6 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 
 ### Five Game Handheld
 
-<img src="docs/img/brickpro-focus-mode.png" width="275" alt="Focus: the main menu is only your favorites" align="right" />
-
 The [Retro Game Corps "Five Game Handheld"](https://retrogamecorps.com/2025/10/24/minui-starter-guide/#Five) ([video](https://www.youtube.com/watch?v=t2rMB5z9dQw)) idea, a handheld with just a few games on it so you actually play them, takes three settings in Zero, with no files to move:
 
 1. Favorite your games: press Y in each game's in-game menu.
@@ -92,6 +90,8 @@ The [Retro Game Corps "Five Game Handheld"](https://retrogamecorps.com/2025/10/2
 3. Recents: **Off** and Tools: **Hidden** for a menu with nothing else on it (SELECT + START still opens Tools).
 
 Your whole library stays on the card. Set Favorites back to On to see it again.
+
+<img src="docs/img/brickpro-focus-mode.png" width="275" alt="Focus: the main menu is only your favorites" />
 
 ## Device Sync
 
