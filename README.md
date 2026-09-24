@@ -98,7 +98,7 @@ Your whole library stays on the card. Set Favorites back to On to see it again.
   <img src="docs/img/brickpro-focus-boxart.png" width="275" alt="Focus with box art" />
 </p>
 
-*Optional box art, like the guide's: put a PNG named after the ROM file, extension included, in a `.res` folder inside that system's folder, for example `Roms/2) Game Boy Advance (GBA)/.res/Advance Wars.gba.png`. It shows beside the list when the game is selected. Keep it about 300 px wide on TrimUI and 200 px on 480p screens (Miyoo, Anbernic).*
+*__Optional box art__, like the guide's: put a PNG named after the ROM file, extension included, in a `.res` folder inside that system's folder, for example `Roms/2) Game Boy Advance (GBA)/.res/Advance Wars.gba.png`. It shows beside the list when the game is selected. Keep it about 300 px wide on TrimUI and 200 px on 480p screens (Miyoo, Anbernic).*
 
 ## Device Sync
 
