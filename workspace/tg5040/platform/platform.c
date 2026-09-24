@@ -1322,11 +1322,11 @@ void PLAT_setUndervolt(int millivolts) { (void)millivolts; } // superseded by th
 // GAME rumble follows the strength the core asks for (libretro 0..0xFFFF), 0.5 V up to a per-model cap, the
 // scaling NextUI's tg5040 PLAT_setRumble uses. Games used to run at a FIXED 0.9 V on the Brick Pro (NextUI's
 // mute-switch buzz value, which felt weak) and 1.5 V elsewhere. NextUI's caps (2.5 V Brick Pro, 3.3 V others)
-// all felt too strong in hand; the caps below were set by feel, per model (Dan, 2026-09-24): Brick Pro and
-// Smart Pro 1.5 V (2.0 V still too strong on the Pro), Brick 2.2 V (3.3 V too strong, 1.5 V too light).
+// all felt too strong in hand; the caps below were set by feel, per model (Dan, 2026-09-24): Brick Pro
+// 1.5 V (2.0 V still too strong), Brick and Smart Pro 2.2 V (3.3 V too strong, 1.5 V too light).
 // SYSTEM buzzes (strength 1) keep the short-buzz values.
 #define RUMBLE_MIN_UV 500000
-#define RUMBLE_MAX_UV (is_brick ? 2200000 : 1500000)
+#define RUMBLE_MAX_UV (is_brickpro ? 1500000 : 2200000)
 static void setRumble(int strength, int system) {
 	static int motor_uv = -1;   // last voltage written: sysfs is touched only when it changes
 	if (strength) {
