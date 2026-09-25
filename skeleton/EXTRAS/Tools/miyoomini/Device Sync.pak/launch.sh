@@ -110,7 +110,7 @@ NAME="${TRIMUI_MODEL}"
 [ -z "$NAME" ] && NAME=$(strings /usr/trimui/bin/MainUI 2>/dev/null | grep '^Trimui' | head -1)
 [ -z "$NAME" ] && case "$PLATFORM" in
 	miyoomini) if [ "$IS_FLIP" = true ]; then NAME="Miyoo Mini Flip"; elif [ "$IS_PLUS" = true ]; then NAME="Miyoo Mini Plus"; else NAME="Miyoo Mini"; fi ;;
-	h700) case "$DEVICE" in rg35xx-plus|plus) NAME="RG35XX Plus" ;; rg35xx-h|h) NAME="RG35XX H" ;; *) NAME="Anbernic ${DEVICE:-H700}" ;; esac ;;   # the frontend exports DEVICE=plus|h
+	h700) case "$DEVICE" in rg35xx-plus|plus) NAME="RG35XX Plus" ;; rg35xx-h|h) NAME="RG35XX H" ;; rg35xx-pro|pro) NAME="RG35XX Pro" ;; rg35xx-sp|sp) NAME="RG35XX SP" ;; rg40xx-h|40xx-h) NAME="RG40XX H" ;; rg40xx-v|40xx-v) NAME="RG40XX V" ;; *) NAME="Anbernic ${DEVICE:-H700}" ;; esac ;;   # the frontend exports DEVICE=plus|h
 esac
 [ -z "$NAME" ] && NAME="This device"
 
