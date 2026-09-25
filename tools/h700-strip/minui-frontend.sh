@@ -23,6 +23,17 @@ export CORES_PATH=/mnt/mmc/.system/h700/cores
 export CHEATS_PATH=/mnt/mmc/Cheats
 # plus vs h (near-twins; muOS resolves the board for us). Consumed by paks and minarch alike.
 export DEVICE=$(sed 's/^rg35xx-//' /opt/muos/device/config/board/name 2>/dev/null || echo plus)
+# BOARD PINS the Plus kernel does not own (every board runs the RG35XX Plus kernel). Each line reproduces
+# what that board's OWN muOS kernel does at probe (disassembled, research 2026-09-25):
+#  RG40XX H/V: LED MCU power PE5 (gpio 133) + PI7 (263) driven LOW, so the RGB LEDs are dark, never lit and
+#   draining with no way to turn them off.
+#  RG35XX SP: WiFi enable PG18 (gpio 210) driven HIGH, as the Plus driver does at power-on; muOS's SP tree
+#   dropped the wlan_regon entry, so nothing else releases the chip from reset.
+_pin() { [ -e /sys/class/gpio/gpio$1 ] || echo $1 > /sys/class/gpio/export 2>/dev/null; echo $2 > /sys/class/gpio/gpio$1/direction 2>/dev/null; }
+case "$DEVICE" in
+	rg40xx-h|rg40xx-v) _pin 133 low; _pin 263 low ;;
+	sp)                _pin 210 high ;;
+esac
 export LD_LIBRARY_PATH=/mnt/mmc/.system/h700/lib:/usr/lib:/lib
 # Shipped helper binaries (confirm.elf, say.elf, minarch.elf, ...) on PATH, matching tg5040, tool
 # and emulator paks call them bare, so without this every community pak written against the normal

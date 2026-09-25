@@ -60,6 +60,17 @@ if [ -z "$DEVICE" ] && [ -f /opt/muos/device/config/board/name ]; then
 fi
 [ -n "$DEVICE" ] || DEVICE=plus
 export DEVICE
+# BOARD PINS the Plus kernel does not own (every board runs the RG35XX Plus kernel). Each line reproduces
+# what that board's OWN muOS kernel does at probe (disassembled, research 2026-09-25):
+#  RG40XX H/V: LED MCU power PE5 (gpio 133) + PI7 (263) driven LOW, so the RGB LEDs are dark, never lit and
+#   draining with no way to turn them off.
+#  RG35XX SP: WiFi enable PG18 (gpio 210) driven HIGH, as the Plus driver does at power-on; muOS's SP tree
+#   dropped the wlan_regon entry, so nothing else releases the chip from reset.
+_pin() { [ -e /sys/class/gpio/gpio$1 ] || echo $1 > /sys/class/gpio/export 2>/dev/null; echo $2 > /sys/class/gpio/gpio$1/direction 2>/dev/null; }
+case "$DEVICE" in
+	rg40xx-h|rg40xx-v) _pin 133 low; _pin 263 low ;;
+	sp)                _pin 210 high ;;
+esac
 
 export LD_LIBRARY_PATH="$SYSTEM_PATH/lib:/usr/lib:/lib:$LD_LIBRARY_PATH"
 export PATH="$SYSTEM_PATH/bin:$PATH"

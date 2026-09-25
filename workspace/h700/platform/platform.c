@@ -1095,7 +1095,28 @@ void PLAT_setCPUMaxFreq(int khz) {
 	else LOG_info("PLAT_setCPUMaxFreq: %d kHz — guest mode, not applied\n", khz);
 }
 
+// RG40XX H/V: the motor moved to pwm3 (PI13, muxed by the pwm3 DT node). Every board runs the RG35XX PLUS
+// kernel, whose axp2202 'moto' attribute hard-codes pwm2 (disassembled: `mov w0,#2; bl pwm_request`; the 40XX's
+// own kernel uses #3), so on a 40XX 'moto' drives an unconnected channel and rumble is silent. Drive pwm3
+// directly with the kernel's own numbers: 500000 ns period, 95% duty (what 'moto' writes for 1..100).
+// Research 2026-09-25 (.notes/2026-09-25-h700-boards/). DEVICE is exported by the frontend (rg40xx-h|rg40xx-v).
+#define PWM3 "/sys/class/pwm/pwmchip0/pwm3"
+static int rumble_pwm3(void) {
+	static int use = -1;
+	if (use < 0) {
+		const char* d = getenv("DEVICE");
+		use = (d && strstr(d, "40xx")) ? 1 : 0;
+		if (use) {
+			if (!exists(PWM3)) putInt("/sys/class/pwm/pwmchip0/export", 3);
+			putInt(PWM3 "/period", 500000);
+			putInt(PWM3 "/duty_cycle", 475000);
+			LOG_info("rumble: %s -> pwm3 (%s)\n", d, exists(PWM3) ? "ready" : "export failed");
+		}
+	}
+	return use;
+}
 void PLAT_setRumble(int strength) {
+	if (rumble_pwm3()) { putInt(PWM3 "/enable", strength ? 1 : 0); return; }
 	// The motor is PMIC-driven: /sys/class/power_supply/axp2202-battery/moto, binary on/off
 	// (echo 1 / echo 0 — muOS func.sh RUMBLE, default case). The old "no rumble hardware
 	// reported in recon" was WRONG: recon missed it because it lives under power_supply, not
