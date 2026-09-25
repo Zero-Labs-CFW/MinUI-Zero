@@ -74,6 +74,24 @@ if [ "$DEVICE" != "rg35xx-plus" ]; then
 		"$DEVICE_DIR/package/boot_package.fex" "$OUT_DIR/raw36-$DEVICE.img" || exit 1
 	BUILT_RAW="$OUT_DIR/raw36-$DEVICE.img"
 	rm -f "$OUT_DIR/base-raw36.img"
+	# PER-BOARD boot0 (DRAM init), optional: parts-<device>/boot0.img replaces BOTH copies (8 KiB + 256 KiB).
+	# The Plus-dump boot0 is LPDDR4-trained; newer RG35XX Pro units are LPDDR3 and do not boot LPDDR4-only
+	# chains (knulli-cfw/distribution#479). The Pro ships muOS 2601.1's RG35XX-PRO boot0: same code as ours,
+	# LPDDR3 primary, checksum-valid (research 2026-09-25, .notes/2026-09-25-h700-boards/boot0-research.md).
+	if [ -f "$ASSETS/parts-$DEVICE/boot0.img" ]; then
+		python3 - "$ASSETS/parts-$DEVICE/boot0.img" "$BUILT_RAW" <<'PYEOF' || exit 1
+import struct, sys
+b = open(sys.argv[1], 'rb').read()
+ln = struct.unpack('<I', b[16:20])[0]
+assert b[4:12] == b'eGON.BT0' and len(b) == ln == 65536, 'boot0: bad magic/length'
+y = bytearray(b); y[12:16] = struct.pack('<I', 0x5F0A6C39)
+assert sum(struct.unpack('<%dI' % (ln // 4), bytes(y))) & 0xffffffff == struct.unpack('<I', b[12:16])[0], 'boot0: bad checksum'
+with open(sys.argv[2], 'r+b') as f:
+    for off in (8192, 262144):
+        f.seek(off); f.write(b)
+print('  boot0: per-board override written at 8192 + 262144')
+PYEOF
+	fi
 	# FAIL CLOSED on the kernel: every board names its kernel explicitly in parts-<device>/, never via the
 	# silent part() fallback. RG35XX H: its OWN muOS kernel + ramdisk + boot_package, all from ONE muOS
 	# commit (3f2fa25), which boots our rootfs with both sticks working (H-verified 2026-09-25). The old
