@@ -87,6 +87,9 @@ echo "audio: digital volume $(amixer -c 0 sget 'digital volume' 2>/dev/null | gr
 
 # THE THESIS: own the governor. schedutil + our minui/minarch write the ceiling on top.
 echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
+# 1512 MHz ceiling for the menu and tools (startup.sh already set it at boot; minarch writes lower ceilings
+# per game on top). The SP/Pro/40XX trees list 1608/1704 MHz, past verified stock (audit 2026-09-25).
+echo 1512000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
 echo "governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)" >> "$LOG"
 
 # WiFi + SSH bring-up. Credentials are USER-SUPPLIED (never baked into the image): the MinUI

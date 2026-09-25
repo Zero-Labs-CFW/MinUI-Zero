@@ -67,8 +67,14 @@ export PATH="$SYSTEM_PATH/bin:$PATH"
 # the dummy driver is correct and keeps SDL from initialising a GL context we never use.
 export SDL_VIDEODRIVER=dummy
 # DEVICE properties, so they live here rather than being repeated by all 15 emu paks (2026-08-26).
-# Panel measured 59.9777 Hz (panelprobe 2026-08-04); minarch paces against the real rate, not 60.
-export MINARCH_PANEL_FPS=59.9777
+# Panel refresh per board, same table as tools/h700-strip/minui-frontend.sh (keep them in sync): the Plus
+# MEASURED 59.9777 Hz (panelprobe 2026-08-04), the others from their device-tree timings (2026-09-25).
+case "$DEVICE" in
+	pro)              export MINARCH_PANEL_FPS=59.935 ;;
+	sp)               export MINARCH_PANEL_FPS=60.004 ;;
+	rg40xx-h|rg40xx-v) export MINARCH_PANEL_FPS=59.981 ;;
+	*)                export MINARCH_PANEL_FPS=59.9777 ;;
+esac
 # ZERO_AUDIO_SERVO deliberately NOT exported here (tg5040 only for now): the occupancy servo
 # trims the resampler on top of this match and is unmeasured on the ALSA-direct audio path.
 # Ear-check on this device before arming (earned divergence, 2026-09-02).

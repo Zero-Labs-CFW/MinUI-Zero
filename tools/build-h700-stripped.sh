@@ -91,9 +91,8 @@ fi
 # Otherwise a build that fails partway (rootfs extract, device overlay, boot-chain synthesis) leaves
 # an older same-name .img and .xz sitting there looking current, and a later upload publishes stale
 # code from a build that never succeeded.
-rm -f "$IMG" "$IMG.xz"
-
 IMG="${IMG%.img}-$DEVICE.img"   # every image names its board; they are NOT interchangeable
+rm -f "$IMG" "$IMG.xz"          # AFTER the suffix: before it, this deleted a name no build produces (audit 2026-09-25)
 
 echo "== build mode: $MODE (version $VERSION) =="
 
@@ -314,6 +313,13 @@ sed -i "s|^FRONTEND start|sh /opt/minui-zero/minui-frontend.sh \&|" "$SU"
 sed -i "s|^/opt/muos/script/mount/start.sh &|[ -x /opt/minui-zero/expand-roms.sh ] \&\& /opt/minui-zero/expand-roms.sh\n/opt/muos/script/mount/start.sh \&|" "$SU"
 grep -q "expand-roms.sh" "$SU" || { echo "ERROR: expand-roms pre-mount hook did not apply (startup.sh anchor changed)"; exit 1; }
 echo "  expand-roms hooked pre-mount in startup.sh"
+# CPU CEILING FROM THE FIRST LINE OF BOOT. startup.sh pins the "performance" governor while it boots, and the
+# SP/Pro/40XX device trees add 1608/1704 MHz steps past the Plus/H top of 1512, so a new board booted (and
+# sat in the menu) above verified stock until a game capped it. Knulli caps these boards at 1512000 too
+# (S02overclock). The frontend repeats it after switching to schedutil (audit 2026-09-25).
+sed -i '1a echo 1512000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null' "$SU"
+grep -q "scaling_max_freq" "$SU" || { echo "ERROR: CPU ceiling did not land in startup.sh"; exit 1; }
+echo "  CPU ceiling 1512 MHz set at the top of startup.sh"
 sed -i "s|^HOTKEY start|true # hotkey daemon disabled (minui owns input)|" "$SU"
 
 # BOOT TRIM (2026-08-11). muOS keeps doing work for features this image does not ship. None of it

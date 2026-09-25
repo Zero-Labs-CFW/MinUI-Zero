@@ -56,16 +56,18 @@ def fetch(device, out, ref=None):
         bp = os.path.join(src, "package", "boot_package.fex")
         if not os.path.exists(bp):
             sys.exit(f"ERROR: device/{device}/package/boot_package.fex missing at {head}")
-        os.makedirs(os.path.join(out, "package"))
+        os.makedirs(os.path.join(out, "package"), exist_ok=True)
         shutil.copy2(bp, os.path.join(out, "package", "boot_package.fex"))
+        # provenance: which muOS commit this board came from, so a rebuild is reproducible and auditable
+        open(os.path.join(out, "SOURCE"), "w").write(f"muOS MustardOS/internal {head}, device/common + device/{device}\n")
         return head
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 # files the older muOS scripts in our rootfs read at boot; a tree without them boots without its card
-REQUIRED = ["config/board/name", "config/storage/sdcard/mount", "config/storage/rom/mount",
-            "config/cpu/governor", "config/audio/max", "config/battery/volt_min", "package/boot_package.fex"]
+REQUIRED = ["config/board/name", "config/board/network", "config/network/name", "config/storage/sdcard/mount",
+            "config/storage/rom/mount", "config/cpu/governor", "config/audio/max", "package/boot_package.fex"]
 
 if __name__ == "__main__":
     if len(sys.argv) not in (3, 4):
