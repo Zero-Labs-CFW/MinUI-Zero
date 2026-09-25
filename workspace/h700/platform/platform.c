@@ -187,6 +187,7 @@ static void ev_stick(uint16_t code, int32_t value, uint32_t tick) {
 	}
 }
 
+int PLAT_lidChanged(int* state); // defined with PLAT_initLid (RG35XX SP lid, below)
 void PLAT_pollInput(void) {
 	pad.just_pressed  = BTN_NONE;
 	pad.just_released = BTN_NONE;
@@ -262,6 +263,11 @@ void PLAT_pollInput(void) {
 		if (pad.is_pressed & BTN_MENU) SetBrightness(GetBrightness() + delta); // clamps 0-10
 		else SetVolume(GetVolume() + delta);                                   // clamps 0-20
 	}
+
+	// LID CLOSE (RG35XX SP). The shared close check lives in the FALLBACK PLAT_pollInput (api.c), which this
+	// platform replaces, so without this a closed clamshell never slept. Same request path as api.c.
+	int lid_open = 1;
+	if (lid.has_lid && PLAT_lidChanged(&lid_open) && !lid_open) PWR_requestSleep();
 }
 
 // WAKE from faux-sleep. The shared PLAT_shouldWake (api.c) only reads SDL events — but SDL is DEAD
@@ -279,6 +285,10 @@ int PLAT_shouldWake(void) {
 			if (ev.type == 1 && ev.code == 116 && ev.value == 0) wake = 1; // KEY_POWER release
 		}
 	}
+	// LID OPEN wakes the SP from faux-sleep, as the shared PLAT_shouldWake would (replaced here). From deep
+	// sleep only POWER wakes: a sysfs GPIO is not a wake source on this kernel.
+	int lid_open = 1;
+	if (lid.has_lid && PLAT_lidChanged(&lid_open) && lid_open) wake = 1;
 	return wake;
 }
 
@@ -1122,6 +1132,38 @@ void PLAT_setRumble(int strength) {
 	// reported in recon" was WRONG: recon missed it because it lives under power_supply, not
 	// pwm/input. Ear/hand-confirmed live 2026-08-10. Binary motor: any nonzero strength = on.
 	putInt("/sys/class/power_supply/axp2202-battery/moto", strength ? 1 : 0);
+}
+
+// RG35XX SP LID. The shared lid logic (api.c: sleep on close, wake on open, input eaten while closed) needs only
+// PLAT_initLid/PLAT_lidChanged. Upstream reads axp2202-battery/hallkey, which only the SP's OWN kernel creates;
+// every board runs the Plus kernel, so read the hall sensor pin itself: PE7 = gpio 135, 1 open / 0 closed
+// (active low, board pull-up), the same pin mainline and Knulli use (research 2026-09-25). Polled at most 5x a
+// second, not every frame: a sysfs read per frame is avoidable wakeup work. Gated on the SP (DEVICE=sp).
+#define LID_GPIO "/sys/class/gpio/gpio135/value"
+void PLAT_initLid(void) {
+	const char* d = getenv("DEVICE");
+	if (!d || strcmp(d, "sp")) return;
+	if (!exists(LID_GPIO)) {
+		putInt("/sys/class/gpio/export", 135);
+		putFile("/sys/class/gpio/gpio135/direction", "in");
+	}
+	lid.has_lid = exists(LID_GPIO);
+	if (lid.has_lid) lid.is_open = getInt(LID_GPIO) ? 1 : 0;
+	LOG_info("lid: %s (gpio135 %s)\n", lid.has_lid ? (lid.is_open ? "open" : "closed") : "unavailable", lid.has_lid ? "ok" : "missing");
+}
+int PLAT_lidChanged(int* state) {
+	if (!lid.has_lid) return 0;
+	static uint64_t last_us = 0;
+	uint64_t now = getMicroseconds();
+	if (last_us && now - last_us < 200000) return 0;
+	last_us = now;
+	int lid_open = getInt(LID_GPIO) ? 1 : 0;
+	if (lid_open != lid.is_open) {
+		lid.is_open = lid_open;
+		if (state) *state = lid_open;
+		return 1;
+	}
+	return 0;
 }
 
 int PLAT_supportsDeepSleep(void) {
