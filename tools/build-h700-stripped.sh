@@ -317,7 +317,7 @@ echo "  expand-roms hooked pre-mount in startup.sh"
 # SP/Pro/40XX device trees add 1608/1704 MHz steps past the Plus/H top of 1512, so a new board booted (and
 # sat in the menu) above verified stock until a game capped it. Knulli caps these boards at 1512000 too
 # (S02overclock). The frontend repeats it after switching to schedutil (audit 2026-09-25).
-sed -i '1a echo 1512000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null' "$SU"
+sed -i "1a echo 1512000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null" "$SU"   # double quotes: this line runs inside the single-quoted docker bash -c block
 grep -q "scaling_max_freq" "$SU" || { echo "ERROR: CPU ceiling did not land in startup.sh"; exit 1; }
 echo "  CPU ceiling 1512 MHz set at the top of startup.sh"
 sed -i "s|^HOTKEY start|true # hotkey daemon disabled (minui owns input)|" "$SU"
