@@ -93,8 +93,8 @@ print('  boot0: per-board override written at 8192 + 262144')
 PYEOF
 	fi
 	# FAIL CLOSED on the kernel: every board names its kernel explicitly in parts-<device>/, never via the
-	# silent part() fallback. RG35XX H: its OWN muOS kernel + ramdisk + boot_package, all from ONE muOS
-	# commit (3f2fa25), which boots our rootfs with both sticks working (H-verified 2026-09-25). The old
+	# silent part() fallback. RG35XX H and Pro: their OWN muOS kernel + ramdisk + boot_package, all from ONE
+	# muOS commit (3f2fa25); the H boots our rootfs with both sticks working (H-verified 2026-09-25). The old
 	# own-kernel hang (2026-09-23) was a mixed pairing (April a502a1d package + August edited kernel),
 	# never pair across commits. Every OTHER board still uses the Plus kernel (copy parts/p4-kernel.img.gz
 	# in), which drives every panel (all use fog_fj035fhd05_v1) but lacks the per-board extras: sticks
