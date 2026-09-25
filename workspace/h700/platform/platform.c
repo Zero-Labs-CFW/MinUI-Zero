@@ -81,6 +81,18 @@ static const char* ev_paths[EVDEV_COUNT] = {
 	"/dev/input/event2", // dierct-keys-polled (sic)
 };
 
+// Stick axis layout, detected from the axes the kernel advertises (see ev_stick). Default = the layout
+// measured 2026-08-14 (left X/Y on ABS_Z/ABS_RX); stick_axis_init switches to the muOS layout.
+static int stick_code_lx = 2, stick_code_ly = 3;
+static void stick_axis_init(void) {
+	for (int i = 0; i < EVDEV_COUNT; i++) {
+		unsigned long abs = 0; // EVIOCGBIT(EV_ABS): linux/input.h clashes with our BTN_* names, so spelled out
+		if (ev_fds[i] < 0 || ioctl(ev_fds[i], _IOC(_IOC_READ, 'E', 0x20 + 3, sizeof(abs)), &abs) < 0) continue;
+		if ((abs & (1 << 1)) && !(abs & (1 << 3))) { stick_code_lx = 1; stick_code_ly = 2; } // ABS_Y, no ABS_RX
+		if (abs & 0x3e) LOG_info("input: %s abs=0x%lx, left stick x=%d y=%d\n", ev_paths[i], abs, stick_code_lx, stick_code_ly);
+	}
+}
+
 static SDL_Joystick *joystick;
 void PLAT_initInput(void) {
 	// SDL's joystick subsystem is NOT our input source: PLAT_pollInput below reads the evdev nodes
@@ -102,6 +114,7 @@ void PLAT_initInput(void) {
 		ev_fds[i] = open(ev_paths[i], O_RDONLY | O_NONBLOCK);
 		LOG_info("evdev: %s -> fd %d\n", ev_paths[i], ev_fds[i]);
 	}
+	stick_axis_init();
 }
 void PLAT_quitInput(void) {
 	for (int i = 0; i < EVDEV_COUNT; i++) if (ev_fds[i] >= 0) close(ev_fds[i]);
@@ -157,6 +170,10 @@ static void ev_hat(uint16_t code, int32_t value, uint32_t tick) {
 // X/Y/RX/RY, so guessing would have been wrong:
 //     ABS_Z  (2) = LEFT stick X      ABS_RX (3) = LEFT stick Y
 //     ABS_RY (4) = RIGHT stick X     ABS_RZ (5) = RIGHT stick Y
+// That was OUR edited H kernel (and Anbernic stock, abs bits 0x3003c). muOS's own H kernel (3f2fa25)
+// sends the LEFT stick on ABS_Y (1) = X and ABS_Z (2) = Y (abs bits 0x30036; driver channel table
+// disassembled + H-verified 2026-09-25: left up/down read as left/right under the old map). The right
+// stick is the same in both. stick_axis_init picks the layout; the switch below uses the old codes.
 // Range is +/-4096 (the vendor adc_joystick driver, 4 mux channels with per-channel calibration);
 // negative is left/up. The shared code expects SDL-scale values, hence the *8.
 //
@@ -215,7 +232,10 @@ void PLAT_pollInput(void) {
 			// EV_ABS: codes 16/17 are the d-pad hat on every h700 board; 2-5 are the analog
 			// sticks, which only report real values on hardware whose kernel drives the ADC mux.
 			if (ev.type == 3) {
-				if (ev.code >= 2 && ev.code <= 5) ev_stick(ev.code, ev.value, tick);
+				if (ev.code >= 1 && ev.code <= 5) {
+					int code = ev.code == stick_code_lx ? 2 : ev.code == stick_code_ly ? 3 : ev.code;
+					if (code >= 2) ev_stick(code, ev.value, tick);
+				}
 				else ev_hat(ev.code, ev.value, tick);
 				continue;
 			}
