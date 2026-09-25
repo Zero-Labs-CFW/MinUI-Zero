@@ -74,12 +74,13 @@ if [ "$DEVICE" != "rg35xx-plus" ]; then
 		"$DEVICE_DIR/package/boot_package.fex" "$OUT_DIR/raw36-$DEVICE.img" || exit 1
 	BUILT_RAW="$OUT_DIR/raw36-$DEVICE.img"
 	rm -f "$OUT_DIR/base-raw36.img"
-	# FAIL CLOSED on the kernel. muOS builds one kernel per board and the board drivers live in it,
-	# only the RG35XX H kernel contains the analog-mux code (`amux`/`adc_en` are absent from the Plus
-	# kernel). Without this check a missing or misnamed parts-<device>/p4-kernel.img.gz silently falls
-	# back to the Plus kernel via part(), producing a device-labelled image whose hardware does not
-	# work, with a successful build log. If a future board genuinely shares the Plus kernel, copy it
-	# in deliberately rather than relying on the fallback.
+	# FAIL CLOSED on the kernel: every board names its kernel explicitly in parts-<device>/, never via the
+	# silent part() fallback. TODAY EVERY BOARD USES THE PLUS KERNEL (copy parts/p4-kernel.img.gz in):
+	# the boards' own muOS kernels hang at the boot logo on our Plus-derived rootfs (RG35XX H, 2026-09-23),
+	# and the Plus kernel drives every board's panel (all use fog_fj035fhd05_v1). It lacks the per-board
+	# extras: analog sticks (amux/sunxi-gpadc: H, Pro, 40XX), the SP lid (hallkey), the 40XX LED chip
+	# power (mcu_pwr) and possibly 40XX rumble (pwm3). Getting those back means solving the own-kernel
+	# hang (audit 2026-09-25, .notes/2026-09-24-nextui-h700-research/).
 	[ -f "$ASSETS/parts-$DEVICE/p4-kernel.img.gz" ] || {
 		echo "ERROR: $DEVICE needs its own kernel at $ASSETS/parts-$DEVICE/p4-kernel.img.gz"
 		echo "       (extract p4 from that board muOS image; the fallback would ship the Plus kernel)"
@@ -617,10 +618,8 @@ rm -f "$IMG"
 # mainline uses interrupts). A re-dumped part from a stock card would silently regress to 20ms —
 # re-run the patch script against any fresh dump (offsets + verified algorithm inside it).
 if [ -n "$BUILT_RAW" ]; then cp "$BUILT_RAW" "$IMG"; else gunzip -c "$ASSETS/parts/raw-36mb.img.gz" > "$IMG"; fi
-# PER-DEVICE PARTS. A board may need its own partition here, the RG35XX H needs its own KERNEL
-# (p4): muOS builds one per device, and only the H's contains the analog-mux driver (`amux`/`adc_en`
-# are absent from the Plus kernel, present in the H's, checked, both Linux 4.9.170 from the same
-# build host, so modules stay compatible). Anything not overridden falls back to the shared part.
+# PER-DEVICE PARTS: parts-<device>/<file> overrides the shared part. Every board currently carries the
+# PLUS kernel as its p4 (see the fail-closed kernel note above for why, and what it costs).
 part() { if [ -f "$ASSETS/parts-$DEVICE/$1" ]; then echo "$ASSETS/parts-$DEVICE/$1"; else echo "$ASSETS/parts/$1"; fi; }
 # `gunzip -c X | dd ...` reports DD exit status, and /bin/sh has no pipefail, so a truncated or
 # corrupt part produced a short write, a zero exit, and a fully assembled image that cannot boot.

@@ -136,8 +136,8 @@ def build(base_raw, package, out_raw):
         sys.exit("ERROR: no poll-interval property in this device tree, refusing to guess")
     patched = 0
     for voff, val, node in hits:
-        if val == NEW_MS:
-            print(f"  {node}/poll-interval already {NEW_MS}ms")
+        if val <= NEW_MS:   # already as fast or faster (newer trees ship 4 ms): never slow it down
+            print(f"  {node}/poll-interval already {val}ms (<= {NEW_MS}ms), left alone")
             continue
         struct.pack_into('>I', raw, abs_fdt + voff, NEW_MS)
         print(f"  {node}/poll-interval {val}ms -> {NEW_MS}ms  (at {abs_fdt + voff})")

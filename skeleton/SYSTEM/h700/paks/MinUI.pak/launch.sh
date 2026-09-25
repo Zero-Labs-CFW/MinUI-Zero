@@ -111,6 +111,12 @@ apply_volume
 # --- the thesis: own the governor. schedutil, and minui/minarch write the ceiling on top -------
 echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
 echo "governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)" >> "$LOG"
+# Cap at 1512 MHz, the highest step the Plus/H trees list and our game brackets use. The SP, Pro
+# and 40XX device trees add 1608/1704 MHz steps, and nothing else capped the menu, tools or boot, so
+# those boards could run past verified stock (the no-overclock rule). minarch writes lower ceilings
+# per game on top of this (audit 2026-09-25).
+echo 1512000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
+echo "cpu ceiling: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null) of $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies 2>/dev/null)" >> "$LOG"
 
 # --- wifi + ssh, opt-in, and portable across OS layers -------------------------------------------
 # THIS LIVES HERE, NOT IN THE OS LAYER. It used to sit in the OS-side minui-frontend.sh, which meant

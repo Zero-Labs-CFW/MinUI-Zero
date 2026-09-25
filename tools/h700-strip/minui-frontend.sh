@@ -34,8 +34,16 @@ export PATH=/mnt/mmc/.system/h700/bin:$PATH
 export SDL_VIDEODRIVER=dummy
 # DEVICE properties, not per-system ones, so they belong to the entry point rather than to each of
 # the 15 emu paks that used to repeat them verbatim (2026-08-26).
-# Panel measured 59.9777 Hz (panelprobe 2026-08-04); minarch paces against the real rate, not 60.
-export MINARCH_PANEL_FPS=59.9777
+# Panel refresh per board; minarch paces against the real rate, not 60. The Plus was MEASURED at 59.9777 Hz
+# (panelprobe 2026-08-04). The others are computed from the timings in the device tree each image boots
+# (pixel clock / (htotal * vtotal)), not muOS's screen/refresh, which read 60.011 for the same Plus panel
+# (audit 2026-09-25). The board name comes from .system/h700/board, written by the image build.
+case "$(cat /mnt/mmc/.system/h700/board 2>/dev/null)" in
+	pro)              export MINARCH_PANEL_FPS=59.935 ;;
+	sp)               export MINARCH_PANEL_FPS=60.004 ;;
+	rg40xx-h|rg40xx-v) export MINARCH_PANEL_FPS=59.981 ;;
+	*)                export MINARCH_PANEL_FPS=59.9777 ;;   # plus, h (same timings), and anything unknown
+esac
 # ALSA-direct: pipewire is stripped from the image, and asound.conf routes "default" straight to the
 # codec (plug -> hw:0,0). SDL must not go looking for a sound server that is not there.
 export SDL_AUDIODRIVER=alsa
