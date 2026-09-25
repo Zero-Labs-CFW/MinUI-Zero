@@ -75,12 +75,13 @@ if [ "$DEVICE" != "rg35xx-plus" ]; then
 	BUILT_RAW="$OUT_DIR/raw36-$DEVICE.img"
 	rm -f "$OUT_DIR/base-raw36.img"
 	# FAIL CLOSED on the kernel: every board names its kernel explicitly in parts-<device>/, never via the
-	# silent part() fallback. TODAY EVERY BOARD USES THE PLUS KERNEL (copy parts/p4-kernel.img.gz in):
-	# the boards' own muOS kernels hang at the boot logo on our Plus-derived rootfs (RG35XX H, 2026-09-23),
-	# and the Plus kernel drives every board's panel (all use fog_fj035fhd05_v1). It lacks the per-board
-	# extras: analog sticks (amux/sunxi-gpadc: H, Pro, 40XX), the SP lid (hallkey), the 40XX LED chip
-	# power (mcu_pwr) and possibly 40XX rumble (pwm3). Getting those back means solving the own-kernel
-	# hang (audit 2026-09-25, .notes/2026-09-24-nextui-h700-research/).
+	# silent part() fallback. RG35XX H: its OWN muOS kernel + ramdisk + boot_package, all from ONE muOS
+	# commit (3f2fa25), which boots our rootfs with both sticks working (H-verified 2026-09-25). The old
+	# own-kernel hang (2026-09-23) was a mixed pairing (April a502a1d package + August edited kernel),
+	# never pair across commits. Every OTHER board still uses the Plus kernel (copy parts/p4-kernel.img.gz
+	# in), which drives every panel (all use fog_fj035fhd05_v1) but lacks the per-board extras: sticks
+	# (Pro, 40XX), the SP lid (hallkey), 40XX LED power (mcu_pwr), 40XX rumble (pwm3); platform.c and the
+	# frontend reproduce the last three. A board moves to its own kernel only after a device test.
 	[ -f "$ASSETS/parts-$DEVICE/p4-kernel.img.gz" ] || {
 		echo "ERROR: $DEVICE needs its own kernel at $ASSETS/parts-$DEVICE/p4-kernel.img.gz"
 		echo "       (extract p4 from that board muOS image; the fallback would ship the Plus kernel)"
