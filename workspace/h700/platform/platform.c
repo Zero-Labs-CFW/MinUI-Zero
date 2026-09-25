@@ -232,6 +232,14 @@ void PLAT_pollInput(void) {
 			// EV_ABS: codes 16/17 are the d-pad hat on every h700 board; 2-5 are the analog
 			// sticks, which only report real values on hardware whose kernel drives the ADC mux.
 			if (ev.type == 3) {
+				// Log each stick axis's travel as it grows (new extreme, 256-unit steps, so a few dozen
+				// lines per session): one push-every-stick session maps the board's axes AND their real
+				// range (receipts, not guesses; layout and range differ between kernels).
+				static int abs_max[6], abs_min[6];
+				if (ev.code < 6 && (ev.value > abs_max[ev.code] + 256 || ev.value < abs_min[ev.code] - 256)) {
+					if (ev.value > abs_max[ev.code]) abs_max[ev.code] = ev.value; else abs_min[ev.code] = ev.value;
+					LOG_info("input: %s abs code %d range %d..%d\n", ev_paths[i], ev.code, abs_min[ev.code], abs_max[ev.code]);
+				}
 				if (ev.code >= 1 && ev.code <= 5) {
 					int code = ev.code == stick_code_lx ? 2 : ev.code == stick_code_ly ? 3 : ev.code;
 					if (code >= 2) ev_stick(code, ev.value, tick);
