@@ -14,7 +14,8 @@
 // Brightness: this device has NO /sys/class/backlight. muOS drives the panel through the
 // Allwinner dispdbg debugfs (func.sh DISPLAY_WRITE): name=disp0, command=setbl/getbl,
 // param=0-255 (max from /opt/muos/device/config/screen/bright), then start=1. getbl answers
-// in /sys/kernel/debug/dispdbg/info, so brightness is READABLE — no persistence file needed.
+// in /sys/kernel/debug/dispdbg/info, so brightness is READABLE (a file still keeps the user's level
+// across boots, see BRIGHT_FILE: muOS rewrites the panel at every boot).
 #define DISPDBG "/sys/kernel/debug/dispdbg/"
 #define BRIGHT_RAW_MAX 255
 #define BRIGHT_RAW_MIN 8 // UI 0 stays faintly visible, never a black screen
@@ -93,7 +94,36 @@ static int vol_restore(void) { // -1 = no saved value
 	return ui;
 }
 
+// Persisted UI brightness, same idea as the volume file. The panel IS readable (GetBrightness), but it is
+// not the user's value after a boot: muOS device/start.sh runs bright.sh at every boot, which writes its
+// OWN saved level (config settings/general/brightness, 88 raw in this image) to disp0, so whatever the
+// user chose comes back as raw 88 (UI 3) after every reboot (read from the muOS scripts in the image,
+// not yet seen on a device; cross-reference 2026-09-27). SetBrightness
+// records the UI level here and InitSettings puts it back, so the user's value wins. No file (first boot,
+// or a card from before this) = the panel is left exactly as muOS set it, as before.
+#define BRIGHT_FILE "/mnt/mmc/.userdata/h700/brightness"
+static int cur_bright = -1; // 0-10 UI as last written by this process; -1 = not yet
+static void bright_persist(int ui) {
+	FILE* f = fopen(BRIGHT_FILE, "w");
+	if (!f) return;
+	fprintf(f, "%d\n", ui);
+	fclose(f);
+}
+static int bright_restore(void) { // -1 = no saved value
+	FILE* f = fopen(BRIGHT_FILE, "r");
+	if (!f) return -1;
+	int ui = -1;
+	if (fscanf(f, "%d", &ui) != 1) ui = -1;
+	fclose(f);
+	if (ui < 1 || ui > 10) return -1; // 0 is never saved (SetBrightness), so never restored either
+	return ui;
+}
+
 void InitSettings(void) {
+	// Saved brightness wins over the raw level muOS set at boot. cur_bright is primed first so this
+	// re-apply is not itself counted as a change and rewritten to the card at every process start.
+	int bright = bright_restore();
+	if (bright >= 0) { cur_bright = bright; SetBrightness(bright); }
 	vol_open();
 	// Saved level wins. Only when there is none do we adopt the codec's current level (first boot
 	// after a flash: the frontend's alsactl restore has set the baseline and nothing has opened a
@@ -114,7 +144,12 @@ void QuitSettings(void) {
 	if (vol_mixer) { snd_mixer_close(vol_mixer); vol_mixer = NULL; vol_elem = NULL; }
 }
 
-int GetBrightness(void) { // 0-10 UI, read back from the panel itself
+int GetBrightness(void) { // 0-10 UI
+	// This process's own level first, once it has one (the saved level from InitSettings, or the last
+	// SetBrightness). muOS starts device/start.sh in the BACKGROUND (startup.sh:124), so its boot bright.sh
+	// write can land after InitSettings; a live read would then adopt muOS's level, and the next sleep/wake
+	// or MENU+volume step would save it over the user's. No level yet = read the panel itself, as before.
+	if (cur_bright >= 0) return cur_bright;
 	int raw = -1;
 	dispdbg_cmd("getbl", NULL);
 	FILE* f = fopen(DISPDBG "info", "r");
@@ -151,6 +186,12 @@ void SetBrightness(int value) { // 0-10 UI
 	if (value > 10) value = 10;
 	int raw = value ? value * BRIGHT_RAW_MAX / 10 : BRIGHT_RAW_MIN;
 	SetRawBrightness(raw);
+	// Persist only on a real change (a held MENU+volume ramp calls this repeatedly). Backlight-off paths
+	// use SetRawBrightness and never reach here, so a sleep never saves a dark level. Level 0 is never
+	// saved either: it is also the charging screen's dim (minui.c ChargingScreen), restored only on a clean
+	// exit, so a hard power cut there would bring it back on every boot. A user who picks 0 keeps it until
+	// the next boot, which restores their last level above 0.
+	if (value != cur_bright) { cur_bright = value; if (value) bright_persist(value); }
 }
 void SetVolume(int value) { // 0-20 UI
 	if (value < 0) value = 0;
