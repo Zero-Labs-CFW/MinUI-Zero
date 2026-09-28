@@ -1077,8 +1077,11 @@ void PLAT_enableOverlay(int enable) {}
 // AXP2202 — the Brick's exact PMIC, verified on-device 2026-08-04 (identical sysfs paths).
 
 static int online = 0;
+static int batteryEmptyNow(void);
+static volatile int battery_empty_polls = 0; // consecutive empty polls, counted on the battery thread
 void PLAT_getBatteryStatus(int* is_charging, int* charge) {
 	*is_charging = getInt("/sys/class/power_supply/axp2202-usb/online");
+	battery_empty_polls = batteryEmptyNow() ? battery_empty_polls + 1 : 0;
 
 	int i = getInt("/sys/class/power_supply/axp2202-battery/capacity");
 	// worry less about battery and more about the game you're playing
@@ -1135,6 +1138,42 @@ int PLAT_isToppingUp(void) {
 		if (got) return strncmp(status, "Charging", 8) == 0;
 	}
 	return getInt("/sys/class/power_supply/axp2202-usb/online");
+}
+
+// LOW-BATTERY POWER-OFF (H700 sweep 2026-09-28, after Knulli's batteryplus 00shutdown hook). Nothing acted before
+// the PMIC's own hard cut, which drops power mid-write: no quicksave, and the card left dirty. Empty = on battery
+// (usb online reads 0, status is not Charging) with the gauge at <= 1% or the cell at <= 3.35 V, on two polls in a
+// row (PWR_monitorBattery, 5 s apart); PWR_update then takes the normal power-off path on the main thread. A bogus
+// reading cannot trigger it: an unreadable node counts as NOT empty (getInt would read a missing file as 0), nothing
+// is judged in the first 60 s after boot while the gauge settles, and a 0-1% gauge on a cell above 3.6 V is ignored
+// (1% is about 3.5 V on this tree's OCV table, INFERRED from the X-Powers table layout; the thresholds want one
+// drain-to-cut log). voltage_now is taken in uV or mV by magnitude, as Knulli does. Owned OS only: muOS keeps its own.
+static int readIntOr(const char* path, int fallback) {
+	int v = fallback;
+	FILE* f = fopen(path, "r");
+	if (f) { if (fscanf(f, "%d", &v) != 1) v = fallback; fclose(f); }
+	return v;
+}
+static int batteryEmptyNow(void) {
+	if (!zero_owns_os()) return 0;
+	double up = 0;
+	FILE* uf = fopen("/proc/uptime", "r");
+	if (uf) { if (fscanf(uf, "%lf", &up) != 1) up = 0; fclose(uf); }
+	if (up < 60) return 0;
+	if (readIntOr("/sys/class/power_supply/axp2202-usb/online", -1) != 0) return 0; // cable in, or unknown
+	char st[16] = "";
+	FILE* sf = fopen("/sys/class/power_supply/axp2202-battery/status", "r");
+	if (sf) { if (!fgets(st, sizeof(st), sf)) st[0] = 0; fclose(sf); }
+	if (strncmp(st, "Charging", 8) == 0) return 0;
+	int pct = readIntOr("/sys/class/power_supply/axp2202-battery/capacity", -1);
+	int mv = readIntOr("/sys/class/power_supply/axp2202-battery/voltage_now", -1);
+	if (mv > 100000) mv /= 1000; // uV -> mV
+	int mv_ok = mv >= 2500 && mv <= 4500;
+	if (mv_ok && mv > 3600) return 0; // a healthy cell: a 0-1% gauge reading is the gauge, not the battery
+	return (pct >= 0 && pct <= 1) || (mv_ok && mv <= 3350);
+}
+int PLAT_batteryIsEmpty(void) {
+	return battery_empty_polls >= 2;
 }
 
 void PLAT_enableBacklight(int enable) {

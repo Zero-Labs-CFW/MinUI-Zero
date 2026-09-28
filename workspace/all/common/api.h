@@ -378,6 +378,7 @@ int PLAT_getAudioQueued(void);
 int PLAT_getChargePercent(void); // exact charge %, or -1 if unavailable (weak fallback: -1)
 int PLAT_audioIsShared(void); // 1 when another process owns the codec (weak fallback: 0)
 int PLAT_isToppingUp(void); // 1 while the cell is actually filling, -1 = cannot tell (weak fallback)
+int PLAT_batteryIsEmpty(void); // 1 once the cell is at its cut-off on battery: PWR_update powers off (weak fallback: 0)
 // panel-coordinate rect of the most recently presented game frame (0s before first flip)
 void PLAT_getGameRect(int* x, int* y, int* w, int* h);
 int PLAT_supportsOverscan(void);

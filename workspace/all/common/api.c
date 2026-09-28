@@ -84,6 +84,7 @@ static struct PWR_Context {
 	int requested_sleep;
 	int requested_wake;
 	int resume_tick; // SDL ticks at last resume — used to debounce the wake button press
+	int battery_empty; // set when the power-off is the low-battery one, so its message says so
 
 	pthread_t battery_pt;
 	int is_charging;
@@ -1866,6 +1867,12 @@ __attribute__((weak)) int PLAT_audioIsShared(void) { return 0; }
 // preserving existing behaviour; only platforms that distinguish the two override this.
 __attribute__((weak)) int PLAT_isToppingUp(void) { return -1; }
 
+// Is the cell at its cut-off while on battery? 1 makes PWR_update take the normal power-off path (quicksave
+// included) before the PMIC's own hard cut drops power mid-write. Default 0: nothing changes on a platform
+// that does not override it. Only h700 does so far (H700 sweep 2026-09-28); the Brick has the same PMIC and
+// sysfs nodes, but its threshold wants its own drain-to-cut log first.
+__attribute__((weak)) int PLAT_batteryIsEmpty(void) { return 0; }
+
 void SND_quit(void) { // plat_sound_finish
 	if (snd.initialized) {
 		// Stop feeding the device first, either way.
@@ -2424,7 +2431,19 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 		}
 		checked_charge_at = now;
 	}
-	
+
+	// LOW-BATTERY POWER-OFF: a platform that can tell its cell is at the cut-off (PLAT_batteryIsEmpty, weak 0
+	// everywhere else) takes the same path as a POWER hold, quicksave included, instead of the PMIC's hard cut
+	// dropping power mid-write. Once per process: PWR_powerOff only returns when power-off is disabled.
+	static int battery_empty_seen = 0;
+	if (!battery_empty_seen && PLAT_batteryIsEmpty()) {
+		battery_empty_seen = 1;
+		LOG_info("power: battery empty, powering off\n");
+		pwr.battery_empty = 1;
+		if (before_sleep) before_sleep();
+		PWR_powerOff();
+	}
+
 	if (PAD_justReleased(BTN_POWEROFF) || (power_pressed_at && now-power_pressed_at>=1000)) {
 		LOG_info("power: OFF branch (held %ums, poweroff_btn=%i)\n", power_pressed_at?now-power_pressed_at:0, PAD_justReleased(BTN_POWEROFF));
 		// Haptic power cue (idea from SpruceOS): a short buzz the moment the quicksave+
@@ -2543,7 +2562,8 @@ void PWR_powerOff(void) {
 		gfx.screen = GFX_resize(w,h,p);
 		
 		char* msg;
-		if (HAS_POWER_BUTTON || HAS_POWEROFF_BUTTON) msg = exists(AUTO_RESUME_PATH) ? "Quicksave created,\npowering off" : "Powering off";
+		if (pwr.battery_empty) msg = exists(AUTO_RESUME_PATH) ? "Battery empty,\nquicksave created" : "Battery empty,\npowering off";
+		else if (HAS_POWER_BUTTON || HAS_POWEROFF_BUTTON) msg = exists(AUTO_RESUME_PATH) ? "Quicksave created,\npowering off" : "Powering off";
 		else msg = exists(AUTO_RESUME_PATH) ? "Quicksave created,\npower off now" : "Power off now";
 		
 		// LOG_info("PWR_powerOff %s (%ix%i)\n", gfx.screen, gfx.screen->w, gfx.screen->h);
