@@ -166,6 +166,12 @@ echo "governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/d
 # per game on top of this (audit 2026-09-25).
 echo 1512000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
 echo "cpu ceiling: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null) of $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies 2>/dev/null)" >> "$LOG"
+# Same rule for the GPU: 648 MHz, the Plus tree's top. The H/Pro/SP/40XX trees add 756 MHz at 1.000 V
+# (stock tops at 696). Mirrors minui-frontend.sh (2026-09-28).
+for _g in /sys/class/devfreq/*gpu*; do
+	[ -w "$_g/max_freq" ] && echo 648000000 > "$_g/max_freq" 2>/dev/null
+	echo "gpu ceiling: $_g $(cat "$_g/max_freq" 2>/dev/null) of $(cat "$_g/available_frequencies" 2>/dev/null)" >> "$LOG"
+done
 
 # --- wifi + ssh, opt-in, and portable across OS layers -------------------------------------------
 # THIS LIVES HERE, NOT IN THE OS LAYER. It used to sit in the OS-side minui-frontend.sh, which meant

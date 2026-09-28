@@ -375,6 +375,16 @@ sed -i "s|^\([[:space:]]*\)\[ \"\$HAS_NETWORK\" -eq 1 \] && modprobe -q \"\$NET_
 grep -q "modprobe -q \"\$NET_NAME\"\$" "$MS" && { echo "ERROR: module.sh still loads the WiFi driver at boot (anchor changed)"; exit 1; }
 grep -q "WiFi driver not loaded at boot" "$MS" || { echo "ERROR: WiFi boot-load removal did not apply (module.sh anchor changed)"; exit 1; }
 echo "  WiFi driver boot load dropped from module.sh (loads on demand)"
+# GPU CEILING (2026-09-28). The H, Pro, SP and 40XX trees add a 756 MHz at 1.000 V GPU step past the Plus tree
+# top of 648 MHz at 0.96 V (stock trees top at 696), and nothing capped it: any GL client (the Files tool, a
+# port) could drive mali devfreq there. Same rule as the 1512 MHz CPU cap. Newer muOS (d6fe9378) treats
+# > 648 MHz as a GPU overclock (func.sh SYNC_GPU_FREQUENCY, device gpu/max_freq_default 648000000). The cap
+# goes right after the mali_kbase modprobe (so the devfreq node exists; module.sh load is backgrounded at
+# boot) on the class path NextUI h700-rc11 governor.sh uses and the platform path muOS module.sh uses.
+# max_freq only, never min_freq. A no-op on the Plus; the frontend re-asserts it and logs the result.
+sed -i "s|^\([[:space:]]*\)modprobe -q mali_kbase\$|&\n\1for _g in /sys/class/devfreq/*gpu* /sys/devices/platform/gpu/devfreq/gpu; do [ -w \"\$_g/max_freq\" ] \&\& echo 648000000 >\"\$_g/max_freq\"; done 2>/dev/null # MinUI Zero GPU ceiling 648 MHz|" "$MS"
+grep -q "MinUI Zero GPU ceiling 648 MHz" "$MS" || { echo "ERROR: GPU ceiling did not land in module.sh (mali_kbase anchor changed)"; exit 1; }
+echo "  GPU ceiling 648 MHz set after the mali_kbase load in module.sh"
 
 # MUOS FOLDER TRIM (2026-09-15, r/trimui report). A stock muOS boot litters the card root with
 # folders MinUI never touches: MUOS/ (created by mount/bind.sh) plus ARCHIVE/ BACKUP/ ports/ (created

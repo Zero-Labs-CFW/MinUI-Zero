@@ -167,6 +167,12 @@ echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/nu
 echo 1512000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
 echo "governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)" >> "$LOG"
 echo "cpu ceiling: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null) of $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies 2>/dev/null)" >> "$LOG"
+# GPU ceiling 648 MHz, the Plus tree's top: the H/Pro/SP/40XX trees add 756 MHz at 1.000 V (see the module.sh
+# edit in build-h700-stripped.sh, which sets it as mali_kbase loads). Re-asserted and logged here, like the CPU.
+for _g in /sys/class/devfreq/*gpu*; do
+	[ -w "$_g/max_freq" ] && echo 648000000 > "$_g/max_freq" 2>/dev/null
+	echo "gpu ceiling: $_g $(cat "$_g/max_freq" 2>/dev/null) of $(cat "$_g/available_frequencies" 2>/dev/null)" >> "$LOG"
+done
 
 # WiFi + SSH bring-up. Credentials are USER-SUPPLIED (never baked into the image): the MinUI
 # convention is a wifi.txt at the SD-card root, "SSID:password" per line, '#' comments. We use the
