@@ -2798,8 +2798,8 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 		now-last_input_at>=SLEEP_DELAY || // autosleep
 		(pwr.can_sleep && power_released && power_pressed_at && !power_press_is_wake) // manual sleep (resume-press guarded on EVERY platform)
 	) {
-		pwr.requested_sleep = 0;
 		LOG_info("power: SLEEP branch (req=%i idle=%i manual=%i held=%ums)\n", pwr.requested_sleep, now-last_input_at>=SLEEP_DELAY, power_released&&power_pressed_at&&!power_press_is_wake, power_pressed_at?now-power_pressed_at:0);
+		pwr.requested_sleep = 0; // after the log line, which reported it as always 0
 		if (before_sleep) before_sleep();
 		PWR_sleep();
 		if (after_sleep) after_sleep();
