@@ -273,7 +273,22 @@ while : ; do
 
 # --- power off ---------------------------------------------------------------------------------
 # The AXP register write is how this board actually powers down; a plain poweroff reboots it.
+# Nothing may still be writable when the power goes (H700 sweep 2026-09-28, muOS HEAD halt.sh order, same as
+# minui-frontend.sh): save the clock, sync, then per writable block filesystem, cards first and root last, kill
+# every process still using it except this shell, which runs from the card (never done for root), and remount it
+# read-only; a mount that refuses stays as it was, and a 15 s backstop cuts power if a remount hangs. cd / first:
+# this script runs from its pak folder, and that cwd alone would hold the card.
 power_off() {
+	[ "$(date +%Y)" -ge 2025 ] && date +'%F %T' > "$DATETIME_PATH" 2>/dev/null
+	sync
+	cd /
+	( sleep 15; echo 0x1801 > /sys/class/axp/axp_reg; poweroff -f ) >/dev/null 2>&1 &
+	for _m in $(awk '$1 ~ /^\/dev\// && $3 ~ /^(ext2|ext3|ext4|vfat|msdos|exfat)$/ && $4 !~ /^ro(,|$)/ {
+			if (!($1 in t) || length($2) < length(t[$1])) t[$1] = $2 }
+		END { for (d in t) if (t[d] != "/") print t[d]; for (d in t) if (t[d] == "/") print t[d] }' /proc/mounts 2>/dev/null); do
+		[ "$_m" = / ] || for _p in $(fuser -m "$_m" 2>/dev/null); do [ "$_p" = "$$" ] || kill -9 "$_p" 2>/dev/null; done
+		for _t in 1 2 3; do mount -o remount,ro "$_m" 2>/dev/null && break; sleep 1; done   # a killed writer exits a moment later
+	done
 	sync
 	echo 0x1801 > /sys/class/axp/axp_reg 2>/dev/null
 	[ -x /opt/muos/script/system/halt.sh ] && /opt/muos/script/system/halt.sh poweroff 2>/dev/null

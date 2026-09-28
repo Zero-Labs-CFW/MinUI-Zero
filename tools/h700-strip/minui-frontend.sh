@@ -371,9 +371,25 @@ mkdir -p "$LOGS_PATH" "$SAVES_PATH" "$SHARED_USERDATA_PATH/.minui" 2>/dev/null
 # is saved, so a boot that could not restore never overwrites the last good time with 1970.
 save_clock() { [ "$(date +%Y)" -ge 2025 ] && date +'%F %T' > "$DATETIME_PATH" 2>/dev/null; }
 
-# power-off the muOS way (AXP register; plain poweroff reboots) — reused from halt.sh
+# POWER OFF in muOS HEAD halt.sh order (H700 sweep 2026-09-28): nothing may still be writable when the power
+# goes. The AXP write used to follow a bare sync with the card still mounted read-write, so every power-off left
+# the FAT marked dirty. Now: save the clock, sync, then per writable block filesystem, cards first and root last,
+# kill every process still using it except this shell (muOS keepalive.sh and its sleep child keep this log open
+# for good, inherited from network.sh connect, and a remount refuses while any writer is left; never done for
+# root) and remount it read-only. A mount that still refuses stays as it was, no worse than before; the 15 s
+# backstop cuts power if a remount hangs on a failing card. Then the muOS way to cut power (AXP register; plain
+# poweroff reboots), with halt.sh and poweroff -f as fallbacks. cd / first, so no cwd holds the card.
 power_off() {
 	save_clock
+	sync
+	cd /
+	( sleep 15; echo 0x1801 > /sys/class/axp/axp_reg; poweroff -f ) >/dev/null 2>&1 &
+	for _m in $(awk '$1 ~ /^\/dev\// && $3 ~ /^(ext2|ext3|ext4|vfat|msdos|exfat)$/ && $4 !~ /^ro(,|$)/ {
+			if (!($1 in t) || length($2) < length(t[$1])) t[$1] = $2 }
+		END { for (d in t) if (t[d] != "/") print t[d]; for (d in t) if (t[d] == "/") print t[d] }' /proc/mounts 2>/dev/null); do
+		[ "$_m" = / ] || for _p in $(fuser -m "$_m" 2>/dev/null); do [ "$_p" = "$$" ] || kill -9 "$_p" 2>/dev/null; done
+		for _t in 1 2 3; do mount -o remount,ro "$_m" 2>/dev/null && break; sleep 1; done   # a killed writer exits a moment later
+	done
 	sync
 	echo 0x1801 > /sys/class/axp/axp_reg 2>/dev/null
 	/opt/muos/script/system/halt.sh poweroff 2>/dev/null
