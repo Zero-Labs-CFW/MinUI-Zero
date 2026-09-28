@@ -22,6 +22,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <linux/fb.h>
+#include <linux/gpio.h> // GPIO character device v1 ABI (SP lid); the tg5040 toolchain carries 4.19 uapi headers
 #include <stdint.h>
 #include "sunxi_display2.h"
 #include <fcntl.h>
@@ -130,6 +131,10 @@ void PLAT_quitInput(void) {
 // release, duration tracks the hold) then a FIXED ~180ms 354 pulse at release (312-up and 354-down
 // arrive simultaneously). Map ONLY 312. Mapping 354 too made the release pulse a SECOND BTN_MENU
 // press one poll later, so the About screen opened then instantly closed ("finicky"). 354 -> BTN_NONE.
+// L3/R3 are NOT from that session (the Plus has no sticks): they come from the device trees of the stick
+// boards (H, Pro, RG40XX H/V), gpio_keys keyL3 = 0x139 on PE8 and keyR3 = 0x13c on PE9 (.notes/
+// 2026-09-27-h700-crossref/refs/dtb-flat/rg35xx-h.txt:3385-3390, same lines on pro, 3384-3389 on 40xx-h/v). Same
+// misnaming again: 313 "BTN_TR2" is L3 and 316 "BTN_MODE" is R3. The Plus and SP trees declare neither code.
 // The dpad is an ANALOG HAT (EV_ABS codes 16/17), handled separately in PLAT_pollInput.
 static void ev_translate(uint16_t code, int* btn, int* id) {
 	switch (code) {
@@ -141,6 +146,8 @@ static void ev_translate(uint16_t code, int* btn, int* id) {
 	case 309: *btn = BTN_R1;     *id = BTN_ID_R1;     break;
 	case 314: *btn = BTN_L2;     *id = BTN_ID_L2;     break;
 	case 315: *btn = BTN_R2;     *id = BTN_ID_R2;     break;
+	case 313: *btn = BTN_L3;     *id = BTN_ID_L3;     break; // DT keyL3 (stick boards only, see above)
+	case 316: *btn = BTN_R3;     *id = BTN_ID_R3;     break; // DT keyR3
 	case 311: *btn = BTN_START;  *id = BTN_ID_START;  break;
 	case 310: *btn = BTN_SELECT; *id = BTN_ID_SELECT; break;
 	case 312: *btn = BTN_MENU;   *id = BTN_ID_MENU;   break; // MENU (real button; the 354 release-pulse is dropped)
@@ -205,6 +212,11 @@ static void ev_stick(uint16_t code, int32_t value, uint32_t tick) {
 }
 
 int PLAT_lidChanged(int* state); // defined with PLAT_initLid (RG35XX SP lid, below)
+static int lid_read(void);       // same place
+static void lid_off(const char* why); // same place
+static int lid_seen_open = 0;    // the sensor has read open in this process: arms the lid gates (SP lid section)
+static int lid_slept = 0;        // set by PLAT_shouldWake (or PLAT_initLid), consumed by the next PLAT_pollInput
+static int lid_power_ignored = 0; // POWER presses the shut-lid gate ate in this sleep (escape hatch, PLAT_shouldWake)
 void PLAT_pollInput(void) {
 	pad.just_pressed  = BTN_NONE;
 	pad.just_released = BTN_NONE;
@@ -296,6 +308,23 @@ void PLAT_pollInput(void) {
 	// platform replaces, so without this a closed clamshell never slept. Same request path as api.c.
 	int lid_open = 1;
 	if (lid.has_lid && PLAT_lidChanged(&lid_open) && !lid_open) PWR_requestSleep();
+	// WOKE WITH THE LID STILL SHUT. Deep sleep wakes on POWER alone and PWR_waitForWake returns straight from the
+	// suspend, so the gate in PLAT_shouldWake never sees that press. On the first poll after any sleep, read the
+	// sensor fresh (not throttled) and go back to sleep if it still reads closed, as Knulli does after every
+	// resume (refs/knulli/board/allwinner/h700/fsoverlay/etc/pm/sleep.d/99-postresume-sp:8-13). PLAT_initLid
+	// uses the same check for a process that STARTS with the lid shut.
+	if (lid_slept) {
+		lid_slept = 0;
+		lid_power_ignored = 0; // awake again: the escape-hatch count is per sleep
+		if (lid.has_lid && lid_seen_open) {
+			int now_open = lid_read();
+			if (now_open >= 0) lid.is_open = now_open;
+			if (now_open == 0) {
+				LOG_info("lid: shut at the first poll after a wake (or a start), sleeping\n");
+				PWR_requestSleep();
+			}
+		}
+	}
 }
 
 // WAKE from faux-sleep. The shared PLAT_shouldWake (api.c) only reads SDL events — but SDL is DEAD
@@ -314,9 +343,22 @@ int PLAT_shouldWake(void) {
 		}
 	}
 	// LID OPEN wakes the SP from faux-sleep, as the shared PLAT_shouldWake would (replaced here). From deep
-	// sleep only POWER wakes: a sysfs GPIO is not a wake source on this kernel.
+	// sleep only POWER wakes: a polled GPIO (sysfs or chardev) is not a wake source on this kernel.
 	int lid_open = 1;
 	if (lid.has_lid && PLAT_lidChanged(&lid_open) && lid_open) wake = 1;
+	// POWER does not wake a SHUT lid, the gate the shared PLAT_shouldWake has (api.c:2171,2179, "ignore input while
+	// lid is closed") and this override had dropped: a press in a bag would light the screen behind a closed lid.
+	// The drain above already ate the press. Armed only once the sensor has read open (lid_seen_open).
+	// ESCAPE HATCH. A sensor that read open once and then sticks or floats at "closed" would leave POWER dead for
+	// good: every wake from deep sleep goes straight back to sleep (PLAT_pollInput), and the 1 s hold-to-power-off
+	// never runs because nothing calls PWR_update in here. So the THIRD press the gate eats in one sleep wakes the
+	// device and turns the lid off until reboot (lid_off), which is exactly the behaviour before the lid worked. A
+	// stray press or two in a bag is still eaten.
+	if (wake && lid.has_lid && lid_seen_open && !lid.is_open) {
+		if (++lid_power_ignored < 3) wake = 0;
+		else lid_off("POWER pressed 3 times while the lid read shut");
+	}
+	lid_slept = 1;
 	return wake;
 }
 
@@ -1167,17 +1209,129 @@ void PLAT_setRumble(int strength) {
 // every board runs the Plus kernel, so read the hall sensor pin itself: PE7 = gpio 135, 1 open / 0 closed
 // (active low, board pull-up), the same pin mainline and Knulli use (research 2026-09-25). Polled at most 5x a
 // second, not every frame: a sysfs read per frame is avoidable wakeup work. Gated on the SP (DEVICE=sp).
+//
+// TWO BACKENDS. The Plus kernel is built with "# CONFIG_GPIO_SYSFS is not set", so the sysfs path alone left
+// has_lid = 0 and the lid did nothing (crossref 2026-09-27). sysfs is still tried first (an SP kernel of its
+// own may have it), then the GPIO character device, v1 ABI (Plus kernel 4.9.170: GPIOLIB=y, and its Image
+// carries the "gpio-linehandle" inode name). The main PIO is the chip whose label holds its address: the 4.9
+// sun50iw9 BSP labels it dev_name() (pinctrl-sunxi.c:2531), "300b000.pinctrl" for the DT node pinctrl@0300b000,
+// with chip base = pin_base = 0 (:2533, pinctrl-sun50iw9p1.c:1093), so the line offset is the global number,
+// PE_BASE 128 + 7 = 135 (pinctrl-sunxi.h:23; copies in .notes/2026-09-27-h700-crossref/refs/bsp-4.9-sun50iw9/,
+// same-SoC BSP, not Anbernic's own source). The value is raw (no ACTIVE_LOW flag), the same polarity as the
+// sysfs read; mainline agrees: PE7 GPIO_ACTIVE_LOW SW_LID (refs/rocknix-mainline/...rg35xx-sp.dts:19). A line
+// request is exclusive, so the handle is held for the process lifetime and freed by the kernel at exit.
 #define LID_GPIO "/sys/class/gpio/gpio135/value"
+#define LID_LINE 135        // PE7, see above
+#define LID_CHIP "300b000"  // main PIO label, "300b000.pinctrl"
+#define LID_ARMED "/tmp/lid_armed" // some process this boot has read the lid OPEN (PLAT_initLid)
+#define LID_OFF   "/tmp/lid_off"   // the lid was turned off for this boot (lid_off); /tmp, so a reboot clears both
+static int lid_fd = -1;     // chardev line handle; -1 = sysfs backend (or no lid)
+// lid_seen_open ARMS the POWER gate (PLAT_shouldWake) and the post-resume re-sleep (PLAT_pollInput) only once the
+// sensor has read OPEN in this boot. Both trust a "closed" reading enough to ignore POWER, so a pin that reads
+// 0 forever (floating, wrong line) would leave a device nothing can wake. Unarmed, both behave as before.
+// lid_off: exactly the no-lid behaviour (open, nothing gated) for this process, and LID_OFF keeps every later
+// process this boot (the next game, the menu) from re-arming it. Logs once: has_lid = 0 stops every lid call.
+static void lid_off(const char* why) {
+	LOG_info("lid: %s, lid off until reboot\n", why);
+	lid.has_lid = 0;
+	lid.is_open = 1;
+	if (lid_fd >= 0) { close(lid_fd); lid_fd = -1; }
+	unlink(LID_ARMED);
+	touch(LID_OFF);
+}
+static int lid_read(void) { // 1 open, 0 closed, -1 unreadable (the lid is then off, see lid_off)
+	int v = -1, err = 0;
+	if (lid_fd >= 0) {
+		struct gpiohandle_data data;
+		memset(&data, 0, sizeof(data));
+		if (ioctl(lid_fd, GPIOHANDLE_GET_LINE_VALUES_IOCTL, &data) == 0) v = data.values[0] ? 1 : 0;
+		else err = errno;
+	}
+	else {
+		// not getInt: it answers 0 for a node it cannot read, and 0 is "closed", which now gates POWER
+		FILE* f = fopen(LID_GPIO, "r");
+		if (!f) err = errno;
+		else {
+			if (fscanf(f, "%d", &v) == 1) v = v ? 1 : 0;
+			else v = -1;
+			fclose(f);
+		}
+	}
+	if (v < 0) {
+		char why[80];
+		snprintf(why, sizeof(why), "%s read failed (%s)", lid_fd >= 0 ? "line" : "gpio135", err ? strerror(err) : "no value");
+		lid_off(why);
+		return -1;
+	}
+	if (v && !lid_seen_open) {
+		lid_seen_open = 1;
+		touch(LID_ARMED);
+	}
+	return v;
+}
+static int lid_open_chardev(void) {
+	char path[32];
+	for (int n = 0; n < 8; n++) {
+		snprintf(path, sizeof(path), "/dev/gpiochip%d", n);
+		int cfd = open(path, O_RDONLY | O_CLOEXEC);
+		if (cfd < 0) continue;
+		struct gpiochip_info info;
+		memset(&info, 0, sizeof(info));
+		if (ioctl(cfd, GPIO_GET_CHIPINFO_IOCTL, &info) < 0) { close(cfd); continue; }
+		char label[sizeof(info.label) + 1]; // the kernel strncpy's it: not terminated at full length
+		memcpy(label, info.label, sizeof(info.label));
+		label[sizeof(info.label)] = 0;
+		LOG_info("lid: %s label \"%s\" lines %u\n", path, label, info.lines);
+		if (!strstr(label, LID_CHIP) || info.lines <= LID_LINE) { close(cfd); continue; }
+		struct gpiohandle_request req;
+		memset(&req, 0, sizeof(req));
+		req.lineoffsets[0] = LID_LINE;
+		req.flags = GPIOHANDLE_REQUEST_INPUT;
+		req.lines = 1;
+		strncpy(req.consumer_label, "minui-lid", sizeof(req.consumer_label) - 1);
+		int ret = ioctl(cfd, GPIO_GET_LINEHANDLE_IOCTL, &req);
+		int err = errno;
+		close(cfd);
+		if (ret < 0 || req.fd < 0) {
+			LOG_info("lid: %s line %d request failed (%s)\n", path, LID_LINE, strerror(err));
+			return -1;
+		}
+		// never inherited: a child that outlived us would hold the line and lock the next process out
+		fcntl(req.fd, F_SETFD, FD_CLOEXEC);
+		return req.fd;
+	}
+	return -1;
+}
 void PLAT_initLid(void) {
 	const char* d = getenv("DEVICE");
 	if (!d || strcmp(d, "sp")) return;
+	if (exists(LID_OFF)) { LOG_info("lid: off until reboot (turned off earlier this boot)\n"); return; }
 	if (!exists(LID_GPIO)) {
 		putInt("/sys/class/gpio/export", 135);
 		putFile("/sys/class/gpio/gpio135/direction", "in");
 	}
+	const char* how = "gpio135 sysfs";
 	lid.has_lid = exists(LID_GPIO);
-	if (lid.has_lid) lid.is_open = getInt(LID_GPIO) ? 1 : 0;
-	LOG_info("lid: %s (gpio135 %s)\n", lid.has_lid ? (lid.is_open ? "open" : "closed") : "unavailable", lid.has_lid ? "ok" : "missing");
+	if (!lid.has_lid && (lid_fd = lid_open_chardev()) >= 0) {
+		lid.has_lid = 1;
+		how = "gpiochip line 135";
+	}
+	if (lid.has_lid) {
+		int v = lid_read(); // unreadable = lid_read has already dropped back to no lid
+		if (v >= 0) lid.is_open = v;
+	}
+	LOG_info("lid: %s (%s)\n", lid.has_lid ? (lid.is_open ? "open" : "closed") : "unavailable",
+		lid.has_lid ? how : "no sysfs gpio135, no usable main-PIO gpiochip line");
+	// SHUT AT START. A process that starts with the lid already closed (a game launched, then the lid shut while it
+	// loaded) sees no close transition and would run behind the lid until it opened. When an earlier process this
+	// boot has read the lid open (LID_ARMED), arm now and let the first poll put the device to sleep (the same
+	// re-read PLAT_pollInput does after a wake). The first process of a boot never arms this way, so a pin that
+	// reads closed from power-on still behaves exactly as before.
+	if (lid.has_lid && !lid_seen_open && exists(LID_ARMED)) {
+		lid_seen_open = 1;
+		lid_slept = 1;
+		LOG_info("lid: shut at start, armed by an earlier process, sleeping on the first poll\n");
+	}
 }
 int PLAT_lidChanged(int* state) {
 	if (!lid.has_lid) return 0;
@@ -1185,8 +1339,8 @@ int PLAT_lidChanged(int* state) {
 	uint64_t now = getMicroseconds();
 	if (last_us && now - last_us < 200000) return 0;
 	last_us = now;
-	int lid_open = getInt(LID_GPIO) ? 1 : 0;
-	if (lid_open != lid.is_open) {
+	int lid_open = lid_read();
+	if (lid_open >= 0 && lid_open != lid.is_open) {
 		lid.is_open = lid_open;
 		if (state) *state = lid_open;
 		return 1;
@@ -1343,7 +1497,18 @@ void PLAT_getGameRect(int* x, int* y, int* w, int* h) {
 }
 
 char* PLAT_getModel(void) {
-	// TODO: distinguish RG35XX Plus vs H (near-twins; likely a DT compatible string or a key count)
+	// The board id the frontend exports (tools/h700-strip/minui-frontend.sh: muOS board/name minus "rg35xx-"; the
+	// image build writes the same ids to .system/h700/board). Only the About screen shows this string (minui.c);
+	// Device Sync names boards from DEVICE itself. The RG35XX 2024 boots the Plus image, so it reads as the Plus.
+	const char* d = getenv("DEVICE");
+	if (d) {
+		if (!strcmp(d, "plus"))     return "Anbernic RG35XX Plus";
+		if (!strcmp(d, "h"))        return "Anbernic RG35XX H";
+		if (!strcmp(d, "pro"))      return "Anbernic RG35XX Pro";
+		if (!strcmp(d, "sp"))       return "Anbernic RG35XX SP";
+		if (!strcmp(d, "rg40xx-h")) return "Anbernic RG40XX H";
+		if (!strcmp(d, "rg40xx-v")) return "Anbernic RG40XX V";
+	}
 	return "Anbernic RG35XX";
 }
 

@@ -62,6 +62,10 @@
 #define CODE_R1			23	// T
 #define CODE_L2			43	// TAB
 #define CODE_R2			42	// BACKSPACE
+// L3/R3 ARE mapped on the stick boards (not yet device-tested), but not through these: CODE_* are SDL
+// scancodes, read only by the shared SDL fallback PLAT_pollInput that platform.c replaces with raw evdev,
+// where L3/R3 arrive as 313/316 (ev_translate). No scancode is known for them, so they stay NA. Side
+// effect: minput hides its L3/R3 pills.
 #define CODE_L3			CODE_NA
 #define CODE_R3			CODE_NA
 
