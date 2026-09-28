@@ -17,6 +17,8 @@ jobs:
         run: make test-ff-audio
       - name: Save I/O tests
         run: make test-save-io
+      - name: Favorites tests
+        run: make test-favorites
       - name: Undervolt data tests
         run: make test-undervolt
       - name: Source reproducibility tests
