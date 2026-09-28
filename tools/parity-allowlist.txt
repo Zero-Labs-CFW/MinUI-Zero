@@ -35,7 +35,9 @@ h700/FC.pak:minarch_screen_scaling
 h700/GB.pak:minarch_screen_scaling
 h700/GBC.pak:minarch_screen_scaling
 
-# The RG35XX Plus has no analog sticks, so no DualShock default (same reason as the MMP).
+# One h700 payload serves all six boards, and only the RG35XX H and Pro have working sticks (Plus,
+# 2024 and SP have none; RG40XX H/V sticks are not up on the Plus kernel), so no DualShock default.
+# H/Pro players pick DualShock in Controls > Controller (verified with Ape Escape on the H, 2026-09-25).
 h700/PS.pak:minarch_gamepad_type
 
 # Threading is LOCKED OFF on h700 for now — unlike the MMP this is NOT a core-count argument (the

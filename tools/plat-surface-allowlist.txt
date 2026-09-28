@@ -26,8 +26,9 @@ h700:PLAT_flipFB
 h700:PLAT_flipFB_game
 
 # ---- Deep sleep ----
-# MMP: PROVEN impossible on that SoC (suspend-to-RAM never returns). The h700 DOES implement the
-# entry point (currently returning 0 while faux-sleep wake is validated), so it is not listed.
+# MMP: PROVEN impossible on that SoC (suspend-to-RAM never returns). The h700 has real
+# suspend-to-RAM, on by default since 5fd617a7 (validated on the Plus 2026-08-13; receipt in its
+# PLAT_supportsDeepSleep), so it is not listed.
 miyoomini:PLAT_supportsDeepSleep
 
 # ---- Colour effects ----
@@ -43,11 +44,16 @@ h700:PLAT_setEffectColor
 miyoomini:PLAT_setSystemRumble
 h700:PLAT_setSystemRumble
 
-# ---- Tools paks NOT ported to h700, and why (checked 2026-08-10) ----
-# These are not oversights; each depends on hardware or a feature this platform does not have.
-#   Deep Sleep   — PLAT_supportsDeepSleep() returns 0 here (deferred until faux-sleep wake is
-#                  validated). A toggle for a feature that is off would just mislead. Ship it with
-#                  deep sleep, not before.
+# ---- Devmode screenshot (b447b2ce) ----
+# Dev tool that reads tg5040's SDL2 renderer / vid.screen; the MMP (MI_GFX) and h700 (DE layer + fb0)
+# have no SDL renderer, so api.c's weak fallback returns NULL and the tool logs "no readable renderer".
+miyoomini:PLAT_captureRendererToSurface
+h700:PLAT_captureRendererToSurface
+
+# ---- Tools/Settings rows NOT on h700, and why (rechecked 2026-09-27) ----
+# The toggle tools folded into one Settings screen (a8d48449). Deep Sleep is no longer a gap: it is
+# real on h700 (5fd617a7) and Settings shows its row everywhere but the Miyoo. What remains is not
+# an oversight; it depends on hardware this platform does not have.
 #   Optimize CPU — the undervolt harness drives the TCS4838 PMIC, tg5040 silicon only (same earned
 #                  divergence as the PLAT undervolt suite above).
 # (Comment only — the checker ignores non "<platform>:<symbol>" lines.)
