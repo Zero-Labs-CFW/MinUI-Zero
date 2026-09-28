@@ -22,6 +22,11 @@ if [ -x /opt/muos/script/system/network.sh ] && [ -f /opt/muos/script/var/func.s
 	  SET_VAR "config" "network/hidden" "0"
 	  SET_VAR "config" "network/type"   "0"
 	  SET_VAR "config" "settings/network/con_retry"  "3"
+	  # The boot path's values (minui-frontend.sh): compat 1 makes device/network.sh wait for the SDIO card
+	  # after the modprobe and wait_timer 10 gives wlan0 10 s instead of the image's 5. Settings WiFi On
+	  # always loads the driver cold (the image no longer loads it at boot), so it needs them most.
+	  SET_VAR "config" "settings/network/compat"     "1"
+	  SET_VAR "config" "settings/network/wait_timer" "10"
 	  SET_VAR "config" "settings/network/monitor"    "1" )
 	/opt/muos/script/system/network.sh connect >> "$LOG" 2>&1 &
 else

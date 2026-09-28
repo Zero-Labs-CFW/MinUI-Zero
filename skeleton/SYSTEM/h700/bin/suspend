@@ -31,9 +31,6 @@ before() {
 
 after() {
 	>&2 echo "Resumed from suspend."
-	# Re-init the codec (unmute + output routing) from the boot baseline; PWR_exitSleep's
-	# SetVolume(GetVolume()) then re-applies the user's actual level.
-	alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null || true
 	# Bring wifi back only if it was up before (the frontend only runs its bring-up at boot).
 	#
 	# DELEGATE, do not hand-roll. This block used to run its own ifconfig/wpa_supplicant/dhcpcd
@@ -55,19 +52,74 @@ after() {
 	fi
 }
 
-before
->&2 echo "Suspending..."
 # Under `set -e` the suspend write needs care (idea: NextUI #632): if it returns nonzero, -e would
 # kill the script HERE and `after` would never run, leaving radios/audio torn down. The A133P/H700
 # kernel can return nonzero even when the device DID suspend, so a >=5s absence = success.
-T0=$(date +%s)
-set +e
-echo mem >/sys/power/state
-rc=$?
-set -e
-T1=$(date +%s)
-if [ "$rc" -ne 0 ] && [ $((T1 - T0)) -ge 5 ]; then rc=0; fi
+suspend_mem() { # sets rc (0 = suspended and resumed) and T1 (the wake time)
+	T0=$(date +%s)
+	set +e
+	echo mem >/sys/power/state
+	rc=$?
+	set -e
+	T1=$(date +%s)
+	if [ "$rc" -ne 0 ] && [ $((T1 - T0)) -ge 5 ]; then rc=0; fi
+}
 
-# Resume services in the background to cut UI latency — ALWAYS, even on a failed suspend.
+# RG35XX SP: 0 when the lid gates are armed (the C side read the lid open this boot, /tmp/lid_armed, and has not
+# turned the lid off, /tmp/lid_off) and the hall sensor PE7 reads 0 = shut. The C process holds the gpiochip
+# line, so read the pin's data register instead, as the frontend drives pins: PIO 0x0300b000 + bank E (4) *
+# 0x24 + DAT 0x10 = 0x0300b0a0, bit 7 (pinctrl-sunxi.h layout, see minui-frontend.sh _pin). Anything unreadable
+# answers 1 (not shut), which is the old behaviour. The devmem answer is format-checked before any $(( )):
+# a bad value there would abort this set -e script.
+_devmem() { if command -v devmem >/dev/null 2>&1; then devmem "$@"; else busybox devmem "$@"; fi; }
+lid_shut() {
+	[ "${DEVICE:-}" = sp ] || return 1
+	[ -f /tmp/lid_armed ] && [ ! -f /tmp/lid_off ] || return 1
+	grep -q sun50iw9p1-pinctrl /proc/device-tree/soc@03000000/pinctrl@0300b000/compatible 2>/dev/null || return 1
+	_v=$(_devmem 0x0300b0a0 32 2>/dev/null) || return 1
+	case "$_v" in 0x*) ;; *) return 1 ;; esac
+	case "${_v#0x}" in ''|*[!0-9a-fA-F]*) return 1 ;; esac
+	[ $(( ($_v >> 7) & 1 )) -eq 0 ]
+}
+
+before
+>&2 echo "Suspending..."
+suspend_mem
+
+# WOKE WITH THE LID STILL SHUT (RG35XX SP): a pocketed POWER press. Go straight back to sleep here, as NextUI
+# h700-rc11 does (bin/suspend:134-143, 52871a9) and Knulli (99-postresume-sp), instead of returning to the C
+# side, which lit the panel, reopened audio, autosaved the game and sat 2 minutes in faux sleep before the
+# next suspend (its post-wake lid check in platform.c stays as the fallback). ESCAPE HATCH, the C gate's
+# rule: POWER waking it 3 times within 10 s while the sensor reads shut turns the lid off until reboot
+# (/tmp/lid_off, which PLAT_pollInput honours on this wake), so a stuck sensor cannot keep the device asleep.
+# A refused re-suspend just returns: the C fallback handles it. Not device-tested.
+if [ "$rc" -eq 0 ]; then
+	_wakes=0; _since=$T1
+	while lid_shut; do
+		_now=$(date +%s)
+		if [ $((_now - _since)) -gt 10 ]; then _wakes=0; _since=$_now; fi
+		_wakes=$((_wakes + 1))
+		if [ "$_wakes" -ge 3 ]; then
+			>&2 echo "Lid reads shut but POWER woke it 3 times in 10 s: lid off until reboot."
+			rm -f /tmp/lid_armed 2>/dev/null || true
+			touch /tmp/lid_off 2>/dev/null || true
+			break
+		fi
+		>&2 echo "Woke with the lid shut, suspending again."
+		sleep 1
+		lid_shut || break # opened during that second
+		suspend_mem
+		if [ "$rc" -ne 0 ]; then rc=0; break; fi # refused: the first suspend did happen, so report that
+	done
+fi
+
+# Re-init the codec (unmute + output routing) from the boot baseline, SYNCHRONOUSLY, before this script
+# returns: PWR_exitSleep then reopens the PCM and its SetVolume(GetVolume()) re-applies the user's level, in
+# that order. Backgrounded (as it was), the restore could land after SetVolume and leave the codec at the
+# baseline's 24/63; NextUI h700-rc11 found a concurrent restore also blocks the PCM reopen ~10 s on its
+# kernel (bin/suspend:47-50, 49fd0c1). Costs one alsactl run of wake latency. Runs on a failed suspend too.
+alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null || true
+
+# Resume the radios in the background to cut UI latency, ALWAYS, even on a failed suspend.
 ( after & )
 exit "$rc"
