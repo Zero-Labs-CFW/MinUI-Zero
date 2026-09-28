@@ -53,6 +53,13 @@ give_up() { say "$1"; touch "$FAILED_MARK" 2>/dev/null; sync; exit 0; }
 for t in parted mkfs.vfat partx fdisk du df find cp; do
 	command -v "$t" >/dev/null 2>&1 || { say "missing tool: $t. Skipping."; exit 0; }
 done
+# PROVE $DEV IS THE BOOT CARD before anything below touches it (no-brick audit 2026-09-28). mmcblk0 is only
+# a name, and these boards have a second slot (TF2): the running root filesystem must be mmcblk0p5, compared
+# by device number (mountinfo against sysfs, both from the kernel, so minor numbering cannot fool it). A disk
+# that is not the one we booted, or a check that cannot run, skips the expansion. Fail closed.
+ROOT_DEV=$(awk '$5 == "/" {d = $3} END {print d}' /proc/self/mountinfo 2>/dev/null)
+[ -n "$ROOT_DEV" ] && [ "$ROOT_DEV" = "$(cat /sys/block/mmcblk0/mmcblk0p5/dev 2>/dev/null)" ] || {
+	say "root filesystem is ${ROOT_DEV:-unreadable}, not mmcblk0p5: $DEV is not the boot card. Skipping."; exit 0; }
 [ -b "$PART" ] || { say "no $PART. Skipping."; exit 0; }
 grep -q " $MOUNT " /proc/mounts && { say "card already mounted: wrong hook point. Skipping."; exit 0; }
 
