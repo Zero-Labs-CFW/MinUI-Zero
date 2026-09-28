@@ -62,6 +62,15 @@ export SDL_AUDIODRIVER=alsa
 LOG="$LOGS_PATH/minui-zero.log"
 mkdir -p "$LOGS_PATH" 2>/dev/null
 : > "$LOG" 2>/dev/null
+# Hard cap: past 256KB keep the newest 1000 lines, so no source (a WiFi reconnect loop out of range all day,
+# a chatty menu session that never reboots) can grow it. Rewritten IN PLACE (cat >, not mv) so a writer
+# holding the log open, minui.elf or a background connect, keeps appending to the same file. Called before
+# each menu start and each WiFi retry, the two places it can grow.
+trim_log() {
+	[ "$(wc -c 2>/dev/null < "$LOG" || echo 0)" -gt 262144 ] || return 0
+	tail -n 1000 "$LOG" > "$LOG.tmp" 2>/dev/null && cat "$LOG.tmp" > "$LOG" && echo "(log trimmed to its newest 1000 lines)" >> "$LOG"
+	rm -f "$LOG.tmp"
+}
 echo "MinUI Zero frontend $(date 2>/dev/null)" >> "$LOG"
 
 # BOARD PINS the Plus kernel does not own (the SP and 40XX images run the RG35XX Plus kernel). Each line
@@ -227,6 +236,7 @@ WIFI_TXT=/mnt/mmc/wifi.txt
 			if ip -4 -o addr show wlan0 2>/dev/null | grep -q inet; then _down=0; continue; fi
 			_down=$((_down+1))
 			if [ $_down -ge 2 ]; then
+				trim_log
 				echo "wifi monitor: offline, re-running connect" >> "$LOG"
 				/opt/muos/script/system/network.sh connect >> "$LOG" 2>&1
 				_down=0
@@ -423,6 +433,7 @@ cd /tmp
 FAILS=0
 while : ; do
 	rm -f /tmp/next /tmp/poweroff
+	trim_log
 	"$SYSTEM_PATH/bin/minui.elf" >> "$LOG" 2>&1
 	RC=$?
 	# PLAT_powerOff (owned OS) drops /tmp/poweroff so the loop can tell a real poweroff request from
