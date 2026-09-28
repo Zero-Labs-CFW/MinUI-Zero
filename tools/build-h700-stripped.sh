@@ -86,19 +86,33 @@ else
 	# The Plus-dump boot0 is LPDDR4-trained; newer RG35XX Pro units are LPDDR3 and do not boot LPDDR4-only
 	# chains (knulli-cfw/distribution#479). The Pro ships muOS 2601.1's RG35XX-PRO boot0: same code as ours,
 	# LPDDR3 primary, checksum-valid (research 2026-09-25, .notes/2026-09-25-h700-boards/boot0-research.md).
+	# The RG40XX H/V ship that same Pro boot0 (H700 sweep 2026-09-28): Knulli's current 40XX boot0s, dumped from
+	# Anbernic units, are LPDDR3-primary too, same code build as ours, identical LPDDR3 set (only one unit's trained
+	# lane delays differ), so LPDDR3 40XX units exist. An LPDDR4 unit boots an LPDDR3-primary boot0 through the
+	# strap selector (Dan's H booted the Pro image, 2026-09-25); the reverse, the Plus LPDDR4 primary on an LPDDR3
+	# unit, was never proven. FAIL CLOSED for these three boards: a checkout without the file would otherwise ship
+	# the Plus LPDDR4 primary without a word.
+	NEED_LPDDR3=0
+	case "$DEVICE" in rg35xx-pro|rg40xx-h|rg40xx-v) NEED_LPDDR3=1 ;; esac
 	if [ -f "$ASSETS/parts-$DEVICE/boot0.img" ]; then
-		python3 - "$ASSETS/parts-$DEVICE/boot0.img" "$BUILT_RAW" <<'PYEOF' || exit 1
+		python3 - "$ASSETS/parts-$DEVICE/boot0.img" "$BUILT_RAW" "$NEED_LPDDR3" <<'PYEOF' || exit 1
 import struct, sys
 b = open(sys.argv[1], 'rb').read()
 ln = struct.unpack('<I', b[16:20])[0]
 assert b[4:12] == b'eGON.BT0' and len(b) == ln == 65536, 'boot0: bad magic/length'
 y = bytearray(b); y[12:16] = struct.pack('<I', 0x5F0A6C39)
 assert sum(struct.unpack('<%dI' % (ln // 4), bytes(y))) & 0xffffffff == struct.unpack('<I', b[12:16])[0], 'boot0: bad checksum'
+t = struct.unpack('<I', b[0x3c:0x40])[0]   # dram_para word 1 = DRAM type (7 LPDDR3, 8 LPDDR4)
+assert sys.argv[3] == '0' or t == 7, 'boot0: this board needs an LPDDR3-primary boot0 (dram type 7), got %d' % t
 with open(sys.argv[2], 'r+b') as f:
     for off in (8192, 262144):
         f.seek(off); f.write(b)
-print('  boot0: per-board override written at 8192 + 262144')
+print('  boot0: per-board override (dram type %d) written at 8192 + 262144' % t)
 PYEOF
+	elif [ "$NEED_LPDDR3" = 1 ]; then
+		echo "ERROR: $DEVICE needs an LPDDR3-primary boot0 at $ASSETS/parts-$DEVICE/boot0.img"
+		echo "       (copy parts-rg35xx-pro/boot0.img, the muOS 2601.1 RG35XX-PRO boot0; the fallback is the Plus LPDDR4 one)"
+		exit 1
 	fi
 	# FAIL CLOSED on the kernel: every board names its kernel explicitly in parts-<device>/, never via the
 	# silent part() fallback. RG35XX H and Pro: their OWN muOS kernel + ramdisk + boot_package, all from ONE
