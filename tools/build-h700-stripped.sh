@@ -383,6 +383,14 @@ sed -i "s|^\([[:space:]]*\)/opt/muos/script/device/lid.sh start &|\1true # muOS 
 grep -q "lid.sh start" "$DS" && { echo "ERROR: muOS lid.sh is still started by device/start.sh (anchor changed)"; exit 1; }
 grep -q "muOS lid.sh disabled" "$DS" || { echo "ERROR: lid.sh disable did not apply (device/start.sh anchor changed)"; exit 1; }
 echo "  muOS lid.sh disabled in device/start.sh"
+# HDMI AT BOOT (H700 sweep 2026-09-28). startup.sh records the HDMI hot-plug state as boot/device_mode, and
+# device/start.sh then runs muOS hdmi.sh when it is 1, which switches the display engine to HDMI (dispdbg switch1)
+# while our PLAT_initVideo switches it to the LCD: booting with a cable attached raced two output switches. HDMI is
+# not a feature of this image (GetHDMI is 0) and start.sh is the only launcher of hdmi.sh, so disable that one line.
+sed -i "s|^\([[:space:]]*\)/opt/muos/script/device/hdmi.sh\$|\1true # muOS HDMI boot switch disabled (MinUI drives the LCD)|" "$DS"
+grep -q "^[[:space:]]*/opt/muos/script/device/hdmi.sh" "$DS" && { echo "ERROR: muOS hdmi.sh is still started by device/start.sh (anchor changed)"; exit 1; }
+grep -q "muOS HDMI boot switch disabled" "$DS" || { echo "ERROR: hdmi.sh disable did not apply (device/start.sh anchor changed)"; exit 1; }
+echo "  muOS HDMI boot switch disabled in device/start.sh"
 
 # WIFI DRIVER ON DEMAND (2026-09-27). startup.sh runs device/module.sh load at EVERY boot (first_init=1 in
 # this rootfs), and its load step modprobes the WiFi driver (device network/name = 8821cs) whether or not
