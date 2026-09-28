@@ -57,7 +57,10 @@ esac
 # codec (plug -> hw:0,0). SDL must not go looking for a sound server that is not there.
 export SDL_AUDIODRIVER=alsa
 
-LOG=/mnt/mmc/minui-zero.log
+# Always on, one boot's worth (truncated here), hidden in the logs folder like tg5040's and the Miyoo's
+# minui.txt. It sat at the card root until 2026-09-28, where every user saw it next to Roms.
+LOG="$LOGS_PATH/minui-zero.log"
+mkdir -p "$LOGS_PATH" 2>/dev/null
 : > "$LOG" 2>/dev/null
 echo "MinUI Zero frontend $(date 2>/dev/null)" >> "$LOG"
 
@@ -305,8 +308,13 @@ WIFI_TXT=/mnt/mmc/wifi.txt
 ) &
 
 # The ROMS expander runs before the card is mounted, so its log lands on the rootfs where a
-# user cannot reach it. Copy it onto the card now that the card is mounted.
-[ -f /var/minui-zero-expand.log ] && cat /var/minui-zero-expand.log >> "$LOG" 2>/dev/null
+# user cannot reach it. Copy it onto the card now that the card is mounted. /var is persistent, so once
+# the card has expanded, copy it ONE time and set it aside, or every later boot repeats the first
+# boot's fdisk output. Until then (skipped, failed) it is copied every boot: that is the reason to read.
+if [ -f /var/minui-zero-expand.log ]; then
+	cat /var/minui-zero-expand.log >> "$LOG" 2>/dev/null
+	[ -f /opt/minui-zero/roms-expanded ] && mv -f /var/minui-zero-expand.log /var/minui-zero-expand.log.shown 2>/dev/null
+fi
 
 # BOOT-TIME READAHEAD. The FIRST game launch after a boot is the slow one: everything it touches
 # is cold on a ~10MB/s card. MEASURED 2026-08-10: the same game took 4348ms cold vs 707ms warm.
