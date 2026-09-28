@@ -64,10 +64,13 @@
 #define CODE_R2			42	// BACKSPACE
 // L3/R3 ARE mapped on the stick boards (not yet device-tested), but not through these: CODE_* are SDL
 // scancodes, read only by the shared SDL fallback PLAT_pollInput that platform.c replaces with raw evdev,
-// where L3/R3 arrive as 313/316 (ev_translate). No scancode is known for them, so they stay NA. Side
-// effect: minput hides its L3/R3 pills.
-#define CODE_L3			CODE_NA
-#define CODE_R3			CODE_NA
+// where L3/R3 arrive as 313/316 (ev_translate). What still reads these is minput's presence check, so they
+// are the evdev code when a device node advertises it (h700_has_l3/r3, set by PLAT_initInput from
+// EVIOCGBIT: only the H, Pro and RG40XX trees declare keyL3/keyR3), else NA and minput hides the pills.
+// Same shape as NextUI h700-rc11 platform.h:74-75. Runtime values: never use them as case labels.
+extern int h700_has_l3, h700_has_r3;
+#define CODE_L3			(h700_has_l3 ? 313 : CODE_NA)
+#define CODE_R3			(h700_has_r3 ? 316 : CODE_NA)
 
 #define CODE_MENU		41	// ESC
 #define CODE_POWER		102

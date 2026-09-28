@@ -94,6 +94,23 @@ static void stick_axis_init(void) {
 	}
 }
 
+// Stick clicks present = some node advertises key 313 (L3) / 316 (R3) in EVIOCGBIT(EV_KEY). Feeds CODE_L3/R3
+// (platform.h), i.e. minput's L3/R3 pills; ev_translate maps the codes whatever these say.
+int h700_has_l3 = 0, h700_has_r3 = 0;
+static void stick_click_init(void) {
+	for (int i = 0; i < EVDEV_COUNT; i++) {
+		unsigned char keys[96]; // KEY_MAX 0x2ff + 1 bits
+		memset(keys, 0, sizeof(keys));
+		if (ev_fds[i] < 0 || ioctl(ev_fds[i], _IOC(_IOC_READ, 'E', 0x20 + 1, sizeof(keys)), keys) < 0) continue;
+		if (keys[313 / 8] & (1 << (313 % 8))) h700_has_l3 = 1;
+		if (keys[316 / 8] & (1 << (316 % 8))) h700_has_r3 = 1;
+	}
+	if (h700_has_l3 || h700_has_r3) LOG_info("input: stick clicks L3=%d R3=%d\n", h700_has_l3, h700_has_r3);
+}
+
+#define POWER_GRACE_MARK "/tmp/zero_power_grace" // the first input process of this boot has started
+static int power_grace = 0; // this process is that first one: its first 3 s ignore POWER (PLAT_pollInput)
+
 static SDL_Joystick *joystick;
 void PLAT_initInput(void) {
 	// SDL's joystick subsystem is NOT our input source: PLAT_pollInput below reads the evdev nodes
@@ -116,6 +133,11 @@ void PLAT_initInput(void) {
 		LOG_info("evdev: %s -> fd %d\n", ev_paths[i], ev_fds[i]);
 	}
 	stick_axis_init();
+	stick_click_init();
+	// POWER boot grace is for the FIRST input process of a boot only (see PLAT_pollInput). /tmp is tmpfs, so
+	// the marker is gone at the next boot; minarch counts as first when boot-to-game starts it.
+	power_grace = !exists(POWER_GRACE_MARK);
+	if (power_grace) touch(POWER_GRACE_MARK);
 }
 void PLAT_quitInput(void) {
 	for (int i = 0; i < EVDEV_COUNT; i++) if (ev_fds[i] >= 0) close(ev_fds[i]);
@@ -212,6 +234,8 @@ static void ev_stick(uint16_t code, int32_t value, uint32_t tick) {
 }
 
 int PLAT_lidChanged(int* state); // defined with PLAT_initLid (RG35XX SP lid, below)
+#define LID_ARMED "/tmp/lid_armed" // some process this boot has read the lid OPEN (PLAT_initLid); bin/suspend reads it
+#define LID_OFF   "/tmp/lid_off"   // the lid was turned off for this boot (lid_off, or bin/suspend); /tmp, so a reboot clears both
 static int lid_read(void);       // same place
 static void lid_off(const char* why); // same place
 static int lid_seen_open = 0;    // the sensor has read open in this process: arms the lid gates (SP lid section)
@@ -265,7 +289,10 @@ void PLAT_pollInput(void) {
 			// as a press+release pair — the manual-sleep gesture — so every image boot drew one
 			// frame and went straight to hybrid sleep ("flash then logo", flash tests 4-7; the
 			// menu was one wake-press away the whole time).
-			if (ev.code == 116 && tick < 3000) continue;
+			// Only the first input process of the boot has the window (power_grace, PLAT_initInput): SDL ticks
+			// restart in every process, so a menu reached by quitting a game (or a game just launched) used to
+			// drop a POWER tap for its first 3 s as well.
+			if (ev.code == 116 && power_grace && tick < 3000) continue;
 			int btn, id;
 			ev_translate(ev.code, &btn, &id);
 			if (btn == BTN_NONE) continue;
@@ -309,13 +336,16 @@ void PLAT_pollInput(void) {
 	int lid_open = 1;
 	if (lid.has_lid && PLAT_lidChanged(&lid_open) && !lid_open) PWR_requestSleep();
 	// WOKE WITH THE LID STILL SHUT. Deep sleep wakes on POWER alone and PWR_waitForWake returns straight from the
-	// suspend, so the gate in PLAT_shouldWake never sees that press. On the first poll after any sleep, read the
-	// sensor fresh (not throttled) and go back to sleep if it still reads closed, as Knulli does after every
-	// resume (refs/knulli/board/allwinner/h700/fsoverlay/etc/pm/sleep.d/99-postresume-sp:8-13). PLAT_initLid
-	// uses the same check for a process that STARTS with the lid shut.
+	// suspend, so the gate in PLAT_shouldWake never sees that press. bin/suspend now re-suspends a shut lid itself
+	// before returning (as Knulli's 99-postresume-sp and NextUI's suspend do), so this is the FALLBACK: on the
+	// first poll after any sleep, read the sensor fresh (not throttled) and go back to sleep if it still reads
+	// closed. PLAT_initLid uses the same check for a process that STARTS with the lid shut.
 	if (lid_slept) {
 		lid_slept = 0;
 		lid_power_ignored = 0; // awake again: the escape-hatch count is per sleep
+		// bin/suspend's escape hatch (POWER 3 times within 10 s with the lid reading shut) drops LID_OFF, which
+		// only PLAT_initLid reads, so honour it here or that wake would go straight back to sleep below.
+		if (lid.has_lid && exists(LID_OFF)) lid_off("turned off by bin/suspend (POWER pressed 3 times while the lid read shut)");
 		if (lid.has_lid && lid_seen_open) {
 			int now_open = lid_read();
 			if (now_open >= 0) lid.is_open = now_open;
@@ -1137,6 +1167,14 @@ void PLAT_powerOff(void) {
 	// poweroff re-launched the same game; audit 2026-08-07). As a GUEST inside muOS we must NOT
 	// power off the host, and there's no frontend loop watching — just exit and hand the console back.
 	if (zero_owns_os()) putInt("/tmp/poweroff", 1);
+	// Mute and go dark BEFORE the teardown, the tg5040 order (its PLAT_powerOff; NextUI h700-rc11 does the same).
+	// SND_quit's own mute is the weak no-op here, so the PCM closed at the user's level, and dropping the DE layer
+	// left the panel lit on whatever fb0 held through the frontend's save and sync. SetRawBrightness does not
+	// persist, so the next boot still restores the user's level. Owned OS only: a guest hands muOS its console back.
+	if (zero_owns_os()) {
+		SetRawVolume(MUTE_VOLUME_RAW);
+		PLAT_enableBacklight(0);
+	}
 	SND_quit();
 	VIB_quit();
 	PWR_quit();
@@ -1223,8 +1261,7 @@ void PLAT_setRumble(int strength) {
 #define LID_GPIO "/sys/class/gpio/gpio135/value"
 #define LID_LINE 135        // PE7, see above
 #define LID_CHIP "300b000"  // main PIO label, "300b000.pinctrl"
-#define LID_ARMED "/tmp/lid_armed" // some process this boot has read the lid OPEN (PLAT_initLid)
-#define LID_OFF   "/tmp/lid_off"   // the lid was turned off for this boot (lid_off); /tmp, so a reboot clears both
+// LID_ARMED / LID_OFF are defined with the forward declarations above PLAT_pollInput (it reads LID_OFF too).
 static int lid_fd = -1;     // chardev line handle; -1 = sysfs backend (or no lid)
 // lid_seen_open ARMS the POWER gate (PLAT_shouldWake) and the post-resume re-sleep (PLAT_pollInput) only once the
 // sensor has read OPEN in this boot. Both trust a "closed" reading enough to ignore POWER, so a pin that reads
