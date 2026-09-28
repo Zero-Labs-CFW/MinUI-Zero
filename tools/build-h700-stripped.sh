@@ -335,7 +335,8 @@ echo "  expand-roms hooked pre-mount in startup.sh"
 # CPU CEILING FROM THE FIRST LINE OF BOOT. startup.sh pins the "performance" governor while it boots, and the
 # SP/Pro/40XX device trees add 1608/1704 MHz steps past the Plus/H top of 1512, so a new board booted (and
 # sat in the menu) above verified stock until a game capped it. Knulli caps these boards at 1512000 too
-# (S02overclock). The frontend repeats it after switching to schedutil (audit 2026-09-25).
+# (knulli-overclock, h700 default 1512000, applied at boot by init.d S19cpufreq). The frontend repeats it
+# after switching to schedutil (audit 2026-09-25).
 sed -i "1a echo 1512000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null" "$SU"   # double quotes: this line runs inside the single-quoted docker bash -c block
 grep -q "scaling_max_freq" "$SU" || { echo "ERROR: CPU ceiling did not land in startup.sh"; exit 1; }
 echo "  CPU ceiling 1512 MHz set at the top of startup.sh"
@@ -350,6 +351,30 @@ sed -i "s|^HOTKEY start|true # hotkey daemon disabled (minui owns input)|" "$SU"
 #                   all (PLAT_pollInput reads evdev; the SDL joystick open was removed for 249ms).
 sed -i "s|^/opt/muos/script/system/catalogue.sh &|true # catalogue disabled (minui browses the filesystem)|" "$SU"
 sed -i "s|^/opt/muos/script/mux/sdl_map.sh &|true # sdl controller map disabled (evdev input, no SDL joystick)|" "$SU"
+
+# SP LID (2026-09-27). muOS device/start.sh starts device/lid.sh on the rg34xx-sp/rg35xx-sp boards. On the
+# Plus kernel there is no hallkey node, so it loops on a 5 s sleep for good (wakeups, no function); on a
+# kernel that has the node it would run muOS suspend.sh on lid close and race our own sleep (platform.c
+# owns the lid). start.sh is its only launcher (halt.sh only kills it), so disable that one line.
+DS="$R/opt/muos/script/device/start.sh"
+sed -i "s|^\([[:space:]]*\)/opt/muos/script/device/lid.sh start &|\1true # muOS lid.sh disabled (MinUI owns the lid)|" "$DS"
+grep -q "lid.sh start" "$DS" && { echo "ERROR: muOS lid.sh is still started by device/start.sh (anchor changed)"; exit 1; }
+grep -q "muOS lid.sh disabled" "$DS" || { echo "ERROR: lid.sh disable did not apply (device/start.sh anchor changed)"; exit 1; }
+echo "  muOS lid.sh disabled in device/start.sh"
+
+# WIFI DRIVER ON DEMAND (2026-09-27). startup.sh runs device/module.sh load at EVERY boot (first_init=1 in
+# this rootfs), and its load step modprobes the WiFi driver (device network/name = 8821cs) whether or not
+# WiFi is wanted. Every path that turns WiFi on loads the driver itself: network.sh connect (the frontend
+# at boot, Settings WiFi On through wifi-up.sh, resume in bin/suspend) runs device/network.sh load whenever
+# the SDIO card mmc2:0001 is absent, and Device Sync radio_up runs that same loader when wlan0 is absent.
+# So drop only that one modprobe. mali_kbase and squashfs still load: third-party SDL apps (the Files tool)
+# open the GPU through libmali. Whether the boot load ever succeeded is unverified (an H without wifi.txt
+# showed no wlan0, 2026-09-23); either way WiFi-off boots now leave the driver out by construction.
+MS="$R/opt/muos/script/device/module.sh"
+sed -i "s|^\([[:space:]]*\)\[ \"\$HAS_NETWORK\" -eq 1 \] && modprobe -q \"\$NET_NAME\"\$|\1true # WiFi driver not loaded at boot (MinUI Zero: network.sh connect loads it on demand)|" "$MS"
+grep -q "modprobe -q \"\$NET_NAME\"\$" "$MS" && { echo "ERROR: module.sh still loads the WiFi driver at boot (anchor changed)"; exit 1; }
+grep -q "WiFi driver not loaded at boot" "$MS" || { echo "ERROR: WiFi boot-load removal did not apply (module.sh anchor changed)"; exit 1; }
+echo "  WiFi driver boot load dropped from module.sh (loads on demand)"
 
 # MUOS FOLDER TRIM (2026-09-15, r/trimui report). A stock muOS boot litters the card root with
 # folders MinUI never touches: MUOS/ (created by mount/bind.sh) plus ARCHIVE/ BACKUP/ ports/ (created
@@ -404,6 +429,15 @@ if [ "$MODE" = dev ]; then
 	cp /a/authorized_keys "$R/root/.ssh/authorized_keys" 2>/dev/null || true
 fi
 chmod 700 "$R/root/.ssh" 2>/dev/null || true
+# LOCK ROOT PASSWORD (2026-09-27). The donor rootfs ships root with the password "root" (its etc/shadow hash
+# equals openssl passwd -5 -salt ms9vwkUH root), and the frontend started dropbear WITHOUT -s until then, so
+# any card with an authorized_keys also accepted that password. dropbear now runs -s; this is the second
+# wall: "!" is not a crypt hash, so no password can ever match. Nothing here logs in with a password (no
+# getty in etc/inittab; openssh and sftpgo are stripped above), and key logins do not depend on the hash
+# (checked with our dropbearmulti v2022.83 and this exact hash: key login works, password refused).
+sed -i "s|^root:[^:]*:|root:!:|" "$R/etc/shadow"
+grep -q "^root:!:" "$R/etc/shadow" || { echo "ERROR: root password lock did not apply (no root line in etc/shadow?)"; exit 1; }
+echo "  root password locked (key-only ssh)"
 
 echo "  wiring ALSA-direct audio (pipewire removed)..."
 # Route the default ALSA PCM straight to the codec (plug = auto rate/format/channel convert),

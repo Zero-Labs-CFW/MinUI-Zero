@@ -16,6 +16,13 @@ export SHARED_USERDATA_PATH=/mnt/mmc/.userdata/shared
 export SAVES_PATH=/mnt/mmc/Saves
 export BIOS_PATH=/mnt/mmc/Bios
 export CORES_PATH=/mnt/mmc/.system/h700/cores
+# Same names and places as MinUI.pak/launch.sh and tg5040: ROMS_PATH for paks, DATETIME_PATH for the
+# clock save/restore below (ported from launch.sh, which images never run, 2026-09-27).
+export ROMS_PATH=/mnt/mmc/Roms
+export DATETIME_PATH=/mnt/mmc/.userdata/shared/datetime.txt
+# devmode flag: "devmode" or "devmode.txt" at the card root, like every other card-root flag (flagExists
+# in C does the same). Dev mode = stay-awake + the ssh keepers below.
+devmode() { [ -f "$SDCARD_PATH/devmode" ] || [ -f "$SDCARD_PATH/devmode.txt" ]; }
 # Pak-contract env the wider scene expects (NextUI PAKS.md; MinUI heritage). CHEATS_PATH is part of
 # every pak's boilerplate and DEVICE is minarch's sub-device discriminator (config.device_tag) —
 # neither was exported here, so third-party paks that use them got empty paths. Community paks are
@@ -23,17 +30,6 @@ export CORES_PATH=/mnt/mmc/.system/h700/cores
 export CHEATS_PATH=/mnt/mmc/Cheats
 # plus vs h (near-twins; muOS resolves the board for us). Consumed by paks and minarch alike.
 export DEVICE=$(sed 's/^rg35xx-//' /opt/muos/device/config/board/name 2>/dev/null || echo plus)
-# BOARD PINS the Plus kernel does not own (every board runs the RG35XX Plus kernel). Each line reproduces
-# what that board's OWN muOS kernel does at probe (disassembled, research 2026-09-25):
-#  RG40XX H/V: LED MCU power PE5 (gpio 133) + PI7 (263) driven LOW, so the RGB LEDs are dark, never lit and
-#   draining with no way to turn them off.
-#  RG35XX SP: WiFi enable PG18 (gpio 210) driven HIGH, as the Plus driver does at power-on; muOS's SP tree
-#   dropped the wlan_regon entry, so nothing else releases the chip from reset.
-_pin() { [ -e /sys/class/gpio/gpio$1 ] || echo $1 > /sys/class/gpio/export 2>/dev/null; echo $2 > /sys/class/gpio/gpio$1/direction 2>/dev/null; }
-case "$DEVICE" in
-	rg40xx-h|rg40xx-v) _pin 133 low; _pin 263 low ;;
-	sp)                _pin 210 high ;;
-esac
 export LD_LIBRARY_PATH=/mnt/mmc/.system/h700/lib:/usr/lib:/lib
 # Shipped helper binaries (confirm.elf, say.elf, minarch.elf, ...) on PATH, matching tg5040, tool
 # and emulator paks call them bare, so without this every community pak written against the normal
@@ -46,14 +42,16 @@ export SDL_VIDEODRIVER=dummy
 # DEVICE properties, not per-system ones, so they belong to the entry point rather than to each of
 # the 15 emu paks that used to repeat them verbatim (2026-08-26).
 # Panel refresh per board; minarch paces against the real rate, not 60. The Plus was MEASURED at 59.9777 Hz
-# (panelprobe 2026-08-04). The others are computed from the timings in the device tree each image boots
+# (panelprobe 2026-08-04). The SP and 40XX are computed from the timings in the device tree each image boots
 # (pixel clock / (htotal * vtotal)), not muOS's screen/refresh, which read 60.011 for the same Plus panel
-# (audit 2026-09-25). The board name comes from .system/h700/board, written by the image build.
+# (audit 2026-09-25). The Pro's old 59.935 came from the tree it shipped with before; the image now boots
+# the muOS 3f2fa25 Pro package, whose panel timings equal the Plus/H (lcd_dclk_freq 0x30, lcd_ht 0x586,
+# lcd_vt 0x236), so it takes the measured Plus/H value (2026-09-27). The board name comes from
+# .system/h700/board, written by the image build.
 case "$(cat /mnt/mmc/.system/h700/board 2>/dev/null)" in
-	pro)              export MINARCH_PANEL_FPS=59.935 ;;
 	sp)               export MINARCH_PANEL_FPS=60.004 ;;
 	rg40xx-h|rg40xx-v) export MINARCH_PANEL_FPS=59.981 ;;
-	*)                export MINARCH_PANEL_FPS=59.9777 ;;   # plus, h (same timings), and anything unknown
+	*)                export MINARCH_PANEL_FPS=59.9777 ;;   # plus, h, pro (same timings), and anything unknown
 esac
 # ALSA-direct: pipewire is stripped from the image, and asound.conf routes "default" straight to the
 # codec (plug -> hw:0,0). SDL must not go looking for a sound server that is not there.
@@ -62,6 +60,72 @@ export SDL_AUDIODRIVER=alsa
 LOG=/mnt/mmc/minui-zero.log
 : > "$LOG" 2>/dev/null
 echo "MinUI Zero frontend $(date 2>/dev/null)" >> "$LOG"
+
+# BOARD PINS the Plus kernel does not own (the SP and 40XX images run the RG35XX Plus kernel). Each line
+# reproduces what that board's OWN muOS kernel does at probe (disassembled, research 2026-09-25):
+#  RG40XX H/V: LED MCU power PE5 (gpio 133) + PI7 (263) driven LOW, so the RGB LEDs are dark, never lit and
+#   draining with no way to turn them off. 40XX only: on the RG35XX H the same two pins are USB power
+#   (allen_usb2_pwr_en / allen_usb2_vbus_en in its tree).
+#  RG35XX SP: WiFi enable PG18 (gpio 210) driven HIGH, as the Plus driver does at power-on; muOS's SP tree
+#   dropped the wlan_regon entry, so nothing else releases the chip from reset.
+# HOW. sysfs first, but these kernels are built without GPIO_SYSFS, so /sys/class/gpio does not exist and
+# that write was a silent no-op on every image (cross-reference 2026-09-27). Fallback: the PIO registers
+# through busybox devmem (/sbin/devmem in our rootfs; the kernel has DEVMEM=y, STRICT_DEVMEM off). A
+# register write is hardware state, so it outlives this script, where a gpiochip line handle is freed when
+# its fd closes. Layout: pio base 0x0300b000 (reg of /soc@03000000/pinctrl@0300b000 in all six board
+# trees), bank n at base + n*0x24, CFG register (pin/8)*4 holding a 4-bit field per pin (1 = output), DAT
+# at bank + 0x10 with one bit per pin (Linux pinctrl-sunxi.h BANK_MEM_SIZE 0x24 / DATA_REGS_OFFSET 0x10,
+# the layout its H616 driver uses). Only that field and that bit change, DAT before CFG so the pin comes up
+# at its level. FAIL SAFE: a sysfs that refuses the pin, no pio node at that base, no devmem, a pin a
+# peripheral owns (field not 0 input, 1 output or 7 off) or a readback mismatch leaves the pin as it was,
+# and the log line says which path ran. Known limit: each read and write is its own devmem run, not atomic
+# with the kernel's pinctrl lock, so a kernel change to ANOTHER pin of the same bank in the milliseconds
+# between them would be undone (boot only, once per pin; no userspace fix).
+# Not device-tested (no SP or 40XX on hand); whether the value survives deep sleep is also unverified.
+PIO_BASE=0x0300b000
+PIO_DT=/proc/device-tree/soc@03000000/pinctrl@0300b000
+_devmem() { if command -v devmem >/dev/null 2>&1; then devmem "$@"; else busybox devmem "$@"; fi; }
+_pin() { # <gpio> <low|high>
+	if [ -e /sys/class/gpio/export ]; then
+		[ -e /sys/class/gpio/gpio$1 ] || echo $1 2>/dev/null > /sys/class/gpio/export   # 2> first: a failed > still prints
+		echo $2 2>/dev/null > /sys/class/gpio/gpio$1/direction && { echo "pin $1 $2: sysfs" >> "$LOG"; return 0; }
+		# a kernel WITH gpio sysfs that refuses the pin has a driver owning it: never override that via devmem
+		echo "pin $1 $2: NOT driven (sysfs refused it)" >> "$LOG"; return 1
+	fi
+	grep -q sun50iw9p1-pinctrl "$PIO_DT/compatible" 2>/dev/null || { echo "pin $1 $2: NOT driven (no pio at $PIO_BASE)" >> "$LOG"; return 1; }
+	_pb=$(( PIO_BASE + ($1 / 32) * 0x24 )); _pn=$(( $1 % 32 )); _pw=0; [ "$2" = high ] && _pw=1
+	_pcfg=$(( _pb + (_pn / 8) * 4 )); _psh=$(( (_pn % 8) * 4 )); _pdat=$(( _pb + 0x10 ))
+	# every devmem answer is format-checked BEFORE any arithmetic: a bad value in $(( )) aborts this shell
+	_pc=$(_devmem $_pcfg 32 2>/dev/null); _pd=$(_devmem $_pdat 32 2>/dev/null)
+	case "$_pc:$_pd" in 0x*:0x*) ;; *) echo "pin $1 $2: NOT driven (devmem unavailable)" >> "$LOG"; return 1 ;; esac
+	case $(( ($_pc >> _psh) & 15 )) in 0|1|7) ;; *) echo "pin $1 $2: NOT driven (owned by a peripheral, cfg $_pc)" >> "$LOG"; return 1 ;; esac
+	_devmem $_pdat 32 $(( ($_pd & ~(1 << _pn)) | (_pw << _pn) )) 2>/dev/null && \
+		_devmem $_pcfg 32 $(( ($_pc & ~(15 << _psh)) | (1 << _psh) )) 2>/dev/null
+	_pc=$(_devmem $_pcfg 32 2>/dev/null); _pd=$(_devmem $_pdat 32 2>/dev/null)
+	case "$_pc:$_pd" in 0x*:0x*) ;; *) _pc=0x0; _pd=0x0 ;; esac
+	if [ $(( ($_pc >> _psh) & 15 )) = 1 ] && [ $(( ($_pd >> _pn) & 1 )) = $_pw ]; then
+		echo "pin $1 $2: devmem (cfg $(printf 0x%08x $_pcfg) = $_pc, dat $(printf 0x%08x $_pdat) = $_pd)" >> "$LOG"
+	else
+		echo "pin $1 $2: devmem write NOT confirmed (cfg $_pc, dat $_pd)" >> "$LOG"; return 1
+	fi
+}
+case "$DEVICE" in
+	rg40xx-h|rg40xx-v) _pin 133 low; _pin 263 low ;;
+	sp)                _pin 210 high ;;
+esac
+
+# CLOCK. When the clock comes up before 2025 (no RTC time survived the power-off), restore the last time
+# the launch loop saved below, so saves and logs do not stamp 1970. A clock that held is left alone.
+if [ "$(date +%Y)" -lt 2025 ] && [ -f "$DATETIME_PATH" ]; then
+	date -s "$(cat "$DATETIME_PATH")" >/dev/null 2>&1 && echo "clock: restored $(date 2>/dev/null)" >> "$LOG"
+fi
+
+# CARD HYGIENE. macs and windows leave droppings on any card they mount (._* resource forks, .DS_Store,
+# Thumbs.db, desktop.ini). MinUI hides them, Device Sync ignores them, and this sweeps them each boot so they
+# do not accumulate; known junk names only, never a user file (parity with the Brick launcher, 2026-09-22).
+# The deep sweep waits 15 s and until no game runs, niced, so it never competes with the menu or a launch.
+rm -f "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._* 2>/dev/null
+( sleep 15; while pidof minarch.elf >/dev/null 2>&1; do sleep 30; done; nice -n 19 find "$ROMS_PATH" "$BIOS_PATH" "$SAVES_PATH" "$SDCARD_PATH/Collections" \( -name "._*" -o -name ".DS_Store" -o -name "Thumbs.db" -o -name "ehthumbs.db" -o -name "desktop.ini" \) -exec rm -f {} + 2>/dev/null ) &
 
 # NOTE: an "efficiency" kill of muOS idle daemons (lowpower/keepalive/muhotkey/activity) lived here
 # but was removed (2026-08-06). It was an UNMEASURED optimization — the thesis is "earn it by
@@ -102,6 +166,7 @@ echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/nu
 # per game on top). The SP/Pro/40XX trees list 1608/1704 MHz, past verified stock (audit 2026-09-25).
 echo 1512000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
 echo "governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)" >> "$LOG"
+echo "cpu ceiling: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null) of $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies 2>/dev/null)" >> "$LOG"
 
 # WiFi + SSH bring-up. Credentials are USER-SUPPLIED (never baked into the image): the MinUI
 # convention is a wifi.txt at the SD-card root, "SSID:password" per line, '#' comments. We use the
@@ -112,7 +177,8 @@ echo "governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/d
 # reliably on this chip. Hand-rolling it (our own wpa/dhcp/keepalive) is what broke it repeatedly, so
 # we stop and reference the fork: repopulate muOS's config from the user's wifi.txt and call
 # `network.sh connect`, which runs the whole proven bring-up — loads 8821cs off the SDIO controller
-# (device network.sh LOAD_NETWORK; a boot never loads it on its own), scans, builds the wpa config with
+# (device network.sh LOAD_NETWORK, whenever mmc2:0001 is absent; a boot never loads it on its own since
+# the image build dropped the modprobe from muOS module.sh load, 2026-09-27), scans, builds the wpa config with
 # wpa_passphrase (password.sh), DHCPs, validates, then starts keepalive.sh: muOS's own rtw_power_mgnt=0
 # idle-drop fix (credit johnnyonflame) plus a reconnect monitor. Verified the image's device config has
 # what the flow reads: board/name=rg35xx-plus (driver-load path), network/type=nl80211 (wpa starts),
@@ -160,15 +226,25 @@ WIFI_TXT=/mnt/mmc/wifi.txt
 	fi
   fi
   # SSH via dropbear (we ship dropbearmulti, ~250KB; muOS's 32MB openssh is stripped). Key-auth
-  # only, reading /root/.ssh/authorized_keys; the ed25519 host key lives on the card so the
-  # fingerprint stays stable across boots. Same pattern the Smart Pro uses (skeleton .../dev-net.sh).
+  # only, reading /root/.ssh/authorized_keys: every dropbear start below passes -s (no password
+  # logins), and the image build locks root's password as well. Before 2026-09-27 this said key-only
+  # while dropbear ran WITHOUT -s, so the donor rootfs password (root) logged in as soon as a user
+  # dropped a key on the card (9c2cb2dd fixed only MinUI.pak/launch.sh, which images never run).
+  # The ed25519 host key lives on the card so the fingerprint stays stable across boots. Same pattern
+  # the Smart Pro uses (skeleton .../dev-net.sh).
   # A release image ships NO key (the build only bakes one in dev mode), so ssh is opt-in the same
   # way wifi is: drop your public key at the card root as authorized_keys and it is installed here.
   # The card is the only writable surface a user has, the rootfs is not reachable without ssh, so
   # requiring them to edit /root/.ssh first would be a chicken-and-egg.
+  # The copy on the rootfs outlives the card file, so taking the key off the card takes it back out, or
+  # ssh (and the stay-awake below) could never be switched off from the card. Only a key this block
+  # installed goes (the .from-card marker): a dev image's baked-in key has no marker and is kept.
   mkdir -p /root/.ssh 2>/dev/null
   if [ -s "$SDCARD_PATH/authorized_keys" ]; then
-    cp "$SDCARD_PATH/authorized_keys" /root/.ssh/authorized_keys 2>/dev/null
+    cp "$SDCARD_PATH/authorized_keys" /root/.ssh/authorized_keys 2>/dev/null && touch /root/.ssh/.from-card 2>/dev/null
+  elif [ -f /root/.ssh/.from-card ]; then
+    rm -f /root/.ssh/authorized_keys /root/.ssh/.from-card 2>/dev/null
+    echo "ssh: authorized_keys is off the card, removed the copy installed from it" >> "$LOG"
   fi
   chmod 700 /root/.ssh 2>/dev/null; chmod 600 /root/.ssh/authorized_keys 2>/dev/null
   DBM="$SYSTEM_PATH/bin/dropbearmulti"
@@ -178,7 +254,15 @@ WIFI_TXT=/mnt/mmc/wifi.txt
   if [ -x "$DBM" ] && [ -s /root/.ssh/authorized_keys ] && ! pgrep dropbearmulti >/dev/null 2>&1; then
     mkdir -p "$USERDATA_PATH" 2>/dev/null
     [ -f "$DBKEY" ] || "$DBM" dropbearkey -t ed25519 -f "$DBKEY" 2>/dev/null
-    "$DBM" dropbear -r "$DBKEY" -p 22 2>/dev/null
+    "$DBM" dropbear -s -r "$DBKEY" -p 22 2>/dev/null   # -s: key-only, never a password
+    # STAY AWAKE while SSH is up (Dan 2026-09-08, ported from MinUI.pak/launch.sh 2026-09-27). Idle
+    # escalation would faux-sleep and then deep-sleep the device, and deep sleep tears wifi down, which
+    # killed every remote session. STAY_AWAKE_PATH is honored by PWR_preventAutosleep (shared api.c).
+    # Only reached when a key is present, i.e. the user opted into SSH; a release image ships no key.
+    # And only with wifi.txt: this image has no USB networking (muOS usb_function=0), so without WiFi
+    # nobody can reach SSH and staying awake would be pure drain. Dev cards need neither: devmode arms
+    # the same flag in C (api.c PWR_init).
+    [ -f "$WIFI_TXT" ] && touch /tmp/stay_awake 2>/dev/null
   fi
   # DEVMODE-ONLY ssh hardening (2026-08-10, after a night of dropped sessions). Two failure modes:
   #   1. The RTL8821CS dozes between muOS keepalive.sh's 60s pings, so the first packets of any new
@@ -187,8 +271,8 @@ WIFI_TXT=/mnt/mmc/wifi.txt
   #   2. dropbear wedges when rapid aborted connection attempts exhaust its half-open slots — port
   #      accepts but no session ever starts, and only a restart clears it. A 30s banner probe
   #      (an ssh server must greet with "SSH-") restarts dropbear after 2 consecutive silent probes.
-  # Gated on devmode.txt: this is dev-loop plumbing and idle-power weight; never in a release.
-  if [ -f "$SDCARD_PATH/devmode.txt" ] && [ -x "$DBM" ]; then
+  # Gated on devmode(.txt): this is dev-loop plumbing and idle-power weight; never in a release.
+  if devmode && [ -x "$DBM" ]; then
     ( while : ; do
         _gw=$(ip route 2>/dev/null | awk '/default/{print $3; exit}')
         ping -c1 -W2 "${_gw:-192.168.1.1}" >/dev/null 2>&1
@@ -206,12 +290,12 @@ WIFI_TXT=/mnt/mmc/wifi.txt
         if [ $_pf -ge 2 ]; then
           echo "devmode: dropbear unresponsive, restarting" >> "$LOG"
           killall dropbearmulti 2>/dev/null; sleep 1
-          "$DBM" dropbear -r "$DBKEY" -p 22 2>/dev/null
+          "$DBM" dropbear -s -r "$DBKEY" -p 22 2>/dev/null   # -s: key-only, same as the start above
           _pf=0
         fi
       done ) &
   fi
-  echo "wifi: $(ip -4 -o addr show wlan0 2>/dev/null | awk '{print $4}') ssh=$(pgrep dropbearmulti >/dev/null && echo up || echo down)" >> "$LOG"
+  echo "wifi: $(ip -4 -o addr show wlan0 2>/dev/null | awk '{print $4}') ssh=$(pgrep dropbearmulti >/dev/null && echo up || echo down) awake=$([ -f /tmp/stay_awake ] && echo y || echo n)" >> "$LOG"
 ) &
 
 # The ROMS expander runs before the card is mounted, so its log lands on the rootfs where a
@@ -258,13 +342,24 @@ mkdir -p "$LOGS_PATH" "$SAVES_PATH" "$SHARED_USERDATA_PATH/.minui" 2>/dev/null
 # free — never clobber a real /mnt/SDCARD on a device that has one. See docs/pak-compatibility.md.
 [ -d "$SDCARD_PATH" ] && [ ! -e /mnt/SDCARD ] && ln -s "$SDCARD_PATH" /mnt/SDCARD 2>/dev/null
 
+# Save the wall clock for the CLOCK restore at the top (ported from MinUI.pak/launch.sh, which saves it
+# after every game). Also saved at power-off here, the freshest point. Only a sane clock (2025 or later)
+# is saved, so a boot that could not restore never overwrites the last good time with 1970.
+save_clock() { [ "$(date +%Y)" -ge 2025 ] && date +'%F %T' > "$DATETIME_PATH" 2>/dev/null; }
+
 # power-off the muOS way (AXP register; plain poweroff reboots) — reused from halt.sh
 power_off() {
+	save_clock
 	sync
 	echo 0x1801 > /sys/class/axp/axp_reg 2>/dev/null
 	/opt/muos/script/system/halt.sh poweroff 2>/dev/null
 	poweroff -f
 }
+
+# Boot receipt, DEV CARDS ONLY (devmode): kernel seconds when the first launch starts, one ~40-byte line
+# per boot, the regression canary behind the README boot table (same line as MinUI.pak/launch.sh). Taken
+# before boot-to-game so a resumed game's play time never lands in it. Costs users nothing.
+devmode && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$LOGS_PATH/boot-time.txt"
 
 # BOOT STRAIGHT INTO THE GAME. MinUI already quicksaves on power-off and resumes on the next boot,
 # but the resume goes through the launcher: it starts, reads the marker, writes /tmp/next and exits,
@@ -296,6 +391,20 @@ if [ -f "$AUTO_RESUME" ]; then
 	fi
 fi
 
+# USER HOOK (MinUI contract, as MinUI.pak/launch.sh and tg5040): .userdata/h700/auto.sh runs once per
+# boot, before the launcher.
+AUTO_PATH="$USERDATA_PATH/auto.sh"
+[ -f "$AUTO_PATH" ] && "$AUTO_PATH"
+
+# Tools folded into Settings (Dan, 2026-09-16): Deep Sleep, Clock, Focus Mode and WiFi are rows of
+# Settings.pak now. Drop the old paks from cards that had them (same list as MinUI.pak/launch.sh). Deep
+# Sleep, Clock and Focus Mode are ours by name; the WiFi copy is marker-guarded because FAT32 folds case,
+# so "WiFi.pak" is also the community Wifi.pak, which we must never delete.
+for _p in "Deep Sleep.pak" "Clock.pak" "Focus Mode.pak" "WiFi Toggle.pak"; do
+	rm -rf "$SDCARD_PATH/Tools/h700/$_p" 2>/dev/null
+done
+grep -q 'styled like Deep Sleep.pak' "$SDCARD_PATH/Tools/h700/WiFi.pak/launch.sh" 2>/dev/null && rm -rf "$SDCARD_PATH/Tools/h700/WiFi.pak" 2>/dev/null
+
 cd /tmp
 FAILS=0
 while : ; do
@@ -314,6 +423,7 @@ while : ; do
 		sh -c "$CMD"
 		echo "game exited rc=$?" >> "$LOG"
 		apply_volume   # ...nor back into the menu if the game was killed while muted
+		save_clock; sync
 		[ -f /tmp/poweroff ] && { echo "poweroff requested (in-game)" >> "$LOG"; power_off; }
 	elif [ "$RC" = "0" ]; then
 		echo "clean exit — power off" >> "$LOG"

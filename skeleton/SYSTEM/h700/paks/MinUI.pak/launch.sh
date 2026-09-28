@@ -60,17 +60,6 @@ if [ -z "$DEVICE" ] && [ -f /opt/muos/device/config/board/name ]; then
 fi
 [ -n "$DEVICE" ] || DEVICE=plus
 export DEVICE
-# BOARD PINS the Plus kernel does not own (every board runs the RG35XX Plus kernel). Each line reproduces
-# what that board's OWN muOS kernel does at probe (disassembled, research 2026-09-25):
-#  RG40XX H/V: LED MCU power PE5 (gpio 133) + PI7 (263) driven LOW, so the RGB LEDs are dark, never lit and
-#   draining with no way to turn them off.
-#  RG35XX SP: WiFi enable PG18 (gpio 210) driven HIGH, as the Plus driver does at power-on; muOS's SP tree
-#   dropped the wlan_regon entry, so nothing else releases the chip from reset.
-_pin() { [ -e /sys/class/gpio/gpio$1 ] || echo $1 > /sys/class/gpio/export 2>/dev/null; echo $2 > /sys/class/gpio/gpio$1/direction 2>/dev/null; }
-case "$DEVICE" in
-	rg40xx-h|rg40xx-v) _pin 133 low; _pin 263 low ;;
-	sp)                _pin 210 high ;;
-esac
 
 export LD_LIBRARY_PATH="$SYSTEM_PATH/lib:/usr/lib:/lib:$LD_LIBRARY_PATH"
 export PATH="$SYSTEM_PATH/bin:$PATH"
@@ -79,12 +68,13 @@ export PATH="$SYSTEM_PATH/bin:$PATH"
 export SDL_VIDEODRIVER=dummy
 # DEVICE properties, so they live here rather than being repeated by all 15 emu paks (2026-08-26).
 # Panel refresh per board, same table as tools/h700-strip/minui-frontend.sh (keep them in sync): the Plus
-# MEASURED 59.9777 Hz (panelprobe 2026-08-04), the others from their device-tree timings (2026-09-25).
+# MEASURED 59.9777 Hz (panelprobe 2026-08-04), SP and 40XX from their device-tree timings (2026-09-25).
+# The Pro boots the muOS 3f2fa25 Pro package now, whose panel timings equal the Plus/H, so it takes
+# 59.9777 too (was 59.935 from its earlier tree, 2026-09-27).
 case "$DEVICE" in
-	pro)              export MINARCH_PANEL_FPS=59.935 ;;
 	sp)               export MINARCH_PANEL_FPS=60.004 ;;
 	rg40xx-h|rg40xx-v) export MINARCH_PANEL_FPS=59.981 ;;
-	*)                export MINARCH_PANEL_FPS=59.9777 ;;
+	*)                export MINARCH_PANEL_FPS=59.9777 ;;   # plus, h, pro (same timings)
 esac
 # ZERO_AUDIO_SERVO deliberately NOT exported here (tg5040 only for now): the occupancy servo
 # trims the resampler on top of this match and is unmeasured on the ALSA-direct audio path.
@@ -96,6 +86,48 @@ export SDL_AUDIODRIVER=alsa
 mkdir -p "$LOGS_PATH" "$SAVES_PATH" "$SHARED_USERDATA_PATH/.minui" "$USERDATA_PATH" 2>/dev/null
 LOG="$LOGS_PATH/launch.txt"
 : > "$LOG" 2>/dev/null
+
+# --- board pins the Plus kernel does not own -------------------------------------------------------
+# Same block as tools/h700-strip/minui-frontend.sh (keep them in sync; the full register citations live
+# there). Each line reproduces what that board's OWN muOS kernel does at probe (research 2026-09-25):
+#  RG40XX H/V: LED MCU power PE5 (gpio 133) + PI7 (263) driven LOW, so the RGB LEDs are dark. 40XX only:
+#   on the RG35XX H the same two pins are USB power.
+#  RG35XX SP: WiFi enable PG18 (gpio 210) driven HIGH; muOS's SP tree dropped the wlan_regon entry.
+# sysfs first; these kernels have no GPIO_SYSFS, so the fallback is busybox devmem on the PIO registers
+# (base 0x0300b000, bank n at +n*0x24, 4-bit CFG field per pin at (pin/8)*4, DAT at +0x10). It changes
+# one field and one bit, and on any doubt (a sysfs that refuses the pin, no pio node, no devmem, a pin a
+# peripheral owns, a readback mismatch) leaves the pin as it was and logs why. Not device-tested.
+PIO_BASE=0x0300b000
+PIO_DT=/proc/device-tree/soc@03000000/pinctrl@0300b000
+_devmem() { if command -v devmem >/dev/null 2>&1; then devmem "$@"; else busybox devmem "$@"; fi; }
+_pin() { # <gpio> <low|high>
+	if [ -e /sys/class/gpio/export ]; then
+		[ -e /sys/class/gpio/gpio$1 ] || echo $1 2>/dev/null > /sys/class/gpio/export   # 2> first: a failed > still prints
+		echo $2 2>/dev/null > /sys/class/gpio/gpio$1/direction && { echo "pin $1 $2: sysfs" >> "$LOG"; return 0; }
+		# a kernel WITH gpio sysfs that refuses the pin has a driver owning it: never override that via devmem
+		echo "pin $1 $2: NOT driven (sysfs refused it)" >> "$LOG"; return 1
+	fi
+	grep -q sun50iw9p1-pinctrl "$PIO_DT/compatible" 2>/dev/null || { echo "pin $1 $2: NOT driven (no pio at $PIO_BASE)" >> "$LOG"; return 1; }
+	_pb=$(( PIO_BASE + ($1 / 32) * 0x24 )); _pn=$(( $1 % 32 )); _pw=0; [ "$2" = high ] && _pw=1
+	_pcfg=$(( _pb + (_pn / 8) * 4 )); _psh=$(( (_pn % 8) * 4 )); _pdat=$(( _pb + 0x10 ))
+	# every devmem answer is format-checked BEFORE any arithmetic: a bad value in $(( )) aborts this shell
+	_pc=$(_devmem $_pcfg 32 2>/dev/null); _pd=$(_devmem $_pdat 32 2>/dev/null)
+	case "$_pc:$_pd" in 0x*:0x*) ;; *) echo "pin $1 $2: NOT driven (devmem unavailable)" >> "$LOG"; return 1 ;; esac
+	case $(( ($_pc >> _psh) & 15 )) in 0|1|7) ;; *) echo "pin $1 $2: NOT driven (owned by a peripheral, cfg $_pc)" >> "$LOG"; return 1 ;; esac
+	_devmem $_pdat 32 $(( ($_pd & ~(1 << _pn)) | (_pw << _pn) )) 2>/dev/null && \
+		_devmem $_pcfg 32 $(( ($_pc & ~(15 << _psh)) | (1 << _psh) )) 2>/dev/null
+	_pc=$(_devmem $_pcfg 32 2>/dev/null); _pd=$(_devmem $_pdat 32 2>/dev/null)
+	case "$_pc:$_pd" in 0x*:0x*) ;; *) _pc=0x0; _pd=0x0 ;; esac
+	if [ $(( ($_pc >> _psh) & 15 )) = 1 ] && [ $(( ($_pd >> _pn) & 1 )) = $_pw ]; then
+		echo "pin $1 $2: devmem (cfg $(printf 0x%08x $_pcfg) = $_pc, dat $(printf 0x%08x $_pdat) = $_pd)" >> "$LOG"
+	else
+		echo "pin $1 $2: devmem write NOT confirmed (cfg $_pc, dat $_pd)" >> "$LOG"; return 1
+	fi
+}
+case "$DEVICE" in
+	rg40xx-h|rg40xx-v) _pin 133 low; _pin 263 low ;;
+	sp)                _pin 210 high ;;
+esac
 
 # --- clock: the board has no battery-backed RTC, so a cold boot starts in 1970 ----------------
 if [ "$(date +%Y)" -lt 2025 ] && [ -f "$DATETIME_PATH" ]; then
