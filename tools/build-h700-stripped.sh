@@ -64,8 +64,16 @@ fi
 DEVICE="${H700_DEVICE:-rg35xx-plus}"
 DEVICE_DIR="$ASSETS/device-$DEVICE"
 RAW36="$ASSETS/parts/raw-36mb.img.gz"          # the Plus chain, our proven baseline
-BUILT_RAW=""                                    # set when we synthesize a chain for another board
-if [ "$DEVICE" != "rg35xx-plus" ]; then
+BUILT_RAW=""                                    # the chain bootchain.py patched for this board (every board has one)
+if [ "$DEVICE" = "rg35xx-plus" ]; then
+	# The Plus keeps the donor chain's own boot package ("-"), but still goes through bootchain.py so its device
+	# tree gets the same patches as every other board: the POWER-hold hardware cut (poll-interval is already 5 ms).
+	mkdir -p "$OUT_DIR"
+	gunzip -c "$RAW36" > "$OUT_DIR/base-raw36.img"
+	python3 "$REPO/tools/h700-image/bootchain.py" "$OUT_DIR/base-raw36.img" - "$OUT_DIR/raw36-$DEVICE.img" || exit 1
+	BUILT_RAW="$OUT_DIR/raw36-$DEVICE.img"
+	rm -f "$OUT_DIR/base-raw36.img"
+else
 	[ -d "$DEVICE_DIR" ] || { echo "ERROR: no device tree at $DEVICE_DIR, run: python3 tools/h700-image/fetch-device.py $DEVICE $DEVICE_DIR"; exit 1; }
 	echo "== target device: $DEVICE (building a boot chain from its muOS package) =="
 	mkdir -p "$OUT_DIR"
@@ -686,7 +694,10 @@ rm -f "$IMG"
 # toc1 checksum. That is the all-systems input-lag fix (buttons are kernel-POLLED on this BSP;
 # mainline uses interrupts). A re-dumped part from a stock card would silently regress to 20ms —
 # re-run the patch script against any fresh dump (offsets + verified algorithm inside it).
-if [ -n "$BUILT_RAW" ]; then cp "$BUILT_RAW" "$IMG"; else gunzip -c "$ASSETS/parts/raw-36mb.img.gz" > "$IMG"; fi
+# Every board's chain, the Plus included, comes from bootchain.py above (poll-interval and the POWER-hold
+# cut, 2026-09-28). No fallback to the unpatched part: a chain that skipped the patches must not ship.
+[ -n "$BUILT_RAW" ] && [ -f "$BUILT_RAW" ] || { echo "ERROR: no patched boot chain for $DEVICE (bootchain.py did not run)"; exit 1; }
+cp "$BUILT_RAW" "$IMG"
 # PER-DEVICE PARTS: parts-<device>/<file> overrides the shared part. Every board currently carries the
 # PLUS kernel as its p4 (see the fail-closed kernel note above for why, and what it costs).
 part() { if [ -f "$ASSETS/parts-$DEVICE/$1" ]; then echo "$ASSETS/parts-$DEVICE/$1"; else echo "$ASSETS/parts/$1"; fi; }

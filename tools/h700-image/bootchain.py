@@ -20,6 +20,18 @@ The old script hardcoded an absolute byte offset, which silently means "Plus onl
 device tree puts it elsewhere. This one PARSES the flattened device tree and finds every
 poll-interval property, so it is correct for any board, and it recomputes the Allwinner toc1
 additive checksum afterwards or the SoC refuses to boot.
+
+THE POWER-HOLD HARDWARE CUT TRAVELS WITH IT TOO (H700 sweep 2026-09-28)
+----------------------------------------------------------------------
+Every muOS H700 tree we ship sets pmu_powkey_off_en = 0, so once the kernel has probed the PMIC, holding
+POWER never cuts power in hardware: a hung kernel or a wedged resume could only be left to drain. Anbernic's
+own trees (as Knulli ships them) keep it on at 6 s, and muOS's TrimUI Brick tree (same AXP2202) at 10 s.
+The kernel's axp2101-pek driver writes off_en to the PMIC's PWROFF_EN (0x22 bit 1) and clamps off_time to
+4-10 s (same-SoC BSP source). We set it on, at 10 s: the longest the PMIC offers, so a user who keeps
+holding after the 1 s soft power-off (api.c) never cuts the quicksave and sync that follow it. Same
+4-byte cells, so the tree does not move; the toc1 checksum below covers it.
+
+The Plus keeps its own boot package: pass "-" as the package to patch the base chain in place.
 """
 import struct, sys, os
 
@@ -30,6 +42,7 @@ VALID_LEN = 1310720
 STAMP     = 0x5F0A6C39        # value the checksum field holds while summing
 ADD_SUM_OFF = 0x14            # toc1 layout: name[16] magic add_sum -> checksum at +20, not +12
 NEW_MS    = 5
+POWKEY    = {'pmu_powkey_off_en': 1, 'pmu_powkey_off_time': 10000}   # hardware POWER-hold cut on, 10 s
 FDT_MAGIC = b'\xd0\x0d\xfe\xed'
 
 FDT_BEGIN_NODE, FDT_END_NODE, FDT_PROP, FDT_NOP, FDT_END = 1, 2, 3, 4, 9
@@ -61,6 +74,13 @@ def find_fdt(buf):
 
 def find_poll_intervals(fdt):
     """Walk the FDT structure block; yield (value_offset_within_fdt, current_value, node_path)."""
+    for voff, _name, val, node in find_u32_props(fdt, ('poll-interval',)):
+        yield voff, val, node
+
+
+def find_u32_props(fdt, names):
+    """Walk the FDT structure block; yield (value_offset_within_fdt, name, current_value, node_path)
+    for every 4-byte property whose name is in `names`."""
     off_struct, off_strings = struct.unpack_from('>II', fdt, 8)
     depth, path = [], []
     p = off_struct
@@ -79,9 +99,9 @@ def find_poll_intervals(fdt):
             p += 8
             nend = fdt.index(b'\x00', off_strings + nameoff)
             name = fdt[off_strings + nameoff:nend].decode('ascii', 'replace')
-            if name == 'poll-interval' and length == 4:
+            if name in names and length == 4:
                 (val,) = struct.unpack_from('>I', fdt, p)
-                yield p, val, '/'.join(path)
+                yield p, name, val, '/'.join(path)
             p = (p + length + 3) & ~3
         elif tag in (FDT_NOP,):
             continue
@@ -114,14 +134,17 @@ def build(base_raw, package, out_raw):
     if len(raw) < PKG_OFF + PKG_LEN:
         sys.exit(f"ERROR: {base_raw} is only {len(raw)} bytes, too small to hold a boot package")
 
-    pkg = open(package, 'rb').read()
+    if package == '-':   # keep the base chain's own package (the Plus), patch it in place
+        pkg, package = bytes(raw[PKG_OFF:PKG_OFF + PKG_LEN]), 'the base chain (kept)'
+    else:
+        pkg = open(package, 'rb').read()
     if len(pkg) != PKG_LEN:
         sys.exit(f"ERROR: {package} is {len(pkg)} bytes, expected {PKG_LEN}")
     if pkg[:13] != b'sunxi-package':
         sys.exit(f"ERROR: {package} does not start with the sunxi-package magic")
 
     raw[PKG_OFF:PKG_OFF + PKG_LEN] = pkg
-    print(f"  substituted boot package from {os.path.basename(package)} at {PKG_OFF}")
+    print(f"  boot package from {os.path.basename(package)} at {PKG_OFF}")
 
     found = find_fdt(raw[PKG_OFF:PKG_OFF + PKG_LEN])
     if not found:
@@ -143,6 +166,19 @@ def build(base_raw, package, out_raw):
         print(f"  {node}/poll-interval {val}ms -> {NEW_MS}ms  (at {abs_fdt + voff})")
         patched += 1
 
+    # POWER-hold cut: both properties on ONE power-key node, or refuse. Never guess at a PMIC setting.
+    keys = list(find_u32_props(fdt, tuple(POWKEY)))
+    if sorted(name for _v, name, _val, _node in keys) != sorted(POWKEY) or len({node for *_x, node in keys}) != 1:
+        sys.exit(f"ERROR: expected one power-key node carrying {' and '.join(POWKEY)}, found "
+                 f"{[(name, val, node) for _v, name, val, node in keys]}; refusing to guess")
+    for voff, name, val, node in keys:
+        if val == POWKEY[name]:
+            print(f"  {node}/{name} already {val}, left alone")
+            continue
+        struct.pack_into('>I', raw, abs_fdt + voff, POWKEY[name])
+        print(f"  {node}/{name} {val:#x} -> {POWKEY[name]:#x}  (at {abs_fdt + voff})")
+        patched += 1
+
     chk = toc1_fix(raw)
     print(f"  toc1 checksum recomputed: 0x{chk:08X}  ({patched} propert{'y' if patched==1 else 'ies'} changed)")
 
@@ -152,5 +188,5 @@ def build(base_raw, package, out_raw):
 
 if __name__ == '__main__':
     if len(sys.argv) != 4:
-        sys.exit(f"usage: {sys.argv[0]} <base-raw-36mb.img> <boot_package.fex> <out-raw-36mb.img>")
+        sys.exit(f"usage: {sys.argv[0]} <base-raw-36mb.img> <boot_package.fex | -> <out-raw-36mb.img>")
     build(*sys.argv[1:])
