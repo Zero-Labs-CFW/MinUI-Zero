@@ -576,7 +576,11 @@ static int Game_findM3U(const char* path, char* out, size_t out_size) {
 	const char* dirname = strrchr(dir, '/');
 	dirname = dirname ? dirname + 1 : dir;
 	int n = snprintf(out, out_size, "%s/%s.m3u", dir, dirname);
-	return n > 0 && (size_t)n < out_size && exists(out);
+	if (n > 0 && (size_t)n < out_size && exists(out)) return 1;
+	out[0] = '\0'; // no playlist: a caller that keeps `out` (game.m3u_path) must not see the guessed path. It gave every
+	                // single-disc game in a folder one shared favorites key, "<folder>/<folder>.m3u", which never exists,
+	                // so the Favorites row never appeared and the whole folder read FAVORITED (r/trimui, 2026-09-28)
+	return 0;
 }
 static void Game_getIdentity(const char* path, char* out, size_t out_size) {
 	const char* name = strrchr(path, '/');
