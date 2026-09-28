@@ -17,8 +17,20 @@
 // in /sys/kernel/debug/dispdbg/info, so brightness is READABLE (a file still keeps the user's level
 // across boots, see BRIGHT_FILE: muOS rewrites the panel at every boot).
 #define DISPDBG "/sys/kernel/debug/dispdbg/"
-#define BRIGHT_RAW_MAX 255
-#define BRIGHT_RAW_MIN 8 // UI 0 stays faintly visible, never a black screen
+// UI 0-10 -> raw 0-255, a perceptual curve: the table upstream MinUI's rg35xxplus port shipped on this panel
+// family (workspace/_unmaintained/rg35xxplus/libmsettings/msettings.c) and NextUI h700-rc11 uses too
+// (msettings.c:604-621). Our muOS trees drive the backlight PWM exactly as the stock tree does (lcd_pwm_freq
+// 50000, lcd_pwm_pol 1, lcd_pwm_max_limit 255, lcd_bright_curve_en 0). The old linear UI*255/10 spent the
+// whole bottom of the range at raw 25/51/76, so the dim levels that save the most power were out of reach.
+static const int bright_raw[11] = { 4, 6, 10, 16, 32, 48, 64, 96, 128, 192, 255 };
+static int bright_nearest(int raw, int lo) { // the UI level (lo..10) whose raw value is closest to raw
+	int best = lo;
+	for (int i = lo; i <= 10; i++) {
+		int d = bright_raw[i] - raw, bd = bright_raw[best] - raw;
+		if ((d < 0 ? -d : d) < (bd < 0 ? -bd : bd)) best = i;
+	}
+	return best;
+}
 
 static void putStr(const char* path, const char* s) {
 	FILE* file = fopen(path, "w");
@@ -97,11 +109,15 @@ static int vol_restore(void) { // -1 = no saved value
 // Persisted UI brightness, same idea as the volume file. The panel IS readable (GetBrightness), but it is
 // not the user's value after a boot: muOS device/start.sh runs bright.sh at every boot, which writes its
 // OWN saved level (config settings/general/brightness, 88 raw in this image) to disp0, so whatever the
-// user chose comes back as raw 88 (UI 3) after every reboot (read from the muOS scripts in the image,
+// user chose comes back as raw 88 (UI 7) after every reboot (read from the muOS scripts in the image,
 // not yet seen on a device; cross-reference 2026-09-27). SetBrightness
 // records the UI level here and InitSettings puts it back, so the user's value wins. No file (first boot,
 // or a card from before this) = the panel is left exactly as muOS set it, as before.
-#define BRIGHT_FILE "/mnt/mmc/.userdata/h700/brightness"
+// A NEW file for the curve: the old one ("brightness", linear UI*255/10, from b8971c06, in the 1049ef0e beta)
+// is read once and mapped to the nearest curve level, so a card that has it does not jump from raw 76 (old
+// UI 3) to raw 16 (new UI 3). The old file is left alone, for a downgrade.
+#define BRIGHT_FILE    "/mnt/mmc/.userdata/h700/brightness2"
+#define BRIGHT_FILE_V1 "/mnt/mmc/.userdata/h700/brightness"
 static int cur_bright = -1; // 0-10 UI as last written by this process; -1 = not yet
 static void bright_persist(int ui) {
 	FILE* f = fopen(BRIGHT_FILE, "w");
@@ -109,13 +125,22 @@ static void bright_persist(int ui) {
 	fprintf(f, "%d\n", ui);
 	fclose(f);
 }
-static int bright_restore(void) { // -1 = no saved value
-	FILE* f = fopen(BRIGHT_FILE, "r");
+static int bright_read(const char* path) { // -1 = no saved value
+	FILE* f = fopen(path, "r");
 	if (!f) return -1;
 	int ui = -1;
 	if (fscanf(f, "%d", &ui) != 1) ui = -1;
 	fclose(f);
 	if (ui < 1 || ui > 10) return -1; // 0 is never saved (SetBrightness), so never restored either
+	return ui;
+}
+static int bright_restore(void) { // -1 = no saved value
+	int ui = bright_read(BRIGHT_FILE);
+	if (ui >= 0) return ui;
+	int old = bright_read(BRIGHT_FILE_V1);
+	if (old < 0) return -1;
+	ui = bright_nearest(old * 255 / 10, 1); // the old raw; never level 0, which is never restored
+	bright_persist(ui);
 	return ui;
 }
 
@@ -158,8 +183,7 @@ int GetBrightness(void) { // 0-10 UI
 		fclose(f);
 	}
 	if (raw < 0) return 5;
-	int ui = (raw * 10 + BRIGHT_RAW_MAX / 2) / BRIGHT_RAW_MAX;
-	return ui > 10 ? 10 : ui;
+	return bright_nearest(raw, 0);
 }
 int GetVolume(void) { return cur_vol; }
 
@@ -184,8 +208,7 @@ void SetRawVolume(int value) { // 0-100 (SetVolume passes UI*5); MUTE_VOLUME_RAW
 void SetBrightness(int value) { // 0-10 UI
 	if (value < 0) value = 0;
 	if (value > 10) value = 10;
-	int raw = value ? value * BRIGHT_RAW_MAX / 10 : BRIGHT_RAW_MIN;
-	SetRawBrightness(raw);
+	SetRawBrightness(bright_raw[value]);
 	// Persist only on a real change (a held MENU+volume ramp calls this repeatedly). Backlight-off paths
 	// use SetRawBrightness and never reach here, so a sleep never saves a dark level. Level 0 is never
 	// saved either: it is also the charging screen's dim (minui.c ChargingScreen), restored only on a clean
