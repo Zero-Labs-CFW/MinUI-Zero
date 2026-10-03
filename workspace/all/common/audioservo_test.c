@@ -13,18 +13,20 @@ int main(void) {
 	CHECK(audioservo_target_ppm(AUDIOSERVO_SETPOINT + 5) > 0, "above setpoint must be positive");
 
 	// gentleness near the setpoint: 5 points off = 160ppm, 10 points = 1280ppm
-	CHECK(audioservo_target_ppm(70) == -160, "70%% -> %d (want -160)", audioservo_target_ppm(70));
-	CHECK(audioservo_target_ppm(80) ==  160, "80%% -> %d (want +160)", audioservo_target_ppm(80));
-	CHECK(audioservo_target_ppm(65) == -1280, "65%% -> %d (want -1280)", audioservo_target_ppm(65));
-	CHECK(audioservo_target_ppm(85) ==  1280, "85%% -> %d (want +1280)", audioservo_target_ppm(85));
-	for (int occ = 70; occ <= 80; occ++)
+	const int SP = AUDIOSERVO_SETPOINT, B = AUDIOSERVO_BAND;
+	CHECK(audioservo_target_ppm(SP-5) == -160, "SP-5 -> %d (want -160)", audioservo_target_ppm(SP-5));
+	CHECK(audioservo_target_ppm(SP+5) ==  160, "SP+5 -> %d (want +160)", audioservo_target_ppm(SP+5));
+	CHECK(audioservo_target_ppm(SP-10) == -1280, "SP-10 -> %d (want -1280)", audioservo_target_ppm(SP-10));
+	CHECK(audioservo_target_ppm(SP+10) ==  1280, "SP+10 -> %d (want +1280)", audioservo_target_ppm(SP+10));
+	for (int occ = SP-5; occ <= SP+5; occ++)
 		CHECK(abs(audioservo_target_ppm(occ)) <= 160, "occ %d inside +-5 must stay <= 160ppm", occ);
 
 	// rails: exactly the rail at the band edges, clamped (not beyond) outside them
-	CHECK(audioservo_target_ppm(50)  == -AUDIOSERVO_RAIL_PPM, "50%% must be -rail");
-	CHECK(audioservo_target_ppm(100) ==  AUDIOSERVO_RAIL_PPM, "100%% must be +rail");
+	CHECK(audioservo_target_ppm(SP-B) == -AUDIOSERVO_RAIL_PPM, "SP-BAND must be -rail");
+	CHECK(audioservo_target_ppm(SP+B) ==  AUDIOSERVO_RAIL_PPM, "SP+BAND must be +rail");
+	CHECK(audioservo_target_ppm(100) ==  AUDIOSERVO_RAIL_PPM, "100%% must clamp to +rail");
 	CHECK(audioservo_target_ppm(0)   == -AUDIOSERVO_RAIL_PPM, "0%% must clamp to -rail");
-	CHECK(audioservo_target_ppm(20)  == -AUDIOSERVO_RAIL_PPM, "20%% (drained ring tonight) must be -rail");
+	CHECK(audioservo_target_ppm(SP-B-5) == -AUDIOSERVO_RAIL_PPM, "a drained ring must be -rail");
 	for (int occ = 0; occ <= 100; occ++)
 		CHECK(abs(audioservo_target_ppm(occ)) <= AUDIOSERVO_RAIL_PPM, "occ %d exceeds the rail", occ);
 

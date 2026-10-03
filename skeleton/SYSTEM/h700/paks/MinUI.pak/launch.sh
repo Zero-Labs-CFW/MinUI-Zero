@@ -76,9 +76,10 @@ case "$DEVICE" in
 	rg40xx-h|rg40xx-v) export MINARCH_PANEL_FPS=59.981 ;;
 	*)                export MINARCH_PANEL_FPS=59.9777 ;;   # plus, h, pro (same timings)
 esac
-# ZERO_AUDIO_SERVO deliberately NOT exported here (tg5040 only for now): the occupancy servo
-# trims the resampler on top of this match and is unmeasured on the ALSA-direct audio path.
-# Ear-check on this device before arming (earned divergence, 2026-09-02).
+# Occupancy servo (DRC on ring fill, as RetroArch/NextUI do): required on every platform since the
+# ring was resized and the loop became video-clocked (2026-10-03). Without it a few ppm of
+# match error walks the ring to empty (underruns) or full (blocking = lag). =0 kills it for an A/B.
+export ZERO_AUDIO_SERVO=1
 # ALSA-direct: pipewire is stripped, and asound.conf routes "default" straight to the codec
 # (plug -> hw:0,0). SDL must not go looking for a sound server that is not there.
 export SDL_AUDIODRIVER=alsa

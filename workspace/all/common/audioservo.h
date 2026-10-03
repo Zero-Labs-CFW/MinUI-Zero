@@ -3,7 +3,7 @@
 // minarch.c; nothing here touches the resampler or knows about threads.
 //
 // Cubic on occupancy error: nearly silent within a few points of the setpoint (5 points off is
-// 160ppm), the full rail at the band edges (50% and 100%). Borrowed in shape from NextUI's
+// 160ppm), the full rail at the band edges (setpoint +-BAND). Borrowed in shape from NextUI's
 // buffer-fill term (their rail is ~4.3%; RetroArch caps timing skew at 5%); ours stops at 2%,
 // ~35 cents of pitch for a second or two after a drain, because Zero's answer to a sustained
 // slowdown is the clock or the stall, never detuned music. The applied trim is smoothed with a
@@ -15,10 +15,10 @@
 #ifndef AUDIOSERVO_H
 #define AUDIOSERVO_H
 
-#define AUDIOSERVO_SETPOINT 75    // % ring occupancy to hold: 150ms of a 200ms ring survives two
-                                  // back-to-back present stalls; 50ms (3 batches) of headroom keeps
-                                  // jitter off the full rail (underrun is audible, overfill only
-                                  // audio-paces for a beat)
+#define AUDIOSERVO_SETPOINT 50    // % ring occupancy to hold: the midpoint, as NextUI does = ~67ms of the
+                                  // 8-frame ring (RetroArch's 64ms class), with equal room for present
+                                  // bursts above and stalls below (75% of a 5-frame ring left 21ms above
+                                  // and the Brick hit full/empty every second, 2026-10-03)
 #define AUDIOSERVO_BAND     25    // points from the setpoint at which the trim reaches the rail
 #define AUDIOSERVO_RAIL_PPM 20000 // 2% pitch at the rails
 #define AUDIOSERVO_SMOOTH   4     // first-order filter, in ticks; at 2Hz ~2s time constant

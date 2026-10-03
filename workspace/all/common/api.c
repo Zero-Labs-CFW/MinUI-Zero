@@ -357,6 +357,7 @@ void GFX_flipGame(SDL_Surface* screen) {
 	// PS1-tuned 50% threshold in steady state. Never drop another system's frames.
 	if (!gfx_drop_enabled) {
 		GFX_flip(screen);
+		GFX_markFrameSlot();
 		return;
 	}
 	//
@@ -409,6 +410,50 @@ void GFX_flipGame(SDL_Surface* screen) {
 	int was_drop = gfx_drop_active;
 	GFX_flip(screen);
 	gfx_drop_active = was_drop; // GFX_flip clears it for UI presents; game path keeps hysteresis
+	GFX_markFrameSlot();
+}
+
+// Frame-slot pacer for skipped presents. A real present waits for vsync; a skipped one used to
+// return at once, so through every duplicate streak the core free-ran until SND_batchSamples
+// blocked on a FULL audio ring, and the ring (= audio lag) sat at capacity. RetroArch, NextUI and
+// MyMinUI all keep the loop on the video clock and let audio follow; this puts a skipped frame on
+// that clock too: it sleeps until the slot its present would have taken (last slot + period).
+// Every real present re-anchors the slot (GFX_markFrameSlot), so timer error cannot accumulate
+// past one dup streak. Absolute CLOCK_MONOTONIC sleep, no spin (runs-cold thesis).
+static struct timespec gfx_slot; // last frame slot (valid while gfx_slot_valid)
+static int gfx_slot_valid = 0;
+void GFX_markFrameSlot(void) {
+	clock_gettime(CLOCK_MONOTONIC, &gfx_slot);
+	gfx_slot_valid = 1;
+}
+void GFX_paceSkippedFrame(uint32_t period_us) {
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	if (!gfx_slot_valid || period_us == 0 || period_us > 100000) { gfx_slot = now; gfx_slot_valid = 1; return; }
+	struct timespec deadline = gfx_slot;
+	deadline.tv_nsec += (long)period_us * 1000L;
+	while (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
+	int64_t late_us = ((int64_t)(now.tv_sec - deadline.tv_sec) * 1000000000LL + (now.tv_nsec - deadline.tv_nsec)) / 1000;
+	if (late_us < 0) {
+#if defined(TIMER_ABSTIME) && !defined(__APPLE__)
+		while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &deadline, NULL) == EINTR) {}
+#else
+		// macOS (the zero-hardware dev platform) has no clock_nanosleep/TIMER_ABSTIME: sleep the
+		// remaining monotonic interval, re-measured after any early wake, so the deadline holds
+		// without spinning
+		for (;;) {
+			struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
+			int64_t left_ns = (int64_t)(deadline.tv_sec - t.tv_sec) * 1000000000LL + (deadline.tv_nsec - t.tv_nsec);
+			if (left_ns <= 0) break;
+			struct timespec rq = { (time_t)(left_ns / 1000000000LL), (long)(left_ns % 1000000000LL) };
+			nanosleep(&rq, NULL);
+		}
+#endif
+		gfx_slot = deadline;
+	}
+	// late by less than a period: keep the schedule (the next slot absorbs it); later than that
+	// (a stall): re-anchor at now instead of bursting frames to catch up
+	else gfx_slot = (late_us < (int64_t)period_us) ? deadline : now;
 }
 uint32_t GFX_getFlipWaitUs(void) { return gfx_flip_wait_us; }
 static uint32_t gfx_pace_period_us = 0; // 0 = stock FRAME_BUDGET; set by DRC to the panel period
@@ -1283,7 +1328,7 @@ static struct SND_Context {
 	atomic_int paused;      // device closed for sleep: producers drop instead of waiting. Atomic:
 	                        // the entry guard reads it pre-lock and a future concurrent CORE
 	                        // producer must not race SND_pause/SND_resume (review r3)
-	int prefilling;         // DAC gated until the ring is ~70% full (from NextUI: starting
+	int prefilling;         // DAC gated until the ring is ~75% full (from NextUI: starting
 	                        // on an empty ring guarantees startup underruns — the choppy
 	                        // logo/demo audio on PS1, ear-found 2026-07-08)
 	SND_Frame* buffer;		// buf
@@ -1362,15 +1407,12 @@ static void SND_audioCallback(void* userdata, uint8_t* stream, int len) { // pla
 }
 static void SND_resizeBuffer(void) { // plat_sound_resize_buffer
 	size_t old_frame_count = snd.frame_count;
-	size_t new_frame_count = snd.buffer_seconds * snd.sample_rate_in / snd.frame_rate;
-	// The ring holds OUTPUT-rate frames, so input-rate sizing overshoots when the device
-	// opens below the core's rate: gpsp asks 65536, gets 48000, and its "12 frame-period"
-	// ring held 274ms. Audio-block pacing runs the ring near-full (GBA log 2026-09-11:
-	// occ 84-99%), so that overshoot was heard as A/V lag. Clamp down to the intended
-	// duration at the output rate; never grow (cores opened at or below their rate keep
-	// exactly the ring they had).
-	if (snd.sample_rate_out > 0 && snd.sample_rate_out < snd.sample_rate_in)
-		new_frame_count = snd.buffer_seconds * snd.sample_rate_out / snd.frame_rate;
+	// The ring holds OUTPUT-rate frames, so size it at the output rate. Input-rate sizing (the
+	// picoarch original) skewed real duration by the resample ratio: gpsp asks 65536 and plays at
+	// 48000, so its ring ran 37% long (274ms of lag at the old 12 frames); 32k cores on the 48k
+	// MMP/h700 devices ran 32% short.
+	int rate = snd.sample_rate_out > 0 ? snd.sample_rate_out : snd.sample_rate_in;
+	size_t new_frame_count = snd.buffer_seconds * rate / snd.frame_rate;
 	if (snd.ring_override_ms > 0 && snd.sample_rate_out > 0) {
 		// capacity requested in wall-clock ms: the ring holds output-rate frames
 		new_frame_count = (size_t)snd.ring_override_ms * snd.sample_rate_out / 1000;
@@ -1578,7 +1620,7 @@ void SND_setFastForward(int active, int audible) {
 	}
 
 	// Silent FF must pause instead of draining into underruns. Every FF exit discards
-	// stale compressed audio and uses the normal 70% prefill gate for a clean handoff.
+	// stale compressed audio and uses the normal 75% prefill gate for a clean handoff.
 	if ((active && !audible) || (!active && was_active)) SND_reprimeLocked();
 	SDL_UnlockAudio();
 	// Wake only after the complete mode/ring transaction is visible. A blocked producer
@@ -1625,10 +1667,14 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 	if (snd.prefilling) {
 		int queued = snd.frame_in - snd.frame_out;
 		if (queued < 0) queued += snd.frame_count;
-		if (queued >= snd.frame_count * 7 / 10) { // ~70% full: start the DAC — ABOVE the
+		if (queued >= snd.frame_count * 3 / 4) { // ~75% full: start the DAC — ABOVE the
 			// presentation-drop hysteresis band (engage <50, release 66), so playback never
 			// BEGINS inside catch-up. At the old 40% every PS launch started mid-band and
 			// the drop engaged on the first frames by construction (2026-08-31 receipts).
+			// 75% of the 8-frame ring = ~100ms of boot cushion (boot frames run ~53 fps for a
+			// second or two; 58ms crackled at launch on the h700, 2026-10-03); the servo trims
+			// it to its 50% setpoint within seconds. The full-ring wait below also starts the
+			// DAC, so no threshold can deadlock.
 			snd.prefilling = 0;
 			SDL_PauseAudio(0);
 		}
@@ -1651,6 +1697,11 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 		uint32_t wait_t0 = 0;
 		uint64_t wait_t0_us = 0;
 		while (!snd_ff_nonblock && snd.frame_in==snd.frame_filled) {
+			// A full ring while the DAC is still gated means the prefill is complete: start it
+			// here, or nothing ever drains and this wait never ends. The top-of-call gate alone
+			// deadlocked once one batch (~800 frames) outgrew the ring's last 5% (a 95% gate on a
+			// 5-frame ring froze every h700 launch, 2026-10-03).
+			if (snd.prefilling) { snd.prefilling = 0; SDL_PauseAudio(0); }
 			if (!wait_t0) { wait_t0 = SDL_GetTicks(); wait_t0_us = getMicroseconds(); atomic_fetch_add_explicit(&snd.overruns, 1, memory_order_relaxed); }
 			pthread_mutex_lock(&snd_space_mx);
 			unsigned g0 = snd_space_gen;
@@ -1784,15 +1835,25 @@ audio_open_ok:
 	// a silent no-op. Held muted until the ring has prefilled, then released in one step.
 	PLAT_muteAudio(1);
 
-	snd.buffer_seconds = 12; // ring CAPACITY (~200ms). Under audio-block pacing the ring
-	                         // runs near-full, so in practice capacity ~= latency. 5 frames (83ms)
-	                         // could not absorb pcsx load-stalls (BR2/THPS logo+demo audio
-	                         // chop at ANY clock, ear-found + counter-verified 2026-07-08)
-	{	// per-system capacity (MINARCH_SND_RING_MS, exported by the pak launch.sh like
-		// MINARCH_FMIN): audio-block pacing runs the ring near-full, so capacity IS the
-		// steady-state latency. Applied in SND_resizeBuffer against the DAC OUTPUT rate —
-		// the ring stores output-rate frames, so input-rate math would skew real latency
-		// by the resample ratio (Codex review finding 5).
+	snd.buffer_seconds = 8; // ring CAPACITY: 8 frame-periods (133ms) held at 50% by the occupancy servo
+	                        // (~67ms of lag) = NextUI's geometry (8 frames, DRC to the midpoint), in
+	                        // RetroArch's 64ms class. Equal room above the setpoint for present bursts
+	                        // and below it for stalls: 5 frames held at 75% left 21ms above, and the
+	                        // Brick's bursty GLES present hit full / drained empty every second (64-113
+	                        // underruns per 3 min, 2026-10-03). The old 12 frames sat FULL under
+	                        // audio-block pacing = ~200ms of lag on every system.
+	{	// per-system capacity, exported by the pak launch.sh like MINARCH_FMIN. Both apply in
+		// SND_resizeBuffer against the DAC OUTPUT rate (Codex review finding 5).
+		// MINARCH_SND_RING_FRAMES: capacity in frame-periods, so it scales with the core's rate the
+		// way the default does. PS uses it to keep its pre-2026-10-03 ring (pcsx load stalls exceed
+		// a short ring, BR2/THPS chop 2026-07-08, and presentation-drop is tuned to it) for 50 Hz
+		// discs too: a fixed-ms override cut PAL PS by 17% (Codex review 2026-10-03).
+		char* ring_frames = getenv("MINARCH_SND_RING_FRAMES");
+		if (ring_frames) {
+			int n = atoi(ring_frames);
+			if (n >= 4 && n <= 30) snd.buffer_seconds = n;
+		}
+		// MINARCH_SND_RING_MS: capacity in wall-clock ms (bench A/B override; wins over FRAMES).
 		char* ring_ms = getenv("MINARCH_SND_RING_MS");
 		if (ring_ms) {
 			int ms = atoi(ring_ms);
@@ -1805,7 +1866,7 @@ audio_open_ok:
 	SND_updateAdjustedRate();
 	SND_resizeBuffer();
 	
-	snd.prefilling = 1; // DAC starts when the ring reaches ~70% (see SND_batchSamples)
+	snd.prefilling = 1; // DAC starts when the ring reaches ~75% (see SND_batchSamples)
 
 	SNDMARK("open_done");
 	LOG_info("sample rate: %i (req) %i (rec) [samples %i]\n", snd.sample_rate_in, snd.sample_rate_out, SAMPLES);

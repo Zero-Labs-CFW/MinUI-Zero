@@ -149,8 +149,8 @@ elif [ "$TRIMUI_MODEL" = "Trimui Brick" ]; then
 fi
 # Audio ring occupancy servo: a +-0.5% trim on top of the static rate match that refills the
 # ring after a stall drains it (nothing else does). Only acts where a static match is live, so
-# the Smart Pro (unset above) is untouched. Miyoo and Anbernic do not export it until ear-checked
-# there (their launch.sh say why). ZERO_AUDIO_SERVO=0 kills it for an A/B.
+# the Smart Pro (unset above) is untouched: it stays on the audio-paced fallback, now at the 8-frame
+# ring. Miyoo and Anbernic export it too since 2026-10-03. ZERO_AUDIO_SERVO=0 kills it for an A/B.
 export ZERO_AUDIO_SERVO=1
 # Smart Pro stays UNSET on purpose: its fb0 reports 63.965 Hz but the SP scans the GLES layer,
 # not fb0, so that number is unverified for the actual panel. Measure vsync-derived before arming.

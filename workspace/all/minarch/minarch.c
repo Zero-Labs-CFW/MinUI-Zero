@@ -4086,8 +4086,9 @@ static void present_frame(const void *data, unsigned width, unsigned height, siz
 	// Duplicate detection + present-skip. Policy is the pure, tested dupskip.{h,c} unit
 	// (Codex P1#2); this site owns only the env gate and the 1Hz stats log (SDL/SND/LOG).
 	// A byte-identical frame changes nothing on screen — skip upload/submit/swap and let the
-	// CPU idle sooner. Pacing is owned by the audio ring, so skipping is legal only while
-	// audio is actually pacing (SND_isActive now proves that, not just init — Codex P1#1);
+	// CPU idle sooner. A skipped frame still waits for its slot on the video clock
+	// (GFX_paceSkippedFrame); the audio-active gate (SND_isActive, Codex P1#1) stays as the
+	// backstop pacer for the threaded paths, which do not take that wait;
 	// presentation-drop cores (PS) are excluded; geometry/settings-generation must be clean;
 	// and a forced present lands at least every 31 frames. Work telemetry is finalized on a
 	// skipped frame so governor batches never consume a stale sample.
@@ -4131,6 +4132,20 @@ static void present_frame(const void *data, unsigned width, unsigned height, siz
 			};
 			if (dupskip_should_skip(&g_dup, &dc)) {
 				GFX_finishFrameWork(); // close this frame's work sample for the governor batch
+				// Hold the frame's slot on the video clock (after the work sample closes, so
+				// the governor never counts the sleep as load). Serial loop only: the threaded
+				// paths have their own pacers. Without this the core free-ran through every dup
+				// streak into the audio ring's backpressure, pinning the ring (= the lag) full.
+				int serial = !thread_video;
+#ifdef ZERO_FRONTEND_THREADING_V2
+				serial = serial && !zero_ftv2_depth2;
+#endif
+				static int skip_pace = -1; // ZERO_NO_SKIP_PACE (presence-only) = old free-run, for A/B
+				if (skip_pace < 0) skip_pace = (getenv("ZERO_NO_SKIP_PACE") == NULL);
+				if (skip_pace && serial && !show_menu && !fast_forward && core.fps > 0) {
+					double fps = core.fps * (1.0 + zero_static_rate_ppm / 1000000.0);
+					GFX_paceSkippedFrame((uint32_t)(1000000.0 / fps));
+				}
 				return;
 			}
 			dup_force_present = 0;
@@ -7653,8 +7668,12 @@ static int zero_boot_timing = -1;
 		// occupancy around a setpoint restores the auto-refill the audio-paced loop had:
 		//   ppm = static + cubic(occupancy% - setpoint), smoothed   (audioservo.h, unit-tested)
 		// Silent within a few points of the setpoint (5 points = 160ppm), the full 2% rail at
-		// 50%/100%, ~2s time constant. 2% refills half a 200ms ring in ~5s: recovery after a
-		// stall, not stall rescue (a present stall storm is a present-path bug, fixed there).
+		// setpoint +-25 points (25%/75% around the 50% setpoint), ~2s time constant. 2% moves the
+		// 133ms ring by ~20ms per second: recovery after a stall, not stall rescue (a present
+		// stall storm is a present-path bug, fixed there). Since 2026-10-03 the servo is what
+		// sets the lag (~67ms): the loop is video-clocked, so it rarely blocks on a full ring.
+		// Not eligible without a static match (PAL cores, Smart Pro): those stay audio-paced
+		// at ring capacity (~133ms at 60 Hz, 160ms at 50 Hz) — a known follow-up.
 		// Serial path only: on the threaded/depth-2 paths CORE owns audio production and a
 		// MAIN-side ppm write chopped audio (ear-verified 2026-07-08) — the same exclusion as
 		// DRC. Scoped to an ACTIVE static match: an unmatched core keeps its audio-paced

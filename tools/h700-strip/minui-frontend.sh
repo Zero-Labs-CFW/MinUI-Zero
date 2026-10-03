@@ -56,6 +56,11 @@ esac
 # ALSA-direct: pipewire is stripped from the image, and asound.conf routes "default" straight to the
 # codec (plug -> hw:0,0). SDL must not go looking for a sound server that is not there.
 export SDL_AUDIODRIVER=alsa
+# Audio ring occupancy servo (rate control on ring fill, as RetroArch/NextUI do). Required since the ring
+# was resized and the loop became video-clocked (2026-10-03): without it a few ppm of match error
+# walks the ring to empty (underruns) or full (lag). This script, not paks/MinUI.pak, is what the image
+# runs, so the export must live here. =0 kills it for an A/B.
+export ZERO_AUDIO_SERVO=1
 
 # Always on, one boot's worth (truncated here), hidden in the logs folder like tg5040's and the Miyoo's
 # minui.txt. It sat at the card root until 2026-09-28, where every user saw it next to Roms.

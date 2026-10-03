@@ -23,6 +23,10 @@ cd "$HOME"
 # against a 59.94 target and BR2 60.25 against 60 at this bracket — PS1 RUNS AT FULL SPEED here.
 export MINARCH_FMIN=1000000
 export MINARCH_FMAX=1200000
+# Audio ring: PS keeps its pre-2026-10-03 capacity (184ms = 12 frames sized at 44.1k in, played at 48k). Every other system moved
+# to an 8-frame ring held at ~67ms; pcsx load stalls exceed that (BR2/THPS, 2026-07-08) and presentation-
+# drop's 50/66% hysteresis is tuned to this ring.
+export MINARCH_SND_RING_FRAMES=11  # in frame-periods so 50 Hz discs keep their old ring too (184ms at 60 Hz)
 
 # NO overclock — and read this before "fixing" PS1 performance here at all. The full story:
 #
