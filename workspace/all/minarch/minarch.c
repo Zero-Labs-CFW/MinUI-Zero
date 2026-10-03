@@ -7430,6 +7430,7 @@ static int zero_boot_timing = -1;
 								gov_state.fail_khz = 0;
 								gov_state.fail_hold = 0;
 								gov_state.fail_streak = 0;
+								gov_state.audible_khz = 0;
 								toggle_thread = 1;
 								ta_phase = 1;
 								LOG_info("auto-thread: trial ON (ceil %d)\n", ta_base_ceil);

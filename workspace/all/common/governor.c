@@ -26,6 +26,10 @@ void PLAT_setCPUVoltForCeil(int khz);
 #define GOV_FAIL_HOLD  120     // ticks (~60s) before re-probing a ceiling that slipped. Without this
                                // the loop limit-cycles at a boundary (600 slip -> 816 clean -> sink
                                // -> 600 slip -> ... = periodic slowdown bursts; Contra 2026-07-01)
+#define GOV_AUDIBLE_WINDOW 4   // ticks (~2s at 2 Hz) after our own sink within which a BIGSLIP is blamed on
+                               // that probe: two generation publications (trackFPS posts ~1/s). Wider
+                               // windows risk blaming an unrelated scene change and holding one OPP high
+                               // for the session (Codex review 2026-10-03).
 
 // CONFIRMED tg5040 2026-06-30: thermal_zone0 = cpu_thermal_zone (milli-C).
 #define GOV_T_SENSOR   "/sys/class/thermal/thermal_zone0/temp"
@@ -109,6 +113,7 @@ void gov_init(GovState* st, const GovProfile* p) {
 	st->fail_hold = 0;
 	st->fail_streak = 0;
 	st->presink_khz = 0;
+	st->audible_khz = 0;
 	st->since_sink = 255;
 }
 
@@ -154,6 +159,14 @@ int gov_step(GovState* st, const GovProfile* p, int temp_c, int frame_overrun) {
 			else st->fail_streak = 0;
 			if (st->ceil_khz > st->fail_khz) st->fail_khz = st->ceil_khz;
 			st->fail_hold = GOV_FAIL_HOLD << st->fail_streak;
+			// A deep deficit right after our own sink: that probe is proven audible, so it is never
+			// retried until a scene burst (the 60s->8m re-probe ladder was a dropout burst per retry
+			// on GBC, Brick + H 2026-10-02). Fixed-clock firmwares (NextUI's per-pak speeds) never
+			// take this risk at all; we take it once. Own field: later ordinary slips rewrite
+			// fail_hold and must not shorten this (Codex review 2026-10-03).
+			if (frame_overrun == GOV_SIGNAL_BIGSLIP && st->since_sink < GOV_AUDIBLE_WINDOW
+			    && st->ceil_khz > st->audible_khz)
+				st->audible_khz = st->ceil_khz;
 		}
 		st->slip_run++;
 		st->slack_run = 0;
@@ -182,7 +195,7 @@ int gov_step(GovState* st, const GovProfile* p, int temp_c, int frame_overrun) {
 		int cool_enough = (temp_c < 0) || (temp_c <= GOV_T_TARGET_C);
 		int next_khz = gov_opp_below(p, st->ceil_khz);
 		if (next_khz < p->f_min) next_khz = p->f_min;
-		int not_failed = (st->fail_hold == 0) || (next_khz > st->fail_khz);
+		int not_failed = ((st->fail_hold == 0) || (next_khz > st->fail_khz)) && next_khz > st->audible_khz;
 		if (st->slack_run >= GOV_DN_DWELL && cool_enough && not_failed && st->ceil_khz > p->f_min) {
 			st->presink_khz = st->ceil_khz; // remembered so a probe-caused slip undoes in one tick
 			st->since_sink = 0;             // (thermal sinks deliberately don't set these: temp wins)
@@ -259,6 +272,7 @@ void gov_burst(GovState* st, const GovProfile* p) {
 	st->fail_hold = 0;
 	st->fail_streak = 0;
 	st->presink_khz = 0;
+	st->audible_khz = 0;
 	st->since_sink = 255; // not a probe: a slip here must not "undo" to a stale ceiling
 	PLAT_setCPUMaxFreq(st->ceil_khz);
 }

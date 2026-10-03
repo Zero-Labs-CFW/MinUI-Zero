@@ -320,6 +320,35 @@ static void test_fail_hold_escalates(void) {
 	      "third failure should hold 480 ticks (hold=%d streak=%d)", st.fail_hold, st.fail_streak);
 }
 
+static void test_probe_bigslip_is_not_retried(void) {
+	printf("[audible] a BIGSLIP caused by our own sink is never re-probed until a scene burst\n");
+	const GovProfile* p = &GOV_P_16BIT;
+	GovState st; gov_init(&st, p);
+	int probe = gov_opp_above(p, p->f_min);
+	st.ceil_khz = probe; st.slack_run = GOV_DN_DWELL; st.fail_hold = 0;
+	gov_step(&st, p, 40, GOV_SIGNAL_SLACK);                 // sink one step
+	CHECK(st.ceil_khz < probe, "setup: expected a sink below %d, got %d", probe, st.ceil_khz);
+	int failed = st.ceil_khz;
+	gov_step(&st, p, 40, GOV_SIGNAL_BIGSLIP);               // the probe collapsed generation
+	CHECK(st.audible_khz == failed, "probe BIGSLIP should mark %d audible (got %d)", failed, st.audible_khz);
+	// Codex 2026-10-03: a later ORDINARY slip rewrote fail_hold and re-opened the floor. Recover, sink
+	// back toward it, slip mildly, then idle for ~16 min: the audible floor must never be re-entered.
+	for (int i = 0; i < 40; i++) gov_step(&st, p, 40, GOV_SIGNAL_SLACK);
+	gov_step(&st, p, 40, GOV_SIGNAL_SLIP);
+	for (int i = 0; i < 2000; i++) {
+		gov_step(&st, p, 40, GOV_SIGNAL_SLACK);
+		if (st.ceil_khz <= failed) break;
+	}
+	CHECK(st.ceil_khz > failed, "re-probed the audible floor %d after an ordinary slip + slack (ceil=%d)", failed, st.ceil_khz);
+	gov_burst(&st, p);                                      // a real scene change re-arms probing
+	CHECK(st.audible_khz == 0, "scene burst should clear the audible floor (got %d)", st.audible_khz);
+	// a BIGSLIP NOT caused by a recent sink (scene got heavier at a settled ceiling) is not audible-marked
+	gov_init(&st, p); st.ceil_khz = probe; st.since_sink = 200;
+	gov_step(&st, p, 40, GOV_SIGNAL_BIGSLIP);
+	CHECK(st.audible_khz == 0, "unprovoked BIGSLIP should not mark an audible floor (got %d)", st.audible_khz);
+	CHECK(st.fail_hold == 120, "unprovoked BIGSLIP should use the normal hold (hold=%d)", st.fail_hold);
+}
+
 static void test_scene_burst_resets_floor_memory(void) {
 	printf("[scene-burst] geometry change resets stale floor memory and provisions f_max\n");
 	const GovProfile* p = &GOV_P_PS1;
@@ -389,6 +418,7 @@ int main(void) {
 	test_sink_despite_busy_noise();
 	test_slip_recovery_priority();
 	test_fail_hold_escalates();
+	test_probe_bigslip_is_not_retried();
 	test_scene_burst_resets_floor_memory();
 	test_hot_ceiling();
 	test_hot_caps_below_max();

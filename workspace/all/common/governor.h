@@ -85,6 +85,8 @@ typedef struct {
 	int fail_streak; // consecutive re-probes that slipped again — escalates fail_hold (repeat offender)
 	int presink_khz; // ceiling before the most recent sink — restored in one tick if the probe slips
 	int since_sink;  // ticks since the most recent sink (saturates; small = a probe just happened)
+	int audible_khz; // highest ceiling whose probe caused a BIGSLIP: never sunk to again until a scene
+	                 // burst (gov_burst) or gov_init. Separate from fail_* so no later slip can shorten it.
 } GovState;
 
 // Named brackets from docs/thermal-governor-design.md (ASSUMED — verify the OPP ladder and
