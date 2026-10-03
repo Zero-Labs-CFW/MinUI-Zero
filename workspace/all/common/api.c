@@ -1363,6 +1363,14 @@ static void SND_audioCallback(void* userdata, uint8_t* stream, int len) { // pla
 static void SND_resizeBuffer(void) { // plat_sound_resize_buffer
 	size_t old_frame_count = snd.frame_count;
 	size_t new_frame_count = snd.buffer_seconds * snd.sample_rate_in / snd.frame_rate;
+	// The ring holds OUTPUT-rate frames, so input-rate sizing overshoots when the device
+	// opens below the core's rate: gpsp asks 65536, gets 48000, and its "12 frame-period"
+	// ring held 274ms. Audio-block pacing runs the ring near-full (GBA log 2026-09-11:
+	// occ 84-99%), so that overshoot was heard as A/V lag. Clamp down to the intended
+	// duration at the output rate; never grow (cores opened at or below their rate keep
+	// exactly the ring they had).
+	if (snd.sample_rate_out > 0 && snd.sample_rate_out < snd.sample_rate_in)
+		new_frame_count = snd.buffer_seconds * snd.sample_rate_out / snd.frame_rate;
 	if (snd.ring_override_ms > 0 && snd.sample_rate_out > 0) {
 		// capacity requested in wall-clock ms: the ring holds output-rate frames
 		new_frame_count = (size_t)snd.ring_override_ms * snd.sample_rate_out / 1000;
@@ -1776,8 +1784,8 @@ audio_open_ok:
 	// a silent no-op. Held muted until the ring has prefilled, then released in one step.
 	PLAT_muteAudio(1);
 
-	snd.buffer_seconds = 12; // ring CAPACITY (~200ms), not latency — latency is occupancy,
-	                         // set by the production/consumption balance. 5 frames (83ms)
+	snd.buffer_seconds = 12; // ring CAPACITY (~200ms). Under audio-block pacing the ring
+	                         // runs near-full, so in practice capacity ~= latency. 5 frames (83ms)
 	                         // could not absorb pcsx load-stalls (BR2/THPS logo+demo audio
 	                         // chop at ANY clock, ear-found + counter-verified 2026-07-08)
 	{	// per-system capacity (MINARCH_SND_RING_MS, exported by the pak launch.sh like
