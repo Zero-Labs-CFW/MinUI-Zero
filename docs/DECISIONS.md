@@ -1184,3 +1184,44 @@ Touches: minui.c (the hatch condition), README.md and the card README.txt (one l
 Favorites branch binds SELECT = Clear Recents inside Recents only, and the hatch fires at the root
 only, so they do not overlap; it must still drop its L2+R2+START chord when it lands. Existing
 hide-tools users relearn one chord.
+
+## D67 — Audio: the loop is clocked by video and the ring is held at ~67 ms, as the reference firmwares do (2026-10-03, supersedes the 12-frame ring of ffee9935)
+
+A Brick user reported GBA audio lagging the picture. Measured cause: game sound trailed by ~200 ms on every
+system (274 ms on gpsp). Present-skip (ZERO_DUP_SKIP) returned from video_refresh with no wait, so through
+every duplicate streak the core free-ran until SND_batchSamples blocked on a FULL 12-frame ring; the ring
+sat 84-99% full and the occupancy servo, which skips windows where the producer blocked, never acted.
+RetroArch (Onion, muOS, Knulli; spruce ships audio_latency 64 + rate control on the Brick), NextUI (8-frame
+ring, DRC to the midpoint) and MyMinUI (~24 ms) all clock the loop by video and keep a short queue under rate
+control. Zero now does the same:
+
+- A skipped present sleeps (absolute CLOCK_MONOTONIC, no spin) to the slot its present would have taken;
+  every real present re-anchors the slot. Serial loop only; the governor's work sample closes first.
+  Present-skip stays: presenting every frame dropped Brick GBA to 57.8 fps (769 underruns / 3 min).
+- Ring = 8 frame-periods at the OUTPUT rate, servo setpoint 50% (~67 ms), servo armed on all three
+  platforms (h700 via tools/h700-strip/minui-frontend.sh, which is what the image runs). A 5-frame ring at
+  75% left 21 ms of burst room and the Brick hit full/empty every second. DAC starts at 75% full, and also
+  inside the full-ring wait (a 95% gate deadlocked every launch on-device).
+- PS keeps its old ring via MINARCH_SND_RING_FRAMES (tg5040 12, MMP/h700 11): pcsx load stalls and
+  presentation-drop's 50/66% hysteresis need it; frames, not ms, so 50 Hz discs keep theirs too.
+
+Underruns, separately: gambatte's locked `sinc` resampler (inherited from upstream) could not hold 60 on the
+MMP at its 1200 MHz cap and collapsed the Brick's D65 600 MHz floor; `cc` (Cosine) = 0 GBC underruns on all
+three devices and 155/383 MHz lower average clocks (spruce keeps sinc but runs fixed clocks). The governor's
+fail ladder retried a clock that had collapsed generation every 1-8 min, an audible burst each time: a
+BIGSLIP within ~2 s of our own sink now marks that ceiling (GovState.audible_khz) as off-limits until the
+next scene burst. The h700 sink gate is blind (frame work ~16.7 ms at every clock), so h700 GB/GBC get a
+936-1512 bracket: 720 collapsed every time.
+
+Results (`.notes/2026-10-02-gba-audio-delay/`): GBA/SNES/MD/GBC 0 underruns on Brick, MMP and H; FF clean
+(H, 4.0x, three cycles); PS indistinguishable from the previous build (MMP BR2 intro is CPU-bound and swings
+56-433 on either). Lag ~200 -> ~67 ms on the video-clocked platforms (occupancy-derived, not measured
+end to end). Codex-reviewed; its four findings fixed.
+
+Known, not fixed: the MMP (fb flips are handed off, nothing video-blocks), PAL cores and the Smart Pro (no
+static rate match, servo ineligible) stay audio-paced at ring capacity (~133 ms, 160 ms at 50 Hz). mGBA is
+too heavy on the MMP for demanding games and has one ~40 ms gap at a title transition everywhere. Rejected:
+NextUI's never-block producer (drops audio on overshoot; our block stays a backstop), MyMinUI's 24 ms (no
+stall margin on these SoCs), keeping sinc with a raised GBC clock (the MMP cannot hold 60 at its max).
+Touches: api.c/api.h, minarch.c, audioservo.h, governor.c/h, GB/GBC default.cfg (3 platforms), PS and
+MinUI.pak launch.sh (3 platforms), h700 GB/GBC launch.sh, minui-frontend.sh. Zero-Paks: re-vendor governor.c.
