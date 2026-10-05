@@ -39,6 +39,10 @@ name **MinUI Zero** captures all three:
 - **Zero heat** — the *result* of the first two, not a separate goal. A simple, maximally-optimized OS
   runs cool, sips battery, and stays snappy as a consequence.
 
+**Never Bluetooth (owner, 2026-10-05):** no Bluetooth audio, controllers, or Bluetooth at all. Too
+flaky and too slow (latency) for what this OS is for. The radio is rfkill-blocked at boot and stays
+blocked across sleep; audio work need not preserve any Bluetooth routing.
+
 **Practical corollary:** optimizations that serve simplicity or efficiency count even when they don't
 move the thermometer — a quieter fan, longer battery, or snappier UI are wins in their own right. The
 target is not "coldest" narrowly; it is **the leanest, most-optimized OS this hardware can run.**
