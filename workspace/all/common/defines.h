@@ -5,7 +5,9 @@
 
 #define VOLUME_MIN 		0
 #define VOLUME_MAX 		20
+#ifndef BRIGHTNESS_MIN // a platform.h may reach below 0 (tg5040: night steps, see its msettings.c)
 #define BRIGHTNESS_MIN 	0
+#endif
 #define BRIGHTNESS_MAX 	10
 
 #define MAX_PATH 512

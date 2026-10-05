@@ -130,15 +130,37 @@ static inline void SaveSettings(void) {
 	}
 }
 
-int GetBrightness(void) { // 0-10
+// NIGHT STEPS (Dan 2026-10-05, after a "Display too bright" report): levels -1..-3 hold the backlight at
+// its floor (raw 1 Brick/Pro, 4 Smart Pro) and dim the PICTURE in the display engine: enhance_bright,
+// 50 = neutral (the kernel default). Same node as NextUI's "Exposure" and spruce's brightness; 10 is the
+// floor the stock OS and NextUI keep, so we never go lower. The node is only written when its value
+// must change, so a device that never uses a night step never touches it.
+#define ENHANCE_BRIGHT_PATH "/sys/class/disp/disp/attr/enhance_bright"
+static void SetRawEnhanceBright(int val) {
+	int cur = -1;
+	FILE* f = fopen(ENHANCE_BRIGHT_PATH, "r");
+	if (f) { if (fscanf(f, "%d", &cur) != 1) cur = -1; fclose(f); }
+	if (cur == val) return;
+	f = fopen(ENHANCE_BRIGHT_PATH, "w");
+	if (f) { fprintf(f, "%d", val); fclose(f); }
+}
+
+int GetBrightness(void) { // -3..10 (below 0 = night steps)
 	if (!settings) return 0; // callable before InitSettings (NextUI #273 class)
 	return settings->brightness;
 }
 void SetBrightness(int value) {
 	if (!settings) return;
+	if (value < -3) value = -3; // = BRIGHTNESS_MIN (platform.h); an out-of-range save left raw unset
+	if (value > 10) value = 10;
 
 	int raw;
-	if (is_brick || is_brickpro) {
+	int enhance = 50; // neutral
+	if (value < 0) {
+		raw = (is_brick || is_brickpro) ? 1 : 4; // the level-0 backlight
+		enhance = value == -1 ? 35 : value == -2 ? 20 : 10;
+	}
+	else if (is_brick || is_brickpro) {
 		switch (value) {
 			case 0: raw=1; break; 		// 0
 			case 1: raw=8; break; 		// 8
@@ -169,6 +191,7 @@ void SetBrightness(int value) {
 		}
 	}
 	SetRawBrightness(raw);
+	SetRawEnhanceBright(enhance);
 	settings->brightness = value;
 	SaveSettings();
 }

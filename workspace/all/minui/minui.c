@@ -1513,7 +1513,7 @@ static void fill_rrect(SDL_Surface* dst, int x, int y, int w, int h, int r, uint
 // battery percentage, refreshed once a minute. Any button (or unplugging) returns.
 static void ChargingScreen(SDL_Surface* screen) {
 	int old_brightness = GetBrightness();
-	SetBrightness(0); // lowest visible step; restored on exit
+	SetBrightness(old_brightness < 0 ? old_brightness : 0); // dim, never brighter than a night step; restored on exit
 	uint32_t rendered_at = 0;
 	uint32_t entered_at = SDL_GetTicks();
 	while (PWR_isCharging()) {
