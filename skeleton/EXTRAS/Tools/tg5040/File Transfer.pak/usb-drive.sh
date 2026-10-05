@@ -8,6 +8,13 @@ CARD=/mnt/SDCARD
 SYS=$CARD/.system/tg5040
 cd /
 echo 1 > /tmp/stay_awake
+# every way out restarts; keep this run's log on INTERNAL storage first (the card may be unsafe to touch)
+finish() { cp /tmp/usb-drive.log /mnt/UDISK/usb-drive-last.log 2>/dev/null; sync; reboot; exit 0; }
+# The firmware automounts the card on block hotplug events (/etc/hotplug.d/block/10-mount, fstools
+# `block hotplug`), and closing a device that was written raises one: the gadget letting go and fsck
+# finishing each remounted the card behind this script, once mid-teardown (found on-device 2026-10-05).
+# Mask the hook for this run only; the restart at the end brings it back.
+: > "$T/no-hotplug" && mount --bind "$T/no-hotplug" /etc/hotplug.d/block/10-mount
 echo "usb-drive: start $(cat /proc/uptime)"
 
 # 1) whatever could relaunch something from the card goes first, then everything still holding it
@@ -37,7 +44,13 @@ if [ "$FS" = exfat ]; then LABEL=$(exfatlabel "$DEV" 2>/dev/null | tail -1 | sed
 echo "usb-drive: $FS label=[$LABEL] $(cat /proc/uptime)"
 if ! umount "$CARD"; then
 	echo "usb-drive: umount failed, holders: $(holders | tr '\n' ' ')"
-	sync; reboot; exit 0 # a mounted card must never be shared; restarting is the safe way back
+	finish # a mounted card must never be shared; restarting is the safe way back
+fi
+# ...and not mounted ANYWHERE: a bind mount or another partition elsewhere would still be live while the
+# computer writes the disk (Codex review, 2026-10-05). The tmpfs below is not a card mount.
+if grep -q "^/dev/mmcblk1" /proc/mounts; then
+	echo "usb-drive: card still mounted: $(grep "^/dev/mmcblk1" /proc/mounts | tr '\n' ' ')"
+	finish
 fi
 
 # 2) the UI runs from a RAM copy at the same paths it was built for (RES_PATH etc. are compile-time)
@@ -64,21 +77,40 @@ while kill -0 "$SAY" 2>/dev/null; do
 done
 kill -9 "$SAY" 2>/dev/null # -9: SDL turns SIGTERM into a quit event say.elf never reads (found on-device)
 /bin/setusbconfig none
+# confirm the computer has lost the card BEFORE anything here writes it: stock "none" only unlinks the
+# function and is not checked. Drop the backing file too; if either is still there, restart without
+# the check rather than fsck a disk the computer may still be writing (Codex review, 2026-10-05).
+G=/sys/kernel/config/usb_gadget/g1
+LUN=$G/functions/mass_storage.usb0/lun.0
+echo "" > "$LUN/file" 2>/dev/null
+if [ -e "$G/configs/c.1/f1" ] || [ -n "$(cat "$LUN/file" 2>/dev/null)" ]; then
+	echo "usb-drive: still exported (lun=[$(cat "$LUN/file" 2>/dev/null)]), restarting without the check"
+	finish
+fi
 echo "usb-drive: unshared $(cat /proc/uptime) seen=$seen"
 
 # 4) check the card the way stock does, keep this log on it, restart
 [ -f /usr/trimui/apps/usb_storage/bg_checking.png ] && pic2fb /usr/trimui/apps/usb_storage/bg_checking.png 2>/dev/null
-umount "$CARD"
-if [ "$FS" = exfat ]; then fsck.exfat -y "$DEV"; else fsck.fat -a "$DEV"; fi
-echo "usb-drive: fsck rc=$? $(cat /proc/uptime)"
+umount "$CARD" || echo "usb-drive: tmpfs umount failed: $(grep " $CARD " /proc/mounts)"
+# fsck only an unmounted card: drop any mount that still slipped in, and skip the check if one stays
+for m in $(grep "^/dev/mmcblk1" /proc/mounts | cut -d' ' -f2); do echo "usb-drive: unexpected mount at $m"; umount "$m"; done
+if grep -q "^/dev/mmcblk1" /proc/mounts; then
+	echo "usb-drive: card still mounted, skipping the check"
+else
+	if [ "$FS" = exfat ]; then fsck.exfat -y "$DEV"; else fsck.fat -a "$DEV"; fi
+	echo "usb-drive: fsck rc=$? $(cat /proc/uptime)"
+fi
 if [ -n "$LABEL" ]; then
 	if [ "$FS" = exfat ]; then exfatlabel "$DEV" "$LABEL" >/dev/null 2>&1; else [ "$(fatlabel "$DEV" 2>/dev/null)" = "$LABEL" ] || fatlabel "$DEV" "$LABEL"; fi
 	echo "usb-drive: label now [$(fatlabel "$DEV" 2>/dev/null)]"
 fi
-if mount "$DEV" "$CARD" 2>/dev/null; then
+if mount "$DEV" "$CARD"; then
+	echo "usb-drive: card back $(cat /proc/uptime)"
 	mkdir -p "$CARD/.userdata/tg5040/logs" && cp /tmp/usb-drive.log "$CARD/.userdata/tg5040/logs/USB Drive.txt"
 	sync; umount "$CARD"
+else
+	echo "usb-drive: remount failed: $(grep " $CARD " /proc/mounts)"
 fi
 rm -f /tmp/stay_awake
-sync
-reboot
+echo "usb-drive: done $(cat /proc/uptime)"
+finish
