@@ -1277,19 +1277,23 @@ charging screen never brightens a night step.
   copy, with the UI on a tmpfs at the card's own paths (RES_PATH is compile-time). A card that will not unmount
   is never shared; the device restarts instead. Brick Pro, on-device: full cycle with the gadget bound to the
   card, then check, restart and a clean menu. The computer side still needs a cable test.
-- *FTP* (named by the owner; first drafted as "WiFi Transfer"): fclairamb/ftpserver, the server the MinUI community FTP pak wraps
-  (josegonzalez/minui-ftpserver-pak), pinned by version and tarball hash. New 4-digit password each time, user
-  `minui`, port 21, passive 2122-2130. Hidden until WiFi is set up (owner). Checked from a Mac: list, 5 MB
-  upload/download byte-identical, delete, wrong password refused.
-- Cost: the Go binary is 24.8 MB on the card and ~6.6 MB in the zip. Accepted for now; nothing runs unless the
-  screen is open. Rejected: busybox ftpd (no password without system users), SFTPGo (what CrossMix and muOS
-  ship; larger), dropbear SFTP (needs key setup), an always-on server (idle cost).
+- *FTP* (named by the owner; first drafted as "WiFi Transfer"): busybox `tcpsvd` + `ftpd` (1_36_1, pinned
+  commit), a 43.8 KB build of only ftpd/tcpsvd/ls. One patch: the login is FTPD_USER/FTPD_PASS from the
+  environment (a new 4-digit code each time, user `minui`, shown on screen) instead of the system accounts,
+  and a wrong password costs 2 s. Chrooted to the card. Hidden until WiFi is set up (owner). Checked from a
+  Mac: list (standard `ls -l` columns), 5 MB up/down byte-identical in 6 s, mkdir/rename/delete, wrong
+  password and wrong user refused, `../` cannot leave the card.
+- Rejected: fclairamb/ftpserver, the Go server the MinUI community pak wraps (shipped first, same day: 24.8 MB,
+  the owner asked for smaller); SFTPGo (CrossMix, muOS; larger still); unpatched busybox ftpd (its auth is
+  the system accounts, so it would mean editing /etc/passwd); dropbear SFTP (key setup); an always-on server.
+- Menu: rows without a value draw only their label pill (settings.elf), so the action list reads like the
+  main menu instead of an empty slider (owner, from a photo).
 
 **Never Bluetooth** (owner): no Bluetooth audio, controllers or anything else; recorded in project-direction.md.
 The radio is blocked at boot and stays blocked across sleep (424c5fa9).
 
 Divergence: TrimUI only for now. MMP: no display-engine enhance node for night steps, no known USB gadget path,
-and a 25 MB Go server on a 128 MB device needs a RAM test before FTP ships there. h700: nodes
+and FTP (now 44 KB) waits for an armv7 build and an on-device test. h700: nodes
 unverified (the H was offline) and its images release separately.
 Touches: tg5040 msettings/keymon/platform.h, defines.h, minui.c (charging screen), File Transfer.pak,
 tg5040 makefile + makefile.copy, README.md, skeleton/BASE/README.txt.
