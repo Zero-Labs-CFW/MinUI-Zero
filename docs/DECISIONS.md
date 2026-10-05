@@ -1268,14 +1268,20 @@ Three owner calls the same day, two of them Reddit asks ("Display too bright"; F
 4 on Smart Pro) was the old floor; the three new steps keep it there and dim the picture in the display engine
 instead (`/sys/class/disp/disp/attr/enhance_bright`, 50 neutral; 35/20/10). Same node as NextUI's "Exposure"
 and spruce's brightness; 10 is the floor the stock OS and NextUI keep. Existing saved levels do not move, so no
-migration. The node is only written when it must change, wake re-applies it (PLAT_enableBacklight), and the
+migration. A night step saves as brightness 0 plus `night` N (the struct's old unused[0]), never as a negative
+brightness: older builds read the same file, had no case for -3 (an unset raw value reached the display) and
+their keymon could not step back up, so a downgrade could leave a black screen. The node is only written when it must change, wake re-applies it (PLAT_enableBacklight), and the
 charging screen never brightens a night step.
 
 **File Transfer** (Tools > File Transfer), two ways, each running only while its screen is open:
 - *USB Drive*: TrimUI's own recipe (the stock usb_storage app; CrossMix's usb_storage/launch.sh): stop
   everything holding the card, unmount it, `setusbconfig mass_storage`, then `fsck` and restart. Runs from a RAM
-  copy, with the UI on a tmpfs at the card's own paths (RES_PATH is compile-time). A card that will not unmount
-  is never shared; the device restarts instead. Brick Pro, on-device: full cycle with the gadget bound to the
+  copy, with the UI on a tmpfs at the card's own paths (RES_PATH is compile-time). A card that will not unmount,
+  or is still mounted anywhere (/proc/mounts), is never shared; the device restarts instead. After sharing it
+  confirms the gadget let go (no function link, no backing file) before anything writes the card, or restarts
+  without the check. The firmware's block-hotplug automount (/etc/hotplug.d/block/10-mount) is masked for the
+  session: closing a written device raised a hotplug event and remounted the card behind the script, once
+  mid-teardown. Every exit leaves its log on internal storage (/mnt/UDISK/usb-drive-last.log). Brick Pro, on-device: full cycle with the gadget bound to the
   card, then check, restart and a clean menu. The computer side still needs a cable test.
 - *FTP* (named by the owner; first drafted as "WiFi Transfer"): busybox `tcpsvd` + `ftpd` (1_36_1, pinned
   commit), a 43.8 KB build of only ftpd/tcpsvd/ls. One patch: the login is FTPD_USER/FTPD_PASS from the
