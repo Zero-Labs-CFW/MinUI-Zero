@@ -70,6 +70,19 @@ MinUI creates a quicksave when powering off in-game and resumes from it
 automatically on the next boot.
 
 ----------------------------------------------------------------------------
+File transfer (TrimUI)
+
+Tools > File Transfer moves files without taking the card out.
+
+USB Drive: the card shows up on a computer as a drive. When you're done,
+eject it on the computer, then unplug or press A. The device checks the
+card and restarts.
+
+WiFi Transfer (shown once wifi.txt is set up): an FTP server runs while its
+screen is open. Connect any FTP app to the address shown, user "minui" and
+the one-time password on screen.
+
+----------------------------------------------------------------------------
 Roms
 
 The "Roms" folder contains a folder for each console. You can rename these

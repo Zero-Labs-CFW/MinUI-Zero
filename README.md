@@ -32,6 +32,8 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 * **Stock bugs fixed**: hot NES settings, crackling audio, hanging quit menus
 * **Hard to break**: bad ROMs exit cleanly, saves are crash-safe
 * **Device Sync**: sync saves/games directly between two handhelds, wirelessly, no WiFi network or internet needed
+* **File Transfer**: the card as a USB drive on a computer, or FTP over WiFi, without taking it out (TrimUI)
+* **Night brightness**: three steps darker than the backlight's minimum (TrimUI)
 * **Focus mode**: a main menu of only your favorites, for a five-game handheld
 * **Still MinUI**: no stores, themes, or LED light shows
 

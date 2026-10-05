@@ -22,13 +22,20 @@ COMMANDER_PIN=$(REQUIRES_COMMANDER)/.minui-zero-$(COMMANDER_HASH)
 EVTEST_PIN=$(REQUIRES_EVTEST)/.minui-zero-$(EVTEST_HASH)
 JSTEST_PIN=$(REQUIRES_JSTEST)/.minui-zero-$(JSTEST_HASH)
 UNZIP60_PIN=$(REQUIRES_UNZIP60)/.minui-zero-$(UNZIP60_HASH)
+# File Transfer's FTP server: fclairamb/ftpserver, the server the MinUI community FTP pak wraps
+# (josegonzalez/minui-ftpserver-pak). A prebuilt Go binary (no Go in this toolchain), pinned by version
+# AND tarball hash; the build fails rather than ship a different file.
+FTPSERVER_VERSION=0.14.0
+FTPSERVER_SHA256=cffbd8bc4641dee57d5c7b3908a09ec5e52e70b037851b3692df8beb50e804f9
+REQUIRES_FTPSERVER=other/ftpserver
+FTPSERVER_BIN=$(REQUIRES_FTPSERVER)/ftpserver
 
 .PHONY: $(COMMANDER_PIN) $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN)
 
 all: readmes
 	cd show && make
 
-early: $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN) $(COMMANDER_PIN)
+early: $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN) $(COMMANDER_PIN) $(FTPSERVER_BIN)
 	mkdir -p other
 	# Files for the h700 image: same source, keyboard-scancode key table (def.h PLATFORM_H700), since
 	# the H's pad arrives as keyboard keys and the Brick's joystick table left it unusable. Built FIRST
@@ -53,6 +60,13 @@ $(REQUIRES_EVTEST):
 
 $(REQUIRES_JSTEST):
 	git clone https://github.com/datrh/joyutils.git $(REQUIRES_JSTEST)
+
+$(FTPSERVER_BIN):
+	mkdir -p $(REQUIRES_FTPSERVER)
+	wget -q -O $(REQUIRES_FTPSERVER)/ftpserver.tar.gz https://github.com/fclairamb/ftpserver/releases/download/v$(FTPSERVER_VERSION)/ftpserver_$(FTPSERVER_VERSION)_linux_arm64.tar.gz
+	echo "$(FTPSERVER_SHA256)  $(REQUIRES_FTPSERVER)/ftpserver.tar.gz" | sha256sum -c -
+	tar -xzf $(REQUIRES_FTPSERVER)/ftpserver.tar.gz -C $(REQUIRES_FTPSERVER) ftpserver LICENSE
+	rm -f $(REQUIRES_FTPSERVER)/ftpserver.tar.gz
 
 $(REQUIRES_UNZIP60):
 	git clone https://github.com/shauninman/unzip60.git $(REQUIRES_UNZIP60)
