@@ -1277,7 +1277,7 @@ charging screen never brightens a night step.
   copy, with the UI on a tmpfs at the card's own paths (RES_PATH is compile-time). A card that will not unmount
   is never shared; the device restarts instead. Brick Pro, on-device: full cycle with the gadget bound to the
   card, then check, restart and a clean menu. The computer side still needs a cable test.
-- *WiFi Transfer*: fclairamb/ftpserver, the server the MinUI community FTP pak wraps
+- *FTP* (named by the owner; first drafted as "WiFi Transfer"): fclairamb/ftpserver, the server the MinUI community FTP pak wraps
   (josegonzalez/minui-ftpserver-pak), pinned by version and tarball hash. New 4-digit password each time, user
   `minui`, port 21, passive 2122-2130. Hidden until WiFi is set up (owner). Checked from a Mac: list, 5 MB
   upload/download byte-identical, delete, wrong password refused.
@@ -1289,7 +1289,7 @@ charging screen never brightens a night step.
 The radio is blocked at boot and stays blocked across sleep (424c5fa9).
 
 Divergence: TrimUI only for now. MMP: no display-engine enhance node for night steps, no known USB gadget path,
-and a 25 MB Go server on a 128 MB device needs a RAM test before WiFi Transfer ships there. h700: nodes
+and a 25 MB Go server on a 128 MB device needs a RAM test before FTP ships there. h700: nodes
 unverified (the H was offline) and its images release separately.
 Touches: tg5040 msettings/keymon/platform.h, defines.h, minui.c (charging screen), File Transfer.pak,
 tg5040 makefile + makefile.copy, README.md, skeleton/BASE/README.txt.

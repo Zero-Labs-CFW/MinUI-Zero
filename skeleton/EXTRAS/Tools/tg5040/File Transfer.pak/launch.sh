@@ -5,7 +5,7 @@
 #  - USB Drive: the card shows up on a computer as a drive. TrimUI's own recipe (the stock usb_storage
 #    app; CrossMix's usb_storage/launch.sh): stop everything using the card, unmount it,
 #    `setusbconfig mass_storage`, then check the card and restart. usb-drive.sh does that from RAM.
-#  - WiFi Transfer: an FTP server (fclairamb/ftpserver, the one josegonzalez/minui-ftpserver-pak wraps)
+#  - FTP: an FTP server over WiFi (fclairamb/ftpserver, the one josegonzalez/minui-ftpserver-pak wraps)
 #    with a new password every time, shown on screen. It stops when the screen closes.
 
 cd "$(dirname "$0")" || exit 1
@@ -47,12 +47,12 @@ EOF
 	i=0; while [ $i -lt 10 ] && ! netstat -tln 2>/dev/null | grep -q ':21 '; do sleep 0.3; i=$((i+1)); done
 	if ! kill -0 "$FTP" 2>/dev/null; then
 		rm -f "$CONF"
-		say.elf "WiFi Transfer couldn't start.
+		say.elf "FTP couldn't start.
 
 Details are in the File Transfer log."
 		return
 	fi
-	say.elf "WiFi Transfer is on
+	say.elf "FTP is on
 
 Connect an FTP app to
 ftp://$IP
@@ -87,10 +87,11 @@ while :; do
 The device restarts afterwards. Press A."
 	# only once WiFi is set up (Dan): same test as the WiFi row in Settings, so set-up-but-off still shows
 	if [ -f "$SDCARD_PATH/wifi.txt" ] || [ -f "$SDCARD_PATH/wifi.txt.off" ]; then
-		set -- "$@" ftp "WiFi Transfer" "" "" "Copy files over WiFi with an FTP app.
+		set -- "$@" ftp "FTP" "" "" "Copy files over WiFi with an FTP app.
 Press A."
 	fi
-	OUT=$(settings.elf --title "File Transfer" "$@")
+	# --wide: an action list, drawn like Device Sync's (no values, so the narrow layout read as broken)
+	OUT=$(settings.elf --wide --title "File Transfer" "$@")
 	case "$OUT" in
 		*OPEN=usb*) usb_run ;;
 		*OPEN=ftp*) ftp_run ;;
