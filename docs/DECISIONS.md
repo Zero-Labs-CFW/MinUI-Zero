@@ -1259,3 +1259,37 @@ the CPU-rail i2c traffic that tracked bad boots is a symptom of the governor hop
 undervolt hold, MtpDaemon, ring cushion, a servo integral term, a measured rate match. Root cause inside
 the xradio driver is not identified; the radio being up is enough.
 Touches: skeleton/SYSTEM/tg5040/paks/MinUI.pak/launch.sh, skeleton/SYSTEM/tg5040/bin/suspend.
+
+## D69 — TrimUI gets File Transfer and night brightness; Bluetooth is never supported (2026-10-05)
+
+Three owner calls the same day, two of them Reddit asks ("Display too bright"; FTP and USB transfer).
+
+**Night brightness.** Brightness now runs -3..10 on TrimUI. The backlight's lowest raw step (1 on Brick/Pro,
+4 on Smart Pro) was the old floor; the three new steps keep it there and dim the picture in the display engine
+instead (`/sys/class/disp/disp/attr/enhance_bright`, 50 neutral; 35/20/10). Same node as NextUI's "Exposure"
+and spruce's brightness; 10 is the floor the stock OS and NextUI keep. Existing saved levels do not move, so no
+migration. The node is only written when it must change, wake re-applies it (PLAT_enableBacklight), and the
+charging screen never brightens a night step.
+
+**File Transfer** (Tools > File Transfer), two ways, each running only while its screen is open:
+- *USB Drive*: TrimUI's own recipe (the stock usb_storage app; CrossMix's usb_storage/launch.sh): stop
+  everything holding the card, unmount it, `setusbconfig mass_storage`, then `fsck` and restart. Runs from a RAM
+  copy, with the UI on a tmpfs at the card's own paths (RES_PATH is compile-time). A card that will not unmount
+  is never shared; the device restarts instead. Brick Pro, on-device: full cycle with the gadget bound to the
+  card, then check, restart and a clean menu. The computer side still needs a cable test.
+- *WiFi Transfer*: fclairamb/ftpserver, the server the MinUI community FTP pak wraps
+  (josegonzalez/minui-ftpserver-pak), pinned by version and tarball hash. New 4-digit password each time, user
+  `minui`, port 21, passive 2122-2130. Hidden until WiFi is set up (owner). Checked from a Mac: list, 5 MB
+  upload/download byte-identical, delete, wrong password refused.
+- Cost: the Go binary is 24.8 MB on the card and ~6.6 MB in the zip. Accepted for now; nothing runs unless the
+  screen is open. Rejected: busybox ftpd (no password without system users), SFTPGo (what CrossMix and muOS
+  ship; larger), dropbear SFTP (needs key setup), an always-on server (idle cost).
+
+**Never Bluetooth** (owner): no Bluetooth audio, controllers or anything else; recorded in project-direction.md.
+The radio is blocked at boot and stays blocked across sleep (424c5fa9).
+
+Divergence: TrimUI only for now. MMP: no display-engine enhance node for night steps, no known USB gadget path,
+and a 25 MB Go server on a 128 MB device needs a RAM test before WiFi Transfer ships there. h700: nodes
+unverified (the H was offline) and its images release separately.
+Touches: tg5040 msettings/keymon/platform.h, defines.h, minui.c (charging screen), File Transfer.pak,
+tg5040 makefile + makefile.copy, README.md, skeleton/BASE/README.txt.
