@@ -1,0 +1,28 @@
+--- a/networking/ftpd.c
++++ b/networking/ftpd.c
+@@ -1263,9 +1263,24 @@
+ 
+ #if ENABLE_FEATURE_FTPD_AUTHENTICATION
+ 	if (!(opts & OPT_A)) {
++		/* MinUI Zero (File Transfer.pak): FTPD_USER + FTPD_PASS in the environment are the ONE login,
++		 * checked here instead of the system accounts: a one-time code shown on the device's screen.
++		 * A wrong password costs 2 s, so a 4-digit code cannot be walked quickly. */
++		const char *zero_user = getenv("FTPD_USER");
++		const char *zero_pass = getenv("FTPD_PASS");
++		int zero_user_ok = 0;
+ 		while (1) {
+ 			uint32_t cmdval = cmdio_get_cmd_and_arg();
+-			if (cmdval == const_USER) {
++			if (zero_pass && cmdval == const_USER) {
++				zero_user_ok = zero_user && G.ftp_arg && strcmp(G.ftp_arg, zero_user) == 0;
++				cmdio_write_raw(STR(FTP_GIVEPWORD)" Specify password\r\n");
++			} else if (zero_pass && cmdval == const_PASS) {
++				if (zero_user_ok && G.ftp_arg && strcmp(G.ftp_arg, zero_pass) == 0)
++					break; /* login success, stays the server's own user */
++				sleep(2);
++				cmdio_write_raw(STR(FTP_LOGINERR)" Login failed\r\n");
++				zero_user_ok = 0;
++			} else if (cmdval == const_USER) {
+ 				if (anon_opt && strcmp(G.ftp_arg, "anonymous") == 0) {
+ 					pw = getpwnam(anon_opt);
+ 					if (pw)

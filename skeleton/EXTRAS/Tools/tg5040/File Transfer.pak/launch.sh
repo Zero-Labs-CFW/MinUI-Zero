@@ -5,8 +5,9 @@
 #  - USB Drive: the card shows up on a computer as a drive. TrimUI's own recipe (the stock usb_storage
 #    app; CrossMix's usb_storage/launch.sh): stop everything using the card, unmount it,
 #    `setusbconfig mass_storage`, then check the card and restart. usb-drive.sh does that from RAM.
-#  - FTP: an FTP server over WiFi (fclairamb/ftpserver, the one josegonzalez/minui-ftpserver-pak wraps)
-#    with a new password every time, shown on screen. It stops when the screen closes.
+#  - FTP: busybox ftpd behind tcpsvd (~0.2 MB; the community pak's Go server was 24.8 MB), with a new
+#    password every time, shown on screen. Our ftpd patch reads that one login from FTPD_USER/FTPD_PASS.
+#    It stops when the screen closes.
 
 cd "$(dirname "$0")" || exit 1
 PAK="$(pwd)"
@@ -33,20 +34,12 @@ Turn it on in Settings first."
 	fi
 	PIN=$(tr -dc 0-9 < /dev/urandom 2>/dev/null | head -c 4)
 	[ ${#PIN} -eq 4 ] || PIN=$(( $(date +%s) % 9000 + 1000 ))
-	CONF=/tmp/file-transfer-ftp.json
-	cat > "$CONF" <<EOF
-{
-	"version": 1,
-	"accesses": [{ "user": "minui", "pass": "$PIN", "fs": "os", "params": { "basePath": "$SDCARD_PATH" } }],
-	"listen_address": "0.0.0.0:21",
-	"passive_transfer_port_range": { "start": 2122, "end": 2130 }
-}
-EOF
-	./ftpserver -conf "$CONF" > "$LOGS_PATH/File Transfer.txt" 2>&1 &
+	# -c 4: a client opens a few connections at once; -t/-T: idle 10 min, no 1 h session cap for big copies
+	FTPD_USER=minui FTPD_PASS="$PIN" ./busybox tcpsvd -E -c 4 0.0.0.0 21 \
+		"$PAK/busybox" ftpd -w -t 600 -T 86400 "$SDCARD_PATH" > "$LOGS_PATH/File Transfer.txt" 2>&1 &
 	FTP=$!
 	i=0; while [ $i -lt 10 ] && ! netstat -tln 2>/dev/null | grep -q ':21 '; do sleep 0.3; i=$((i+1)); done
 	if ! kill -0 "$FTP" 2>/dev/null; then
-		rm -f "$CONF"
 		say.elf "FTP couldn't start.
 
 Details are in the File Transfer log."
@@ -60,7 +53,7 @@ User: minui    Password: $PIN
 
 Press A when you're done."
 	kill "$FTP" 2>/dev/null
-	rm -f "$CONF"
+	for p in $(pgrep -f "$PAK/busybox ftpd" 2>/dev/null); do kill "$p" 2>/dev/null; done # open sessions too
 }
 
 usb_run() {
@@ -90,7 +83,7 @@ The device restarts afterwards. Press A."
 		set -- "$@" ftp "FTP" "" "" "Copy files over WiFi with an FTP app.
 Press A."
 	fi
-	# --wide: an action list, drawn like Device Sync's (no values, so the narrow layout read as broken)
+	# --wide: left-aligned like the Tools list; rows without a value draw only their label pill
 	OUT=$(settings.elf --wide --title "File Transfer" "$@")
 	case "$OUT" in
 		*OPEN=usb*) usb_run ;;

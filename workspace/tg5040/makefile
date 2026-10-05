@@ -22,20 +22,25 @@ COMMANDER_PIN=$(REQUIRES_COMMANDER)/.minui-zero-$(COMMANDER_HASH)
 EVTEST_PIN=$(REQUIRES_EVTEST)/.minui-zero-$(EVTEST_HASH)
 JSTEST_PIN=$(REQUIRES_JSTEST)/.minui-zero-$(JSTEST_HASH)
 UNZIP60_PIN=$(REQUIRES_UNZIP60)/.minui-zero-$(UNZIP60_HASH)
-# File Transfer's FTP server: fclairamb/ftpserver, the server the MinUI community FTP pak wraps
-# (josegonzalez/minui-ftpserver-pak). A prebuilt Go binary (no Go in this toolchain), pinned by version
-# AND tarball hash; the build fails rather than ship a different file.
-FTPSERVER_VERSION=0.14.0
-FTPSERVER_SHA256=cffbd8bc4641dee57d5c7b3908a09ec5e52e70b037851b3692df8beb50e804f9
-REQUIRES_FTPSERVER=other/ftpserver
-FTPSERVER_BIN=$(REQUIRES_FTPSERVER)/ftpserver
+# File Transfer's FTP server: busybox ftpd + tcpsvd at the 1_36_1 tag, with one patch so the login is
+# a one-time code from the environment instead of the system accounts (other/patches/busybox-ftpd.patch)
+# and a config of only those applets (other/patches/busybox-ftpd.config). Replaced fclairamb/ftpserver, a 24.8 MB
+# Go binary, the same day (Dan: "go smaller").
+REQUIRES_BUSYBOX=other/busybox
+BUSYBOX_HASH=1a64f6a20aaf6ea4dbba68bbfa8cc1ab7e5c57c4
+BUSYBOX_PIN=$(REQUIRES_BUSYBOX)/.minui-zero-$(BUSYBOX_HASH)
+BUSYBOX_BIN=$(REQUIRES_BUSYBOX)/busybox
+# setup-env.sh puts the cross toolchain's UNPREFIXED as/ld first on PATH, so busybox's host-side
+# helpers (fixdep, kconfig) assembled for aarch64 and the build died; the cross compiler is a full path
+# in CROSS_COMPILE anyway, so busybox gets PATH without that one entry
+BUSYBOX_PATH=$(subst /opt/aarch64-linux-gnu/aarch64-linux-gnu/bin:,,$(PATH))
 
 .PHONY: $(COMMANDER_PIN) $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN)
 
 all: readmes
 	cd show && make
 
-early: $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN) $(COMMANDER_PIN) $(FTPSERVER_BIN)
+early: $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN) $(COMMANDER_PIN) $(BUSYBOX_BIN)
 	mkdir -p other
 	# Files for the h700 image: same source, keyboard-scancode key table (def.h PLATFORM_H700), since
 	# the H's pad arrives as keyboard keys and the Brick's joystick table left it unusable. Built FIRST
@@ -50,6 +55,7 @@ clean:
 	cd show && make clean
 	cd $(REQUIRES_COMMANDER) && make clean && rm -f DinguxCommander-h700
 	cd $(REQUIRES_UNZIP60) && make -f unix/Makefile.trimuismart clean
+	rm -f $(BUSYBOX_PIN) $(BUSYBOX_BIN)
 
 ###########################################################
 
@@ -61,12 +67,26 @@ $(REQUIRES_EVTEST):
 $(REQUIRES_JSTEST):
 	git clone https://github.com/datrh/joyutils.git $(REQUIRES_JSTEST)
 
-$(FTPSERVER_BIN):
-	mkdir -p $(REQUIRES_FTPSERVER)
-	wget -q -O $(REQUIRES_FTPSERVER)/ftpserver.tar.gz https://github.com/fclairamb/ftpserver/releases/download/v$(FTPSERVER_VERSION)/ftpserver_$(FTPSERVER_VERSION)_linux_arm64.tar.gz
-	echo "$(FTPSERVER_SHA256)  $(REQUIRES_FTPSERVER)/ftpserver.tar.gz" | sha256sum -c -
-	tar -xzf $(REQUIRES_FTPSERVER)/ftpserver.tar.gz -C $(REQUIRES_FTPSERVER) ftpserver LICENSE
-	rm -f $(REQUIRES_FTPSERVER)/ftpserver.tar.gz
+# shallow: the full busybox history is large and only this one commit is ever built
+$(BUSYBOX_PIN): other/patches/busybox-ftpd.patch
+	[ -d $(REQUIRES_BUSYBOX)/.git ] || (mkdir -p $(REQUIRES_BUSYBOX) && cd $(REQUIRES_BUSYBOX) && git init -q && git remote add origin https://github.com/mirror/busybox.git)
+	cd $(REQUIRES_BUSYBOX) && (git cat-file -e $(BUSYBOX_HASH)^{commit} 2>/dev/null || git fetch -q --depth 1 origin $(BUSYBOX_HASH))
+	cd $(REQUIRES_BUSYBOX) && git checkout -q -f --detach $(BUSYBOX_HASH) && git clean -qfdx
+	cd $(REQUIRES_BUSYBOX) && git apply ../patches/busybox-ftpd.patch
+	touch $(BUSYBOX_PIN)
+$(BUSYBOX_BIN): $(BUSYBOX_PIN) other/patches/busybox-ftpd.config
+	cd $(REQUIRES_BUSYBOX) && PATH="$(BUSYBOX_PATH)" make -s allnoconfig
+	cd $(REQUIRES_BUSYBOX) && awk -v on="$$(grep -E '^CONFIG_[A-Z0-9_]+=y' ../patches/busybox-ftpd.config | cut -d= -f1 | tr '\n' ' ')" \
+		'BEGIN { n = split(on, a, " "); for (i = 1; i <= n; i++) want[a[i]] = 1 } \
+		/^# CONFIG_[A-Z0-9_]+ is not set/ { if (want[$$2]) { print $$2 "=y"; next } } \
+		/^CONFIG_SH_IS_ASH=y/ { print "# CONFIG_SH_IS_ASH is not set"; next } \
+		/^# CONFIG_SH_IS_NONE is not set/ { print "CONFIG_SH_IS_NONE=y"; next } \
+		/^CONFIG_SHELL_ASH=y/ { print "# CONFIG_SHELL_ASH is not set"; next } \
+		{ print }' .config > /tmp/busybox.config && cat /tmp/busybox.config > .config
+	cd $(REQUIRES_BUSYBOX) && yes "" | PATH="$(BUSYBOX_PATH)" make -s oldconfig > /dev/null
+	cd $(REQUIRES_BUSYBOX) && for s in $$(grep -E '^CONFIG_[A-Z0-9_]+=y' ../patches/busybox-ftpd.config | cut -d= -f1); do \
+		grep -qx "$$s=y" .config || { echo "busybox: $$s did not stick"; exit 1; }; done
+	cd $(REQUIRES_BUSYBOX) && PATH="$(BUSYBOX_PATH)" make -s -j CROSS_COMPILE=$(CROSS_COMPILE) busybox
 
 $(REQUIRES_UNZIP60):
 	git clone https://github.com/shauninman/unzip60.git $(REQUIRES_UNZIP60)
