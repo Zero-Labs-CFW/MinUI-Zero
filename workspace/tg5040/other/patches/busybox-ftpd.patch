@@ -26,3 +26,12 @@
  				if (anon_opt && strcmp(G.ftp_arg, "anonymous") == 0) {
  					pw = getpwnam(anon_opt);
  					if (pw)
+@@ -1303,6 +1318,8 @@
+ #endif
+ 		if (chroot(basedir) == 0)
+ 			basedir = "/";
++		else if (getenv("FTPD_PASS")) /* MinUI Zero: never serve the card outside its chroot */
++			bb_simple_perror_msg_and_die("chroot");
+ #if !BB_MMU
+ 		else {
+ 			close(G.root_fd);

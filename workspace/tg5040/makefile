@@ -67,13 +67,24 @@ $(REQUIRES_EVTEST):
 $(REQUIRES_JSTEST):
 	git clone https://github.com/datrh/joyutils.git $(REQUIRES_JSTEST)
 
-# shallow: the full busybox history is large and only this one commit is ever built
-$(BUSYBOX_PIN): other/patches/busybox-ftpd.patch
-	[ -d $(REQUIRES_BUSYBOX)/.git ] || (mkdir -p $(REQUIRES_BUSYBOX) && cd $(REQUIRES_BUSYBOX) && git init -q && git remote add origin https://github.com/mirror/busybox.git)
-	cd $(REQUIRES_BUSYBOX) && (git cat-file -e $(BUSYBOX_HASH)^{commit} 2>/dev/null || git fetch -q --depth 1 origin $(BUSYBOX_HASH))
-	cd $(REQUIRES_BUSYBOX) && git checkout -q -f --detach $(BUSYBOX_HASH) && git clean -qfdx
-	cd $(REQUIRES_BUSYBOX) && git apply ../patches/busybox-ftpd.patch
-	touch $(BUSYBOX_PIN)
+# Runs every build, like the other pins: the checkout must be exactly the pinned commit plus our patch (its
+# changed lines, compared as text). Anything else (a fresh tree, a new patch, a stray local edit in this
+# ignored dir) resets it and touches the marker, which rebuilds the binary; a matching tree touches nothing,
+# so nothing rebuilds. A separate verify target cannot do this: make has already read the marker's time
+# (Codex review, 2026-10-05). Shallow fetch: the full busybox history is large and only this commit is built.
+$(BUSYBOX_PIN): FORCE
+	@want="$$(grep -E '^[-+]' other/patches/busybox-ftpd.patch | grep -vE '^(\+\+\+|---) ')"; \
+	have="$$(git -C $(REQUIRES_BUSYBOX) diff HEAD 2>/dev/null | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ')"; \
+	head="$$(git -C $(REQUIRES_BUSYBOX) rev-parse HEAD 2>/dev/null)"; \
+	if [ -f $(BUSYBOX_PIN) ] && [ "$$head" = "$(BUSYBOX_HASH)" ] && [ "$$have" = "$$want" ]; then exit 0; fi; \
+	echo "busybox: (re)pinning $(BUSYBOX_HASH) + patch"; set -e; \
+	[ -d $(REQUIRES_BUSYBOX)/.git ] || (mkdir -p $(REQUIRES_BUSYBOX) && cd $(REQUIRES_BUSYBOX) && git init -q && git remote add origin https://github.com/mirror/busybox.git); \
+	cd $(REQUIRES_BUSYBOX); \
+	git cat-file -e $(BUSYBOX_HASH)^{commit} 2>/dev/null || git fetch -q --depth 1 origin $(BUSYBOX_HASH); \
+	git checkout -q -f --detach $(BUSYBOX_HASH); git clean -qfdx; \
+	git apply ../patches/busybox-ftpd.patch; \
+	touch $(notdir $(BUSYBOX_PIN))
+FORCE:
 $(BUSYBOX_BIN): $(BUSYBOX_PIN) other/patches/busybox-ftpd.config
 	cd $(REQUIRES_BUSYBOX) && PATH="$(BUSYBOX_PATH)" make -s allnoconfig
 	cd $(REQUIRES_BUSYBOX) && awk -v on="$$(grep -E '^CONFIG_[A-Z0-9_]+=y' ../patches/busybox-ftpd.config | cut -d= -f1 | tr '\n' ' ')" \
