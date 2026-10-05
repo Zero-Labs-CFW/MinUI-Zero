@@ -106,6 +106,14 @@ if [ -n "$LABEL" ]; then
 fi
 if mount "$DEV" "$CARD"; then
 	echo "usb-drive: card back $(cat /proc/uptime)"
+	# fsck -a always saves orphaned chains as FSCK0000.REC... in the card root (no flag frees them instead),
+	# and they landed in Finder (Dan: "what is all these .rec files?"). They are pieces of writes a power cut
+	# interrupted, not usable files: kept, but moved out of sight into a dated folder.
+	R="$CARD/.userdata/fsck-recovered/$(date +%Y%m%d-%H%M%S)"
+	for f in "$CARD"/FSCK[0-9][0-9][0-9][0-9].REC; do
+		[ -f "$f" ] || continue
+		mkdir -p "$R" && mv "$f" "$R/" && echo "usb-drive: moved $(basename "$f") to ${R#$CARD/}"
+	done
 	mkdir -p "$CARD/.userdata/tg5040/logs" && cp /tmp/usb-drive.log "$CARD/.userdata/tg5040/logs/USB Drive.txt"
 	sync; umount "$CARD"
 else

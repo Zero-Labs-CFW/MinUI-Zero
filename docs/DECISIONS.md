@@ -1281,7 +1281,9 @@ charging screen never brightens a night step.
   confirms the gadget let go (no function link, no backing file) before anything writes the card, or restarts
   without the check. The firmware's block-hotplug automount (/etc/hotplug.d/block/10-mount) is masked for the
   session: closing a written device raised a hotplug event and remounted the card behind the script, once
-  mid-teardown. Every exit leaves its log on internal storage (/mnt/UDISK/usb-drive-last.log). Brick Pro, on-device: full cycle with the gadget bound to the
+  mid-teardown. Every exit leaves its log on internal storage (/mnt/UDISK/usb-drive-last.log). `fsck.fat -a`
+  always saves orphaned chains as FSCK0000.REC... (no flag frees them), and they showed up in Finder after a day
+  of hard power cuts; they are moved into a dated `.userdata/fsck-recovered/` folder, never deleted. Brick Pro, on-device: full cycle with the gadget bound to the
   card, then check, restart and a clean menu. The computer side still needs a cable test.
 - *FTP* (named by the owner; first drafted as "WiFi Transfer"): busybox `tcpsvd` + `ftpd` (1_36_1, pinned
   commit), a 43.8 KB build of only ftpd/tcpsvd/ls. One patch: the login is FTPD_USER/FTPD_PASS from the
