@@ -252,8 +252,8 @@ int main (int argc, char *argv[]) {
 		if (up_just_pressed || (up_pressed && now>=up_repeat_at)) {
 			if (menu_pressed) {
 				printf("brightness up\n"); fflush(stdout);
-				val = GetBrightness();
-				if (val<BRIGHTNESS_MAX) SetBrightness(++val);
+				int b = GetBrightness(); // signed: night steps go below 0, and val is uint32_t
+				if (b<BRIGHTNESS_MAX) SetBrightness(b+1);
 			}
 			else {
 				printf("volume up\n"); fflush(stdout);
@@ -268,8 +268,8 @@ int main (int argc, char *argv[]) {
 		if (down_just_pressed || (down_pressed && now>=down_repeat_at)) {
 			if (menu_pressed) {
 				printf("brightness down\n"); fflush(stdout);
-				val = GetBrightness();
-				if (val>BRIGHTNESS_MIN) SetBrightness(--val);
+				int b = GetBrightness(); // signed: as a uint32_t, val > -3 was never true and brightness down died
+				if (b>BRIGHTNESS_MIN) SetBrightness(b-1);
 			}
 			else {
 				printf("volume down\n"); fflush(stdout);
