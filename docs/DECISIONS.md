@@ -1292,6 +1292,15 @@ charging screen never brightens a night step.
 route, or wifi.txt / wifi.txt.off) its screen explains how to add wifi.txt. Checked from a
   Mac: list (standard `ls -l` columns), 5 MB up/down byte-identical in 6 s, mkdir/rename/delete, wrong
   password and wrong user refused, `../` cannot leave the card.
+- *USB (MTP)* (added same day, owner: "2 options seem weak"): the firmware's MtpDaemon and `setusbconfig mtp`,
+  0 bytes shipped; the card stays mounted, no restart; USB is restored to its previous function on close.
+  Started stock's way (`MtpDaemon -D`) only: started without -D once, a Brick Pro rebooted (no panic record).
+  Device side checked (gadget switch, daemon start/stop, restore, no reboot); a computer-attached run is pending.
+- *Browser* (same request): dufs 0.46.0 (Apache-2.0), web file manager + WebDAV, prebuilt aarch64 musl pinned by
+  hash, 5 MB (~2.6 MB in the zip). Port 80, one login `minui` + the one-time code, read-write. Checked from a Mac:
+  no-auth and wrong password 401, upload 201, identical download, WebDAV PROPFIND 207, delete 204, `../` 400;
+  closing the screen stops it. Rejected for more ways: SFTP (a password patch for dropbear; FTP covers it),
+  Samba (10+ MB), Syncthing (runs in the background).
 - Rejected: fclairamb/ftpserver, the Go server the MinUI community pak wraps (shipped first, same day: 24.8 MB,
   the owner asked for smaller); SFTPGo (CrossMix, muOS; larger still); unpatched busybox ftpd (its auth is
   the system accounts, so it would mean editing /etc/passwd); dropbear SFTP (key setup); an always-on server.

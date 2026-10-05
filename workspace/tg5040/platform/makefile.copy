@@ -14,3 +14,4 @@ $(PLATFORM):
 	cp ./workspace/$@/other/DinguxCommander-sdl2/DinguxCommander ./build/EXTRAS/Tools/$@/Files.pak/
 	cp -r ./workspace/$@/other/DinguxCommander-sdl2/res ./build/EXTRAS/Tools/$@/Files.pak/
 	cp ./workspace/$@/other/busybox/busybox "./build/EXTRAS/Tools/$@/File Transfer.pak/"
+	cp ./workspace/$@/other/dufs/dufs "./build/EXTRAS/Tools/$@/File Transfer.pak/"

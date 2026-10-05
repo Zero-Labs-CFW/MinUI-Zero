@@ -30,6 +30,12 @@ REQUIRES_BUSYBOX=other/busybox
 BUSYBOX_HASH=1a64f6a20aaf6ea4dbba68bbfa8cc1ab7e5c57c4
 BUSYBOX_PIN=$(REQUIRES_BUSYBOX)/.minui-zero-$(BUSYBOX_HASH)
 BUSYBOX_BIN=$(REQUIRES_BUSYBOX)/busybox
+# File Transfer's Browser mode: dufs (sigoden/dufs, Apache-2.0), a web file manager + WebDAV server in one
+# static binary (5 MB). Prebuilt for aarch64 musl (no Rust in this toolchain), pinned by version AND tarball
+# hash; the build fails rather than ship a different file.
+DUFS_VERSION=0.46.0
+DUFS_SHA256=1472123ae3aa07e49404d16b20305c2dec90c59883ebda9308717f7205e6511b
+DUFS_BIN=other/dufs/dufs
 # setup-env.sh puts the cross toolchain's UNPREFIXED as/ld first on PATH, so busybox's host-side
 # helpers (fixdep, kconfig) assembled for aarch64 and the build died; the cross compiler is a full path
 # in CROSS_COMPILE anyway, so busybox gets PATH without that one entry
@@ -40,7 +46,7 @@ BUSYBOX_PATH=$(subst /opt/aarch64-linux-gnu/aarch64-linux-gnu/bin:,,$(PATH))
 all: readmes
 	cd show && make
 
-early: $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN) $(COMMANDER_PIN) $(BUSYBOX_BIN)
+early: $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN) $(COMMANDER_PIN) $(BUSYBOX_BIN) $(DUFS_BIN)
 	mkdir -p other
 	# Files for the h700 image: same source, keyboard-scancode key table (def.h PLATFORM_H700), since
 	# the H's pad arrives as keyboard keys and the Brick's joystick table left it unusable. Built FIRST
@@ -85,6 +91,12 @@ $(BUSYBOX_PIN): FORCE
 	git apply ../patches/busybox-ftpd.patch; \
 	touch $(notdir $(BUSYBOX_PIN))
 FORCE:
+$(DUFS_BIN):
+	mkdir -p other/dufs
+	wget -q -O other/dufs/dufs.tar.gz https://github.com/sigoden/dufs/releases/download/v$(DUFS_VERSION)/dufs-v$(DUFS_VERSION)-aarch64-unknown-linux-musl.tar.gz
+	echo "$(DUFS_SHA256)  other/dufs/dufs.tar.gz" | sha256sum -c -
+	tar -xzf other/dufs/dufs.tar.gz -C other/dufs dufs
+	rm -f other/dufs/dufs.tar.gz
 $(BUSYBOX_BIN): $(BUSYBOX_PIN) other/patches/busybox-ftpd.config
 	cd $(REQUIRES_BUSYBOX) && PATH="$(BUSYBOX_PATH)" make -s allnoconfig
 	cd $(REQUIRES_BUSYBOX) && awk -v on="$$(grep -E '^CONFIG_[A-Z0-9_]+=y' ../patches/busybox-ftpd.config | cut -d= -f1 | tr '\n' ' ')" \

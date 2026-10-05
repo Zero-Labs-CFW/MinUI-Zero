@@ -78,9 +78,13 @@ USB Drive: the card shows up on a computer as a drive. When you're done,
 eject it on the computer, then unplug or press A. The device checks the
 card and restarts.
 
-FTP (needs WiFi, see wifi.txt): an FTP server runs over WiFi while its
-screen is open. Connect any FTP app to the address shown, user "minui" and
-the one-time password on screen.
+USB (MTP): no restart. Windows and Android open it directly; a Mac needs
+an MTP app such as OpenMTP.
+
+FTP and Browser (need WiFi, see wifi.txt): run over WiFi while their screen
+is open, with user "minui" and a one-time password shown on screen. FTP is
+for FTP apps; Browser works in any web browser, and Finder or Windows
+Explorer can connect to the same address as a network drive.
 
 ----------------------------------------------------------------------------
 Roms
