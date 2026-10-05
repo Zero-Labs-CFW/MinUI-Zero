@@ -1292,11 +1292,13 @@ charging screen never brightens a night step.
 route, or wifi.txt / wifi.txt.off) its screen explains how to add wifi.txt. Checked from a
   Mac: list (standard `ls -l` columns), 5 MB up/down byte-identical in 6 s, mkdir/rename/delete, wrong
   password and wrong user refused, `../` cannot leave the card.
-- *USB (MTP)* (added same day, owner: "2 options seem weak"): the firmware's MtpDaemon and `setusbconfig mtp`,
-  0 bytes shipped; the card stays mounted, no restart; USB is restored to its previous function on close.
-  Started stock's way (`MtpDaemon -D`) only: started without -D once, a Brick Pro rebooted (no panic record).
-  Device side checked (gadget switch, daemon start/stop, restore, no reboot); a computer-attached run is pending.
-- *Browser* (same request): dufs 0.46.0 (Apache-2.0), web file manager + WebDAV, prebuilt aarch64 musl pinned by
+- *USB (MTP)*: built and pulled the same day (owner asked for more than two ways). The firmware's MtpDaemon shares
+  only internal storage (/mnt/UDISK, "Tina" storage), not the card; a bind of the card over /mnt/UDISK made it list
+  the card, but from a Mac (libmtp) no file transfer worked even on the stock setup, with no bind: listing yes,
+  every read/write timed out and the host reset the link. One Brick Pro reboot during the first try (daemon
+  started without -D; no panic record). The owner has only a Mac, where MTP needs a third-party app anyway.
+  USB Drive already covers cables on every OS. Revisit only with a working transfer from a Windows or Android host.
+- *Browser* (owner: "2 options seem weak"): dufs 0.46.0 (Apache-2.0), web file manager + WebDAV, prebuilt aarch64 musl pinned by
   hash, 5 MB (~2.6 MB in the zip). Port 80, one login `minui` + the one-time code, read-write. Checked from a Mac:
   no-auth and wrong password 401, upload 201, identical download, WebDAV PROPFIND 207, delete 204, `../` 400;
   closing the screen stops it. Rejected for more ways: SFTP (a password patch for dropbear; FTP covers it),
