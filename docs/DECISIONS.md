@@ -1273,7 +1273,8 @@ brightness: older builds read the same file, had no case for -3 (an unset raw va
 their keymon could not step back up, so a downgrade could leave a black screen. The node is only written when it must change, wake re-applies it (PLAT_enableBacklight), and the
 charging screen never brightens a night step.
 
-**File Transfer** (Tools > File Transfer), two ways, each running only while its screen is open:
+**File Transfer** (Tools > File Transfer), three ways (USB Drive, FTP, Browser), each running only while its screen
+is open:
 - *USB Drive*: TrimUI's own recipe (the stock usb_storage app; CrossMix's usb_storage/launch.sh): stop
   everything holding the card, unmount it, `setusbconfig mass_storage`, then `fsck` and restart. Runs from a RAM
   copy, with the UI on a tmpfs at the card's own paths (RES_PATH is compile-time). A card that will not unmount,
@@ -1292,16 +1293,27 @@ charging screen never brightens a night step.
 route, or wifi.txt / wifi.txt.off) its screen explains how to add wifi.txt. Checked from a
   Mac: list (standard `ls -l` columns), 5 MB up/down byte-identical in 6 s, mkdir/rename/delete, wrong
   password and wrong user refused, `../` cannot leave the card.
-- *USB (MTP)*: built and pulled the same day (owner asked for more than two ways). The firmware's MtpDaemon shares
-  only internal storage (/mnt/UDISK, "Tina" storage), not the card; a bind of the card over /mnt/UDISK made it list
-  the card, but from a Mac (libmtp) no file transfer worked even on the stock setup, with no bind: listing yes,
-  every read/write timed out and the host reset the link. One Brick Pro reboot during the first try (daemon
-  started without -D; no panic record). The owner has only a Mac, where MTP needs a third-party app anyway.
-  USB Drive already covers cables on every OS. Revisit only with a working transfer from a Windows or Android host.
+- *USB (MTP)*: the firmware's MtpDaemon was tried first and rejected: it shares only internal storage
+  (/mnt/UDISK), and from a Mac no file transfer worked even on the stock setup (libmtp and OpenMTP: listing yes,
+  reads/writes time out, the host resets the link); one Brick Pro reboot during that try. Shipped instead
+  (owner: "make the MTP work with this release"): uMTP-Responder 1.8.1 (GPL-3.0, the MTP server muOS runs),
+  106 KB, over FunctionFS the way muOS's usb_gadget.sh sets it up, sharing only the card, no restart. Two patches
+  (other/patches/umtprd-minui.patch): run without POSIX message queues (TrimUI's kernel has none; stock umtprd
+  exits), and send Android's MS OS "MTP" compatible-ID descriptor. Interface class 0xff + "MTP" as Android
+  announces MTP, not muOS's 0x06: macOS's ptpcamerad claims 0x06 still-image devices and every Mac MTP app then
+  failed to open it (libusb_claim_interface -3). From the Mac: storage "SD Card", 8 MB up and back byte-identical
+  (5 s each), delete, folders; closing the screen restores USB (adb on dev cards) and the os_desc state. Windows
+  recognition via the MS OS descriptor follows Android's layout and is untested (no Windows host here).
 - *Browser* (owner: "2 options seem weak"): dufs 0.46.0 (Apache-2.0), web file manager + WebDAV, prebuilt aarch64 musl pinned by
-  hash, 5 MB (~2.6 MB in the zip). Port 80, one login `minui` + the one-time code, read-write. Checked from a Mac:
+  hash, 5 MB (~2.6 MB in the zip; the zip carries Tools twice, so ~13.6 MB total). Port 80, one login `minui` +
+  the one-time code, read-write, with upload/delete/search/archive named one by one (`-A` would add symlink
+  following, which relaxes dufs's root check). Checked from a Mac:
   no-auth and wrong password 401, upload 201, identical download, WebDAV PROPFIND 207, delete 204, `../` 400;
-  closing the screen stops it. Rejected for more ways: SFTP (a password patch for dropbear; FTP covers it),
+  closing the screen stops it. Second Codex review: dufs has no failed-login delay, so the one-time code is now
+  6 characters from 32 easy-to-type ones (~10^9; FTP uses the same style; 4 digits could be walked in minutes from
+  the same WiFi); the tool stops leftover servers, requires the new process to own the port (`netstat -p`), and
+  stops its servers on any exit (trap); USB Drive refuses to start unless the automount mask is confirmed; the
+  dufs binary hash is checked every build. Rejected for more ways: SFTP (a password patch for dropbear; FTP covers it),
   Samba (10+ MB), Syncthing (runs in the background).
 - Rejected: fclairamb/ftpserver, the Go server the MinUI community pak wraps (shipped first, same day: 24.8 MB,
   the owner asked for smaller); SFTPGo (CrossMix, muOS; larger still); unpatched busybox ftpd (its auth is

@@ -1,0 +1,70 @@
+diff --git a/inc/usb_gadget.h b/inc/usb_gadget.h
+index a8082be..5dcf2cb 100644
+--- a/inc/usb_gadget.h
++++ b/inc/usb_gadget.h
+@@ -118,6 +118,10 @@ typedef struct _usb_ffs_cfg
+ 	uint32_t ss_count;
+ #endif
+ 
++#ifndef OLD_FUNCTIONFS_DESCRIPTORS
++	uint32_t os_count; // MinUI Zero: MS OS descriptors, as Android's MTP sends (see usb_gadget.c)
++#endif
++
+ #ifdef CONFIG_USB_FS_SUPPORT
+ 	EndPointsDesc ep_desc_fs;
+ #endif
+@@ -130,6 +134,11 @@ typedef struct _usb_ffs_cfg
+ 	SSEndPointsDesc ep_desc_ss;
+ #endif
+ 
++#ifndef OLD_FUNCTIONFS_DESCRIPTORS
++	struct usb_os_desc_header os_header;
++	struct usb_ext_compat_desc os_compat;
++#endif
++
+ } __attribute__ ((packed)) usb_ffs_cfg;
+ 
+ typedef struct _ffs_strings
+diff --git a/src/umtprd.c b/src/umtprd.c
+index ecf9aae..fa84198 100644
+--- a/src/umtprd.c
++++ b/src/umtprd.c
+@@ -152,9 +152,11 @@ int main(int argc, char *argv[])
+ 	fd = get_message_queue();
+ 	if (fd < 0)
+ 	{
+-		exit(1);
++		/* MinUI Zero: TrimUI's 4.9 kernel has no POSIX message queues (mq_open: ENOSYS). Serve MTP anyway,
++		 * without the -cmd: IPC and the single-instance lock this queue provides; the launcher runs one. */
++		PRINT_MSG("No message queue: running without IPC commands");
+ 	}
+-	retcode = flock(fd, LOCK_EX | LOCK_NB);
++	retcode = (fd < 0) ? 0 : flock(fd, LOCK_EX | LOCK_NB);
+ 	if (retcode)
+ 	{
+ 		// lock failed, umtprd is already running
+diff --git a/src/usb_gadget.c b/src/usb_gadget.c
+index c4b31b9..8d6e38d 100644
+--- a/src/usb_gadget.c
++++ b/src/usb_gadget.c
+@@ -1010,6 +1010,20 @@ usb_gadget * init_usb_mtp_gadget(mtp_ctx * ctx)
+ 			usbctx->usb_ffs_config->flags |= htole32(FUNCTIONFS_HAS_SS_DESC);
+ #endif
+ 
++			// MinUI Zero: an MS OS extended compat ID "MTP" on interface 0, the layout Android's MTP server
++			// sends (AOSP MtpDescriptors.cpp). With a vendor-class interface (so macOS's camera agent leaves
++			// it alone), this is what lets Windows bind its MTP driver.
++			usbctx->usb_ffs_config->flags |= htole32(FUNCTIONFS_HAS_MS_OS_DESC);
++			usbctx->usb_ffs_config->os_count = htole32(1);
++			usbctx->usb_ffs_config->os_header.interface = 1;
++			usbctx->usb_ffs_config->os_header.dwLength = htole32(sizeof(struct usb_os_desc_header) + sizeof(struct usb_ext_compat_desc));
++			usbctx->usb_ffs_config->os_header.bcdVersion = htole16(1);
++			usbctx->usb_ffs_config->os_header.wIndex = htole16(4);
++			usbctx->usb_ffs_config->os_header.bCount = 1;
++			usbctx->usb_ffs_config->os_header.Reserved = 0;
++			usbctx->usb_ffs_config->os_compat.bFirstInterfaceNumber = 0;
++			usbctx->usb_ffs_config->os_compat.Reserved1 = 1;
++			memcpy(usbctx->usb_ffs_config->os_compat.CompatibleID, "MTP", 3);
+ #endif
+ 			usbctx->usb_ffs_config->length = htole32(sizeof(usb_ffs_cfg));
+ 

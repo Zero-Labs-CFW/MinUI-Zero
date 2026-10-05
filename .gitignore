@@ -35,6 +35,7 @@ libretro-common
 **/other/DinguxCommander-sdl2
 **/other/busybox
 **/other/dufs
+**/other/umtprd
 **/other/351files
 **/other/fbset
 **/other/mkbootimg

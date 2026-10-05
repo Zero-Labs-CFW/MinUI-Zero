@@ -35,7 +35,14 @@ BUSYBOX_BIN=$(REQUIRES_BUSYBOX)/busybox
 # hash; the build fails rather than ship a different file.
 DUFS_VERSION=0.46.0
 DUFS_SHA256=1472123ae3aa07e49404d16b20305c2dec90c59883ebda9308717f7205e6511b
+DUFS_BIN_SHA256=5753d125dedb51bc4194e491de7d9081d7a1914a62c1fb4390d68ae55620334b
 DUFS_BIN=other/dufs/dufs
+# File Transfer's USB (MTP) mode: uMTP-Responder (viveris/uMTP-Responder, GPL-3.0), the MTP server muOS runs
+# (its script/system/usb_gadget.sh). The firmware's own MtpDaemon shared only internal storage and failed every
+# transfer from a Mac (2026-10-05). Built from the umtprd-1.8.1 tag's commit, verified every build like busybox.
+REQUIRES_UMTPRD=other/umtprd
+UMTPRD_HASH=8f87f7b19034055e2665eaaf07f84a41aa5f25e0
+UMTPRD_BIN=$(REQUIRES_UMTPRD)/umtprd
 # setup-env.sh puts the cross toolchain's UNPREFIXED as/ld first on PATH, so busybox's host-side
 # helpers (fixdep, kconfig) assembled for aarch64 and the build died; the cross compiler is a full path
 # in CROSS_COMPILE anyway, so busybox gets PATH without that one entry
@@ -46,7 +53,7 @@ BUSYBOX_PATH=$(subst /opt/aarch64-linux-gnu/aarch64-linux-gnu/bin:,,$(PATH))
 all: readmes
 	cd show && make
 
-early: $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN) $(COMMANDER_PIN) $(BUSYBOX_BIN) $(DUFS_BIN)
+early: $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN) $(COMMANDER_PIN) $(BUSYBOX_BIN) $(DUFS_BIN) $(UMTPRD_BIN)
 	mkdir -p other
 	# Files for the h700 image: same source, keyboard-scancode key table (def.h PLATFORM_H700), since
 	# the H's pad arrives as keyboard keys and the Brick's joystick table left it unusable. Built FIRST
@@ -61,7 +68,7 @@ clean:
 	cd show && make clean
 	cd $(REQUIRES_COMMANDER) && make clean && rm -f DinguxCommander-h700
 	cd $(REQUIRES_UNZIP60) && make -f unix/Makefile.trimuismart clean
-	rm -f $(BUSYBOX_PIN) $(BUSYBOX_BIN)
+	rm -f $(BUSYBOX_PIN) $(BUSYBOX_BIN) $(UMTPRD_BIN)
 
 ###########################################################
 
@@ -91,12 +98,32 @@ $(BUSYBOX_PIN): FORCE
 	git apply ../patches/busybox-ftpd.patch; \
 	touch $(notdir $(BUSYBOX_PIN))
 FORCE:
-$(DUFS_BIN):
-	mkdir -p other/dufs
-	wget -q -O other/dufs/dufs.tar.gz https://github.com/sigoden/dufs/releases/download/v$(DUFS_VERSION)/dufs-v$(DUFS_VERSION)-aarch64-unknown-linux-musl.tar.gz
-	echo "$(DUFS_SHA256)  other/dufs/dufs.tar.gz" | sha256sum -c -
-	tar -xzf other/dufs/dufs.tar.gz -C other/dufs dufs
-	rm -f other/dufs/dufs.tar.gz
+# Every build: the checkout must be exactly the pinned commit plus other/patches/umtprd-minui.patch (run without
+# POSIX message queues, which TrimUI's kernel lacks and stock umtprd exits on; send Android's MS OS "MTP"
+# descriptor so Windows binds MTP to the vendor-class interface), or it is reset, patched and rebuilt. Plain C,
+# no host tools, so the cross compiler (a full path in CROSS_COMPILE) is all it needs.
+$(UMTPRD_BIN): FORCE
+	@want="$$(grep -E '^[-+]' other/patches/umtprd-minui.patch | grep -vE '^(\+\+\+|---) ')"; \
+	have="$$(git -C $(REQUIRES_UMTPRD) diff HEAD 2>/dev/null | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ')"; \
+	head="$$(git -C $(REQUIRES_UMTPRD) rev-parse HEAD 2>/dev/null)"; \
+	if [ -f $(UMTPRD_BIN) ] && [ "$$head" = "$(UMTPRD_HASH)" ] && [ "$$have" = "$$want" ]; then \
+		make -s -C $(REQUIRES_UMTPRD) CC=$(CROSS_COMPILE)gcc; exit $$?; fi; \
+	echo "umtprd: (re)building $(UMTPRD_HASH) + patch"; set -e; \
+	[ -d $(REQUIRES_UMTPRD)/.git ] || (mkdir -p $(REQUIRES_UMTPRD) && cd $(REQUIRES_UMTPRD) && git init -q && git remote add origin https://github.com/viveris/uMTP-Responder.git); \
+	cd $(REQUIRES_UMTPRD); \
+	git cat-file -e $(UMTPRD_HASH)^{commit} 2>/dev/null || git fetch -q --depth 1 origin $(UMTPRD_HASH); \
+	git checkout -q -f --detach $(UMTPRD_HASH); git clean -qfdx; \
+	git apply ../patches/umtprd-minui.patch; \
+	make -s CC=$(CROSS_COMPILE)gcc
+# Every build: the binary itself must hash to the pin, or it is fetched again (and the tarball checked) and
+# must then match. A stale binary from an older DUFS_VERSION, or an altered one, can no longer ship (Codex review).
+$(DUFS_BIN): FORCE
+	@echo "$(DUFS_BIN_SHA256)  $(DUFS_BIN)" | sha256sum -c --status 2>/dev/null && exit 0; \
+	echo "dufs: fetching $(DUFS_VERSION)"; set -e; mkdir -p other/dufs; \
+	wget -q -O other/dufs/dufs.tar.gz https://github.com/sigoden/dufs/releases/download/v$(DUFS_VERSION)/dufs-v$(DUFS_VERSION)-aarch64-unknown-linux-musl.tar.gz; \
+	echo "$(DUFS_SHA256)  other/dufs/dufs.tar.gz" | sha256sum -c -; \
+	tar -xzf other/dufs/dufs.tar.gz -C other/dufs dufs; rm -f other/dufs/dufs.tar.gz; \
+	echo "$(DUFS_BIN_SHA256)  $(DUFS_BIN)" | sha256sum -c -
 $(BUSYBOX_BIN): $(BUSYBOX_PIN) other/patches/busybox-ftpd.config
 	cd $(REQUIRES_BUSYBOX) && PATH="$(BUSYBOX_PATH)" make -s allnoconfig
 	cd $(REQUIRES_BUSYBOX) && awk -v on="$$(grep -E '^CONFIG_[A-Z0-9_]+=y' ../patches/busybox-ftpd.config | cut -d= -f1 | tr '\n' ' ')" \

@@ -15,6 +15,16 @@ finish() { cp /tmp/usb-drive.log /mnt/UDISK/usb-drive-last.log 2>/dev/null; sync
 # finishing each remounted the card behind this script, once mid-teardown (found on-device 2026-10-05).
 # Mask the hook for this run only; the restart at the end brings it back.
 : > "$T/no-hotplug" && mount --bind "$T/no-hotplug" /etc/hotplug.d/block/10-mount
+# ...and fail CLOSED: without the mask the card can be remounted under fsck or while the computer owns it.
+# Nothing has been touched yet, so going back to the menu is safe (Codex review, 2026-10-05).
+if ! grep -q " /etc/hotplug.d/block/10-mount " /proc/mounts; then
+	echo "usb-drive: could not mask the automount hook, not starting"
+	rm -f /tmp/stay_awake
+	"$T/bin/say.elf" "USB Drive couldn't start.
+
+Nothing was changed."
+	exit 0
+fi
 echo "usb-drive: start $(cat /proc/uptime)"
 
 # 1) whatever could relaunch something from the card goes first, then everything still holding it
@@ -109,7 +119,7 @@ if mount "$DEV" "$CARD"; then
 	# fsck -a always saves orphaned chains as FSCK0000.REC... in the card root (no flag frees them instead),
 	# and they landed in Finder (Dan: "what is all these .rec files?"). They are pieces of writes a power cut
 	# interrupted, not usable files: kept, but moved out of sight into a dated folder.
-	R="$CARD/.userdata/fsck-recovered/$(date +%Y%m%d-%H%M%S)"
+	R="$CARD/.userdata/fsck-recovered/$(date +%Y%m%d-%H%M%S)-$$" # -$$: two runs in one second never share a folder
 	for f in "$CARD"/FSCK[0-9][0-9][0-9][0-9].REC; do
 		[ -f "$f" ] || continue
 		mkdir -p "$R" && mv "$f" "$R/" && echo "usb-drive: moved $(basename "$f") to ${R#$CARD/}"
