@@ -1225,3 +1225,37 @@ NextUI's never-block producer (drops audio on overshoot; our block stays a backs
 stall margin on these SoCs), keeping sinc with a raised GBC clock (the MMP cannot hold 60 at its max).
 Touches: api.c/api.h, minarch.c, audioservo.h, governor.c/h, GB/GBC default.cfg (3 platforms), PS and
 MinUI.pak launch.sh (3 platforms), h700 GB/GBC launch.sh, minui-frontend.sh. Zero-Paks: re-vendor governor.c.
+
+## D68 — TrimUI turns WiFi off while a game runs (2026-10-05)
+
+With WiFi up, about half of TrimUI boots crackled for the whole session: SDL_RenderPresent stalled 25-70 ms
+about once a second, generation fell to ~58.6 fps against 60.2, and a 2-minute frozen GBA scene logged
+200-560 underruns. Each boot was good or bad from launch to exit. It predates the beta (v1.8.2 split the
+same way) and every dev card has WiFi on for SSH, which is why it dominated our own testing. Users who
+opted into WiFi (wifi.txt) got it too.
+
+Clean-boot A/B (golden slot 9, auto-resume, alternating arms, "bad" = 200+ underruns per 2 min):
+- radio blocked by a test hook before launch: 0 bad of 8 boots (Brick); WiFi up: 4 of 8 bad;
+- the shipped MinUI.pak mechanism against its own opt-out, Brick + Brick Pro: on 0 bad of 10 (every one
+  0 underruns), opted out 7 of 10 bad (240-559). Six of those ten "on" boots ran the exact shipping build.
+NextUI users hit the same thing on the Brick (LoveRetro/NextUI#408, "Turning off WiFi solved the issue
+immediately") and asked for WiFi off in games; NextUI later cut in-game network polling (a937319a).
+
+What it does: an emulator launch (`*/Emus/*`, built-in and card paks) with WiFi up kills a still-running
+boot-time dev-net.sh first (auto-resume races it), then wpa_supplicant/udhcpc, takes wlan0 down and
+rfkill-blocks the radio; after the game, rfkill unblock and dev-net.sh in the background (WiFi back
+within the harness's first SSH probe). Tools keep the network. `.userdata/shared/keep-wifi-in-games`
+opts out for mid-game SSH. Nothing in a game uses the network, so the only cost is the reconnect.
+bin/suspend skips its wpa_supplicant restart while /tmp/game-wifi-off exists (checked with a no-sleep copy
+of the script on the Brick Pro: stays dead with the marker, restarts without it). Its rfkill0 lines touch
+Bluetooth, not WiFi (phy0 is rfkill1), so the WiFi block survives a sleep on its own.
+
+Divergence (earned): the H showed no bad boots with WiFi up (4 of 4 clean reboots, plus the full audio
+gate on 2026-10-03), so h700 does not get it; different radio (8821cs) and muOS's own connect/keepalive,
+which would fight a mid-game shutdown. MMP unmeasured.
+
+Rejected with data, same day: locking the clock to the governor ceiling (5 of 5 locked boots still bad;
+the CPU-rail i2c traffic that tracked bad boots is a symptom of the governor hopping after slips), the
+undervolt hold, MtpDaemon, ring cushion, a servo integral term, a measured rate match. Root cause inside
+the xradio driver is not identified; the radio being up is enough.
+Touches: skeleton/SYSTEM/tg5040/paks/MinUI.pak/launch.sh, skeleton/SYSTEM/tg5040/bin/suspend.

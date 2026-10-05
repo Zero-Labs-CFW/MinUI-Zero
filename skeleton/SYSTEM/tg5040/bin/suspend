@@ -56,6 +56,11 @@ after() {
 	>&2 echo "Unblocking wireless..."
 	echo 1 >/sys/class/rfkill/rfkill0/state || true
 
+	# A game turned WiFi off (MinUI.pak, D68): keep it off until the game exits, or waking mid-game brings
+	# back the stalls. Matters after an auto-resumed boot, where the stock S96 wpa_supplicant starts late.
+	# (The WiFi rfkill block itself survives: rfkill0 above is Bluetooth, phy0 is rfkill1; Brick Pro 2026-10-05.)
+	if [ -f /tmp/game-wifi-off ]; then wpa_running=; fi
+
 	if [ -n "$wpa_running" ]; then
 		>&2 echo "Starting wpa_supplicant..."
 		wpa_supplicant -B -D nl80211 -iwlan0 -c /etc/wifi/wpa_supplicant.conf -O /etc/wifi/sockets || true

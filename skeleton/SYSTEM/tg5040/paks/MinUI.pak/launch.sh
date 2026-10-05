@@ -476,7 +476,35 @@ while [ -f $EXEC_PATH ]; do
 	
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
+		# WIFI OFF DURING GAMES (2026-10-05). With WiFi up, about half of boots crackle through the whole
+		# session (SDL_RenderPresent stalls 25-70 ms ~once a second); with the radio blocked, 0 of 8 frozen-scene
+		# boots did (Brick, 8 vs 8 alternating). NextUI users found the same on the Brick and asked for exactly
+		# this (LoveRetro/NextUI#408). Only emulators: Tools (Device Sync, Files) keep the network. Back on via
+		# the boot path when the game exits, in the background so the menu is not held up.
+		# .userdata/shared/keep-wifi-in-games opts out (SSH debugging mid-game).
+		# dev-net.sh counts as "on": an auto-resumed game launches while the boot copy is still bringing
+		# WiFi up, so it dies FIRST or it starts wpa_supplicant again behind us. /Emus/ matches the
+		# built-in paks and the card's community ones (getEmuPath).
+		# TrimUI only, earned: the H passed the full audio gate with WiFi up (2026-10-03), so the stalls are this
+		# radio's (XR829/xradio). MMP unmeasured.
+		GAME_WIFI_OFF=0
+		case "$CMD" in *"/Emus/"*)
+			_dn=$(pgrep -f "bin/dev-net[.]sh" 2>/dev/null) # [.]: never matches a shell whose command line merely quotes it
+			if [ ! -f "$SHARED_USERDATA_PATH/keep-wifi-in-games" ] && { [ -n "$_dn" ] || pidof wpa_supplicant >/dev/null 2>&1; }; then
+				GAME_WIFI_OFF=1
+				touch /tmp/game-wifi-off # bin/suspend keeps the radio down on wake while this exists
+				for p in $_dn; do kill "$p" 2>/dev/null; done
+				for p in $(pidof wpa_supplicant udhcpc 2>/dev/null); do kill "$p" 2>/dev/null; done # by pid: busybox killall skips applets
+				ifconfig wlan0 down 2>/dev/null
+				rfkill block wifi 2>/dev/null
+			fi ;;
+		esac
 		eval $CMD
+		if [ "$GAME_WIFI_OFF" = 1 ]; then
+			rm -f /tmp/game-wifi-off
+			rfkill unblock wifi 2>/dev/null
+			sh "$SYSTEM_PATH/bin/dev-net.sh" >/dev/null 2>&1 &
+		fi
 		rm -f $NEXT_PATH
 		[ -f $EXEC_PATH ] && echo $CPU_SPEED_PERF > $CPU_PATH
 		echo `date +'%F %T'` > "$DATETIME_PATH"
