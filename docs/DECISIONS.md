@@ -1288,7 +1288,8 @@ charging screen never brightens a night step.
 - *FTP* (named by the owner; first drafted as "WiFi Transfer"): busybox `tcpsvd` + `ftpd` (1_36_1, pinned
   commit), a 43.8 KB build of only ftpd/tcpsvd/ls. One patch: the login is FTPD_USER/FTPD_PASS from the
   environment (a new 4-digit code each time, user `minui`, shown on screen) instead of the system accounts,
-  and a wrong password costs 2 s. Chrooted to the card. Hidden until WiFi is set up (owner). Checked from a
+  and a wrong password costs 2 s. Chrooted to the card. Always listed (owner: so people learn it exists); without WiFi set up (connected by any
+route, or wifi.txt / wifi.txt.off) its screen explains how to add wifi.txt. Checked from a
   Mac: list (standard `ls -l` columns), 5 MB up/down byte-identical in 6 s, mkdir/rename/delete, wrong
   password and wrong user refused, `../` cannot leave the card.
 - Rejected: fclairamb/ftpserver, the Go server the MinUI community pak wraps (shipped first, same day: 24.8 MB,

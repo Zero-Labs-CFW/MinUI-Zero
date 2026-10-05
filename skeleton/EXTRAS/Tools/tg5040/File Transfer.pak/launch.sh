@@ -21,14 +21,21 @@ wifi_ip() {
 ftp_run() {
 	IP=$(wifi_ip)
 	if [ -z "$IP" ]; then
-		if [ -f "$SDCARD_PATH/wifi.txt" ]; then
+		if [ -f "$SDCARD_PATH/wifi.txt.off" ] && [ ! -f "$SDCARD_PATH/wifi.txt" ]; then
+			say.elf "WiFi is off.
+
+Turn it on in Settings first."
+		elif [ -f "$SDCARD_PATH/wifi.txt" ]; then
 			say.elf "WiFi isn't connected yet.
 
 Try again in a minute."
 		else
-			say.elf "WiFi is off.
+			say.elf "FTP needs WiFi.
 
-Turn it on in Settings first."
+On a computer, add a file named wifi.txt
+to the card with one line:
+NetworkName:password
+Then restart."
 		fi
 		return
 	fi
@@ -78,11 +85,17 @@ The device restarts afterwards." "START" "BACK" || return
 while :; do
 	set -- usb "USB Drive" "" "" "Use the card as a drive on a computer.
 The device restarts afterwards. Press A."
-	# only once WiFi is set up (Dan): same test as the WiFi row in Settings, so set-up-but-off still shows
-	if [ -f "$SDCARD_PATH/wifi.txt" ] || [ -f "$SDCARD_PATH/wifi.txt.off" ]; then
-		set -- "$@" ftp "FTP" "" "" "Copy files over WiFi with an FTP app.
+	# Always shown, so people learn it exists (Dan, 2026-10-05, reversing "hide it without WiFi"); without
+	# WiFi set up, the description and the A screen say how. "Set up" = connected right now by ANY route
+	# (a dev card on the firmware's saved network has no wifi.txt) or a wifi.txt / wifi.txt.off.
+	if [ -n "$(wifi_ip)" ] || [ -f "$SDCARD_PATH/wifi.txt" ] || [ -f "$SDCARD_PATH/wifi.txt.off" ]; then
+		FTP_DESC="Copy files over WiFi with an FTP app.
 Press A."
+	else
+		FTP_DESC="Copy files over WiFi with an FTP app.
+Needs WiFi: add wifi.txt to the card."
 	fi
+	set -- "$@" ftp "FTP" "" "" "$FTP_DESC"
 	# --wide: left-aligned like the Tools list; rows without a value draw only their label pill
 	OUT=$(settings.elf --wide --title "File Transfer" "$@")
 	case "$OUT" in

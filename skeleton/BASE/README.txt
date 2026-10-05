@@ -78,7 +78,7 @@ USB Drive: the card shows up on a computer as a drive. When you're done,
 eject it on the computer, then unplug or press A. The device checks the
 card and restarts.
 
-FTP (shown once wifi.txt is set up): an FTP server runs over WiFi while its
+FTP (needs WiFi, see wifi.txt): an FTP server runs over WiFi while its
 screen is open. Connect any FTP app to the address shown, user "minui" and
 the one-time password on screen.
 
