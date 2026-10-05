@@ -502,8 +502,13 @@ while [ -f $EXEC_PATH ]; do
 		eval $CMD
 		if [ "$GAME_WIFI_OFF" = 1 ]; then
 			rm -f /tmp/game-wifi-off
-			rfkill unblock wifi 2>/dev/null
-			sh "$SYSTEM_PATH/bin/dev-net.sh" >/dev/null 2>&1 &
+			# back on only when returning to the menu: a power-off from inside the game removed $EXEC_PATH
+			# and the loop is about to exec shutdown, which must not race dev-net.sh writing its log to the
+			# card (Codex review, 2026-10-05)
+			if [ -f $EXEC_PATH ]; then
+				rfkill unblock wifi 2>/dev/null
+				sh "$SYSTEM_PATH/bin/dev-net.sh" >/dev/null 2>&1 &
+			fi
 		fi
 		rm -f $NEXT_PATH
 		[ -f $EXEC_PATH ] && echo $CPU_SPEED_PERF > $CPU_PATH
