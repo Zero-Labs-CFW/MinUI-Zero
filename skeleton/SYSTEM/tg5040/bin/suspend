@@ -7,13 +7,13 @@
 #    so we tear down wpa_supplicant / wlan0 / Bluetooth and rfkill-block first;
 #  - the ALSA mixer glitches on resume unless saved/restored.
 # Brick-specific bits to confirm on-device (see docs/archive/ON-DEVICE-CHECKLIST.md): service
-# names, wlan0, /sys/class/rfkill/rfkill0, the wpa_supplicant paths.
+# names, wlan0, the wpa_supplicant paths.
+# Bluetooth is never used (Dan, 2026-10-05: never supported), so it is blocked before every sleep and
+# NEVER brought back on wake.
 set -euo pipefail
 exec 0<&-
 
 wpa_running=
-hciattach_running=
-bluetoothd_running=
 
 asound_state_dir=/tmp/asound-suspend
 
@@ -29,22 +29,27 @@ before() {
 		>&2 echo "Stopping wpa_supplicant..."
 		killall -9 wpa_supplicant || true
 	fi
+	# udhcpc too: after() starts a fresh one, so leaving the old one alive added a client per sleep
+	# (3 after two cycles, Brick Pro 2026-10-05). By pid: busybox killall skips applets.
+	for p in $(pidof udhcpc 2>/dev/null || true); do kill "$p" 2>/dev/null || true; done
 	ifconfig wlan0 down || true
 
 	if pgrep hciattach; then
-		hciattach_running=1
 		>&2 echo "Stopping hciattach..."
 		/etc/init.d/hciattach stop || true
 	fi
 	if pgrep bluetoothd; then
-		bluetoothd_running=1
 		>&2 echo "Stopping bluetoothd..."
 		/etc/bluetooth/bluetoothd stop || true
 		killall -15 bluealsa || true
 	fi
 
-	>&2 echo "Blocking wireless..."
-	echo 0 >/sys/class/rfkill/rfkill0/state || true
+	# By type, like boot.sh: this used to write rfkill0, which happens to be Bluetooth (sunxi-bt; phy0
+	# is rfkill1), so the WiFi radio was never rfkill-blocked here and still is not.
+	>&2 echo "Blocking Bluetooth..."
+	for r in /sys/class/rfkill/rfkill*; do
+		if [ "$(cat "$r/type" 2>/dev/null || true)" = "bluetooth" ]; then echo 0 > "$r/state" 2>/dev/null || true; fi
+	done
 }
 
 after() {
@@ -53,28 +58,17 @@ after() {
 	>&2 echo "Restoring mixer state..."
 	alsactl --file "$asound_state_dir/asound.state.pre" restore || true
 
-	>&2 echo "Unblocking wireless..."
-	echo 1 >/sys/class/rfkill/rfkill0/state || true
+	# No rfkill writes on wake. The "Unblocking wireless" write that sat here was rfkill0 = Bluetooth, so
+	# every wake powered the Bluetooth radio back up, on every card. WiFi's block is never touched.
 
 	# A game turned WiFi off (MinUI.pak, D68): keep it off until the game exits, or waking mid-game brings
 	# back the stalls. Matters after an auto-resumed boot, where the stock S96 wpa_supplicant starts late.
-	# (The WiFi rfkill block itself survives: rfkill0 above is Bluetooth, phy0 is rfkill1; Brick Pro 2026-10-05.)
 	if [ -f /tmp/game-wifi-off ]; then wpa_running=; fi
 
 	if [ -n "$wpa_running" ]; then
 		>&2 echo "Starting wpa_supplicant..."
 		wpa_supplicant -B -D nl80211 -iwlan0 -c /etc/wifi/wpa_supplicant.conf -O /etc/wifi/sockets || true
 		( udhcpc -i wlan0 & )
-	fi
-
-	if [ -n "$hciattach_running" ]; then
-		>&2 echo "Starting hciattach..."
-		/etc/init.d/hciattach start || true
-	fi
-	if [ -n "$bluetoothd_running" ]; then
-		>&2 echo "Starting bluetoothd..."
-		/etc/bluetooth/bluetoothd start || true
-		/usr/bin/bluetoothctl power on || true
 	fi
 }
 

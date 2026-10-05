@@ -191,6 +191,13 @@ for _g in /sys/class/devfreq/*gpu*; do
 	echo "gpu ceiling: $_g $(cat "$_g/max_freq" 2>/dev/null) of $(cat "$_g/available_frequencies" 2>/dev/null)" >> "$LOG"
 done
 
+# Bluetooth radio off, by rfkill type (same as TrimUI boot.sh). The image already strips the Bluetooth
+# stack (libbluetooth), but nothing blocked the radio itself; Bluetooth is never supported (Dan, 2026-10-05).
+for _r in /sys/class/rfkill/rfkill*; do
+	[ "$(cat "$_r/type" 2>/dev/null)" = "bluetooth" ] && echo 0 > "$_r/state" 2>/dev/null
+done
+echo "rfkill: $(for _r in /sys/class/rfkill/rfkill*; do printf '%s=%s ' "$(cat "$_r/type" 2>/dev/null)" "$(cat "$_r/state" 2>/dev/null)"; done)" >> "$LOG"
+
 # WiFi + SSH bring-up. Credentials are USER-SUPPLIED (never baked into the image): the MinUI
 # convention is a wifi.txt at the SD-card root, "SSID:password" per line, '#' comments. We use the
 # first network. No wifi.txt = offline (MinUI is offline-by-default anyway) and this whole block

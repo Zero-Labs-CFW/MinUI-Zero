@@ -33,14 +33,16 @@ LOG="$SHARED/ssh-ip.txt"
   if [ -f "$SD/wifi.txt.off" ] && [ ! -f "$SD/wifi.txt" ]; then
     echo "wifi: toggled OFF (wifi.txt.off) -- leaving the radio DOWN, skipping SSH-over-wifi"
     killall -9 wpa_supplicant 2>/dev/null
-    killall udhcpc 2>/dev/null
+    for p in $(pidof udhcpc 2>/dev/null); do kill "$p" 2>/dev/null; done # by pid: busybox killall skips applets
     ifconfig wlan0 down 2>/dev/null
     command -v rfkill >/dev/null 2>&1 && rfkill block wifi 2>/dev/null
     exit 0
   fi
 
-  # 1) radios on
-  rfkill unblock all 2>/dev/null || true
+  # 1) WiFi radio on. Only WiFi: "unblock all" also powered the Bluetooth radio, which nothing uses
+  #    (Dan, 2026-10-05: Bluetooth is never supported). boot.sh blocks it; keep it blocked here too.
+  rfkill unblock wifi 2>/dev/null || true
+  rfkill block bluetooth 2>/dev/null || true
   ifconfig wlan0 up 2>/dev/null || true
 
   # 2) wifi config: build /etc/wifi/wpa_supplicant.conf from wifi.conf if provided,
