@@ -23,7 +23,8 @@ typedef struct Settings {
 	int headphones;
 	int speaker;
 	int mute;
-	int unused[2]; // for future use
+	int night; // 0, or night step 1..3 with brightness held at 0 (see SetBrightness); was unused[0]
+	int unused[1]; // for future use
 	// NOTE: doesn't really need to be persisted but still needs to be shared
 	int jack; 
 } Settings;
@@ -147,6 +148,8 @@ static void SetRawEnhanceBright(int val) {
 
 int GetBrightness(void) { // -3..10 (below 0 = night steps)
 	if (!settings) return 0; // callable before InitSettings (NextUI #273 class)
+	if (settings->brightness < 0) return settings->brightness < -3 ? -3 : settings->brightness; // a pre-release save
+	if (settings->brightness == 0 && settings->night > 0) return settings->night > 3 ? -3 : -settings->night;
 	return settings->brightness;
 }
 void SetBrightness(int value) {
@@ -192,7 +195,12 @@ void SetBrightness(int value) {
 	}
 	SetRawBrightness(raw);
 	SetRawEnhanceBright(enhance);
-	settings->brightness = value;
+	// A night step saves as brightness 0 + night N, never as a negative brightness: older builds read the
+	// same file and know only 0..10. Their SetBrightness had no case for -3 (an unset raw value went to the
+	// display) and their keymon could not step back up, so a downgrade could leave a black screen
+	// (Codex review, 2026-10-05). To them a night step is simply 0, their darkest.
+	settings->brightness = value < 0 ? 0 : value;
+	settings->night = value < 0 ? -value : 0;
 	SaveSettings();
 }
 
