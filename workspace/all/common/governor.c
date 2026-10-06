@@ -27,7 +27,9 @@ void PLAT_setCPUVoltForCeil(int khz);
                                // the loop limit-cycles at a boundary (600 slip -> 816 clean -> sink
                                // -> 600 slip -> ... = periodic slowdown bursts; Contra 2026-07-01)
 #define GOV_AUDIBLE_WINDOW 4   // ticks (~2s at 2 Hz) after our own sink within which a BIGSLIP is blamed on
-                               // that probe: two generation publications (trackFPS posts ~1/s). Wider
+                               // that probe: two generation publications (trackFPS posts ~1/s). Inclusive:
+                               // since_sink is bumped at the top of the tick, so tick k sees k (`<` gave
+                               // only 3 ticks; code review 2026-10-05, test_audible_window_edges). Wider
                                // windows risk blaming an unrelated scene change and holding one OPP high
                                // for the session (Codex review 2026-10-03).
 
@@ -164,7 +166,7 @@ int gov_step(GovState* st, const GovProfile* p, int temp_c, int frame_overrun) {
 			// on GBC, Brick + H 2026-10-02). Fixed-clock firmwares (NextUI's per-pak speeds) never
 			// take this risk at all; we take it once. Own field: later ordinary slips rewrite
 			// fail_hold and must not shorten this (Codex review 2026-10-03).
-			if (frame_overrun == GOV_SIGNAL_BIGSLIP && st->since_sink < GOV_AUDIBLE_WINDOW
+			if (frame_overrun == GOV_SIGNAL_BIGSLIP && st->since_sink <= GOV_AUDIBLE_WINDOW
 			    && st->ceil_khz > st->audible_khz)
 				st->audible_khz = st->ceil_khz;
 		}

@@ -284,6 +284,26 @@ static void test_sink_despite_busy_noise(void) {
 	      st.ceil_khz, p->f_min);
 }
 
+// GOV_AUDIBLE_WINDOW is "~2 s, two generation reports" = 4 ticks at 2 Hz. since_sink is bumped at the top of
+// gov_step, so the k-th tick after the sink sees k: the check is inclusive, or only 3 ticks (~1.5 s) counted
+// and the first fully post-sink BIGSLIP often missed it (code review, 2026-10-05).
+static void test_audible_window_edges(void) {
+	printf("[audible] the window covers ticks 1-4 after our own sink, not 5\n");
+	const GovProfile* p = &GOV_P_16BIT;
+	for (int k = 4; k <= 5; k++) {
+		GovState st; gov_init(&st, p);
+		int probe = gov_opp_above(p, p->f_min);
+		st.ceil_khz = probe; st.slack_run = GOV_DN_DWELL; st.fail_hold = 0;
+		gov_step(&st, p, 40, GOV_SIGNAL_SLACK);                     // sink: since_sink = 0
+		int failed = st.ceil_khz;
+		for (int i = 1; i < k; i++) gov_step(&st, p, 40, GOV_SIGNAL_BUSY); // hold, no probe
+		CHECK(st.ceil_khz == failed, "setup: BUSY must hold the sunk ceiling %d (got %d)", failed, st.ceil_khz);
+		gov_step(&st, p, 40, GOV_SIGNAL_BIGSLIP);                   // since_sink == k on this tick
+		if (k == 4) CHECK(st.audible_khz == failed, "BIGSLIP on tick 4 after the sink should mark %d audible (got %d)", failed, st.audible_khz);
+		else        CHECK(st.audible_khz == 0, "BIGSLIP on tick 5 is outside the window (audible=%d)", st.audible_khz);
+	}
+}
+
 static void test_slip_recovery_priority(void) {
 	printf("[slip-recovery] BIGSLIP outranks probe undo; ordinary slip restores presink\n");
 	const GovProfile* p = &GOV_P_PS1;
@@ -419,6 +439,7 @@ int main(void) {
 	test_slip_recovery_priority();
 	test_fail_hold_escalates();
 	test_probe_bigslip_is_not_retried();
+	test_audible_window_edges();
 	test_scene_burst_resets_floor_memory();
 	test_hot_ceiling();
 	test_hot_caps_below_max();
