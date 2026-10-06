@@ -1342,12 +1342,14 @@ build showed the same, so this was not from that day's fixes.
 - **Cause: a present did not use up its own slot.** With room in the swap queue the GLES present returns in
   ~3.5 ms instead of waiting for vsync, and GFX_markFrameSlot anchored the next skipped frame at that return.
   At 73% dups the loop made 4 frames in ~3 periods and the full audio ring throttled the surplus. NULL (dupe)
-  frames after an early present did the same with every frame presented. Fix: an early-returning present
-  takes slot + period (one fixed schedule, as MyMinUI's GFX_flip_fixed_rate keeps every frame); a present
-  that waited for vsync, or a stall, re-anchors at now, so the panel stays the reference; the slot never
-  runs more than two periods ahead. Result, both devices, present-skip on and off: blocking only in the first
-  minute (90-980 ms, the launch burst), then none; the servo holds 35-67% with trims under +-1,700 ppm
-  (~3 cents); 0 underruns.
+  frames after an early present did the same with every frame presented. Fix: a present owns exactly one
+  slot on the schedule (one fixed schedule, as MyMinUI's GFX_flip_fixed_rate keeps every frame), whether it
+  returns early or up to a period late; only a stall (a period or more late) or a slot more than two periods
+  ahead re-anchors. A first version re-anchored late presents at now, and ActRaiser (96% dups) then ran slow:
+  ring 25-33%, servo -0.9% (~16 cents flat); fixed the same day. Result, both devices, GBC/GBA/NES/SNES/
+  Genesis, present-skip on and off: blocking only in the first minute (the launch burst), then none; the
+  servo holds 35-72% with trims mostly under 2,000 ppm and never past 4,100 (~7 cents); 0 underruns after
+  the arming fix below.
 - **A full ring may drain where video clocks the loop.** At equal video and audio rates a full ring stays
   full, and every window blocks. A blocked window now drains at RetroArch's rate-control delta (0.5%, never
   less than the trim in force) when PLAT_presentWaitsForVsync (TrimUI: PRESENTVSYNC; h700: synchronous pan;
@@ -1356,9 +1358,15 @@ build showed the same, so this was not from that day's fixes.
   presented): 3,337 ms blocked in the first minute without the drain, 390 ms with it.
   `ZERO_NO_FULL_DRAIN` (presence-only) restores the hold for A/B.
 - servo-stats now logs `blocked=Xms (max Y/tick)`: the time the producer waited on a full ring.
+- **The undervolt table arms off the game loop.** It first arms at 30 s of uptime (an early-boot guard), so a
+  game started soon after boot (boot-to-game resume) armed it mid-game, on MAIN, from the governor's ceiling
+  write: card reads and a 32-regulator scan, 16-26 ms (measured). With the ring at ~67 ms instead of near full,
+  that stall plus a governor slip at the 600 MHz floor underran ActRaiser 2 of 3 times (1-4 underruns, once).
+  A one-shot thread arms it now; readiness is published only after the decode gate (the old fast path read
+  uv_fd before that gate had passed); the stock voltage stays in charge until then.
 - The Brick Pro's display IRQ rate is 60.186/s, so its 60.180 match stands (`fps:60.8` in
   `/sys/class/disp/disp/attr/sys` is the advertised figure, not the scanout rate).
 
 Unverified: the H (it dropped off the network mid-run, cause unknown) and the MMP (no SSH that night). On the
 MMP the drain is off by default (lenient flips) and the slot rule only changes where a dup after a present
-sleeps to. Touches: api.c/api.h, minarch.c, audioservo.h + test, tg5040/h700/miyoomini platform.c.
+sleeps to. Touches: api.c/api.h, minarch.c, audioservo.h + test, tg5040/h700/miyoomini platform.c (tg5040: undervolt arming).
