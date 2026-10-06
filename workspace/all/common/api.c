@@ -1878,6 +1878,14 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	SDL_AudioSpec spec_in;
 	SDL_AudioSpec spec_out;
 
+	// ZERO_AUDIO_DEVICE (tg5040 MinUI.pak, D72): the launcher's choice of ALSA device for minarch alone, made SDL's AUDIODEV
+	// here so no other program launched from /Emus/ inherits a raw device. An AUDIODEV already set (an A/B prefix) wins.
+	// Before PLAT_pickSampleRate, which reads AUDIODEV.
+	{
+		const char* zdev = getenv("ZERO_AUDIO_DEVICE");
+		const char* cur = getenv("AUDIODEV");
+		if (zdev && *zdev && !(cur && *cur)) setenv("AUDIODEV", zdev, 1);
+	}
 	spec_in.freq = PLAT_pickSampleRate(sample_rate, MAX_SAMPLE_RATE);
 	spec_in.format = AUDIO_S16;
 	spec_in.channels = 2;

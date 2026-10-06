@@ -494,11 +494,13 @@ while [ -f $EXEC_PATH ]; do
 			# (aplay -v on device). The codec opened directly, as the muOS-derived H image does (pcm.!default ->
 			# hw:0,0), takes SDL's two periods of ZERO_AUDIO_SAMPLES: 1024 x 2 = 43 ms. 512 x 2 (21 ms) was tight for
 			# SNES (near-misses every ~0.7 s on the Brick, 4 restarts on the Smart Pro); 1024 cleared both. The softvol
-			# it skips sits at 100% and MinUI's volume
-			# drives the codec's own controls; the mixer only matters with two players, and a game is the only one.
-			# Emulators only: a community port may want a rate the bare codec refuses. minarch falls back to the
-			# default if this will not open. A command prefixed AUDIODEV=default overrides it (A/B).
-			export AUDIODEV=hw:audiocodec,0
+			# it skips sits at 100% and MinUI's volume drives the codec's own controls; the mixer only matters with two
+			# players, and a game is the only one. minarch ONLY: these are MinUI's own variables, which minarch turns into
+			# SDL's AUDIODEV inside its own process (api.c). A standalone emulator pak under /Emus/ (PPSSPP) inherited a
+			# plain AUDIODEV and opened the bare codec with its own 256 x 2 = 11.6 ms buffer and no RT thread, or would go
+			# silent on a rate the codec refuses: no minarch fallback there (Codex review 5, 2026-10-06). minarch falls
+			# back to the default if the codec will not open; a command prefixed AUDIODEV=default overrides it (A/B).
+			export ZERO_AUDIO_DEVICE=hw:audiocodec,0
 			export ZERO_AUDIO_SAMPLES=1024
 			# ...and keep SDL's audio thread on time for that buffer: minarch moves it to SCHED_FIFO (api.c).
 			export ZERO_AUDIO_RT=1
@@ -518,7 +520,7 @@ while [ -f $EXEC_PATH ]; do
 			fi ;;
 		esac
 		eval $CMD
-		unset AUDIODEV ZERO_AUDIO_SAMPLES ZERO_AUDIO_RT
+		unset ZERO_AUDIO_DEVICE ZERO_AUDIO_SAMPLES ZERO_AUDIO_RT
 		if [ "$GAME_WIFI_OFF" = 1 ]; then
 			rm -f /tmp/game-wifi-off
 			# back on only when returning to the menu: a power-off from inside the game removed $EXEC_PATH
