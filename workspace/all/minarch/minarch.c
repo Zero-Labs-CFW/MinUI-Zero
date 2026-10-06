@@ -4052,6 +4052,32 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 		renderer.dst_h = screen->h;
 	}
 }
+// The serial loop (MAIN runs the core and presents): the only path that paces unpresented frames itself; the
+// threaded paths have their own pacers.
+static int unpresented_frame_serial(void) {
+	int serial = !thread_video;
+#ifdef ZERO_FRONTEND_THREADING_V2
+	serial = serial && !zero_ftv2_depth2;
+#endif
+	return serial;
+}
+// A frame that is generated but not presented (a byte-identical dup that present-skip drops, or a NULL frame
+// the core sends to dupe) still holds its slot on the video clock (D67). Its work sample closes first, so the
+// governor never counts the sleep as load. The period is the loop's own budget: core_pace_ppm carries the
+// static rate match, or DRC's rate while DRC runs (code review 2026-10-05: the static ppm alone ran
+// DRC-paced loops slower than their audio rate through every dup streak). Without this the core free-ran
+// into the audio ring's backpressure, pinning the ring (= the lag) full. ZERO_NO_SKIP_PACE (presence-only)
+// restores the old free-run, for A/B.
+static void pace_unpresented_frame(void) {
+	GFX_finishFrameWork();
+	static int skip_pace = -1;
+	if (skip_pace < 0) skip_pace = (getenv("ZERO_NO_SKIP_PACE") == NULL);
+	if (skip_pace && unpresented_frame_serial() && !show_menu && !fast_forward && core.fps > 0) {
+		double fps = core.fps * (1.0 + core_pace_ppm / 1000000.0);
+		GFX_paceSkippedFrame((uint32_t)(1000000.0 / fps));
+	}
+}
+
 static void present_frame(const void *data, unsigned width, unsigned height, size_t pitch, int do_flip) {
 	// return;
 
@@ -4131,21 +4157,7 @@ static void present_frame(const void *data, unsigned width, unsigned height, siz
 				.max_streak        = 30,
 			};
 			if (dupskip_should_skip(&g_dup, &dc)) {
-				GFX_finishFrameWork(); // close this frame's work sample for the governor batch
-				// Hold the frame's slot on the video clock (after the work sample closes, so
-				// the governor never counts the sleep as load). Serial loop only: the threaded
-				// paths have their own pacers. Without this the core free-ran through every dup
-				// streak into the audio ring's backpressure, pinning the ring (= the lag) full.
-				int serial = !thread_video;
-#ifdef ZERO_FRONTEND_THREADING_V2
-				serial = serial && !zero_ftv2_depth2;
-#endif
-				static int skip_pace = -1; // ZERO_NO_SKIP_PACE (presence-only) = old free-run, for A/B
-				if (skip_pace < 0) skip_pace = (getenv("ZERO_NO_SKIP_PACE") == NULL);
-				if (skip_pace && serial && !show_menu && !fast_forward && core.fps > 0) {
-					double fps = core.fps * (1.0 + zero_static_rate_ppm / 1000000.0);
-					GFX_paceSkippedFrame((uint32_t)(1000000.0 / fps));
-				}
+				pace_unpresented_frame();
 				return;
 			}
 			dup_force_present = 0;
@@ -4371,6 +4383,11 @@ static void video_refresh_callback(const void *data, unsigned width, unsigned he
 		if (zero_ftv2_inited && fc_current_phase() == FCP_RUN_EPOCH)
 			fc_signal_dup(&zero_ftv2);
 #endif
+		// A NULL frame is the core's own dupe (CAN_DUPE: gambatte through LCD-off frames, frameskipping
+		// gpsp/snes9x/picodrive): nothing is presented, so it must hold its video-clock slot exactly like a
+		// byte-identical dup, or the core free-runs those iterations into the audio ring (code review,
+		// 2026-10-05). Serial path only: here this callback runs on the core thread in threaded modes.
+		if (unpresented_frame_serial()) pace_unpresented_frame();
 		return;
 	}
 	
@@ -7674,16 +7691,17 @@ static int zero_boot_timing = -1;
 		// stall storm is a present-path bug, fixed there). Since 2026-10-03 the servo is what
 		// sets the lag (~67ms): the loop is video-clocked, so it rarely blocks on a full ring.
 		// Not eligible without a static match (PAL cores, Smart Pro): those stay audio-paced
-		// at ring capacity (~133ms at 60 Hz, 160ms at 50 Hz) — a known follow-up.
+		// at ring capacity (~133ms at 60 Hz, 160ms at 50 Hz), a known follow-up.
 		// Serial path only: on the threaded/depth-2 paths CORE owns audio production and a
 		// MAIN-side ppm write chopped audio (ear-verified 2026-07-08) — the same exclusion as
 		// DRC. Scoped to an ACTIVE static match: an unmatched core keeps its audio-paced
 		// fallback untouched, and an audio-paced loop sits at a full ring by design (a servo
-		// there would just run the game +MAX fast). Present-skip makes even a matched loop
-		// audio-paced during every dup streak (a skipped present has no vsync wait, so the
-		// core free-runs until the ring backpressures), so a tick whose window saw the
-		// producer BLOCK is not sampled: occupancy then measures the pacer, not the level
-		// (review 2026-09-02). PS is excluded: presentation-drop's hysteresis (engage <50%,
+		// there would just run the game +MAX fast). A skipped present no longer free-runs on the
+		// serial path: GFX_paceSkippedFrame sleeps it to the vsync slot it would have taken
+		// (D67), and NULL (dupe) frames are paced the same way. A window can still see the
+		// producer BLOCK where pacing is off (ZERO_NO_SKIP_PACE, threaded paths, a stall that
+		// overfills the ring), and occupancy then measures the pacer, not the level, so such a
+		// tick is still not sampled (review 2026-09-02). PS is excluded: presentation-drop's hysteresis (engage <50%,
 		// release >=66%) was tuned against a near-full ring and a servo-held level would eat
 		// its stall margin (v1.7.1 smoothness arc). No DRC term: DRC requires no static match
 		// and this requires one, exclusive by construction (drc_ppm is deliberately left
