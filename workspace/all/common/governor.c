@@ -291,12 +291,15 @@ void gov_burst(GovState* st, const GovProfile* p) {
 // AUDIO LOW-WATER (code review 2026-10-06): the audio ring running low means the core is falling behind NOW. The
 // generation-rate signal publishes ~1/s and the tick runs at 2 Hz, so a slip after a sink took ~1 s to climb out of,
 // which the ~67 ms ring of D70 does not always cover (ActRaiser at the SNES floor: 3 of 9 runs underran, and the fix
-// was a per-system floor bump). Climbing on the ring is the root-cause fix: called per frame by the frontend, it treats
-// the moment as a deep slip (failure memory, audible ban of our own recent probe) and goes to f_max at once. Returns 1
-// when it moved the ceiling (0 at f_max already, or disabled), so the caller can log and dirty its vote window.
+// was a per-system floor bump). Climbing on the ring is the root-cause fix: called per frame by the frontend, it goes to
+// f_max at once and keeps the ordinary failure memory (the ~60 s hold), but NOT the session-long audible ban: a low ring
+// is not always a CPU deficit. The known once-per-session audio-backend xrun refills the device from the ring and drops it
+// to 12-19% at any clock, and banning a probe on that held whole sessions one OPP high (Codex review 5, 2026-10-06). The
+// ban stays with the generation-rate BIGSLIP, which is CPU evidence. Returns 1 when it moved the ceiling (0 at f_max
+// already, or disabled), so the caller can log and dirty its vote window.
 int gov_audio_low(GovState* st, const GovProfile* p) {
 	if (gov_disabled() || st->ceil_khz >= p->f_max) return 0;
-	gov_remember_failure(st, p, 1);
+	gov_remember_failure(st, p, 0);
 	st->ceil_khz = p->f_max;
 	st->slip_run = 0;
 	st->slack_run = 0;

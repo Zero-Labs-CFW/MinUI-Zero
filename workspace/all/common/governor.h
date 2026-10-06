@@ -133,8 +133,8 @@ void gov_tick(GovState* st, const GovProfile* p, int frame_overrun);
 // arrives — jump the ceiling to f_max now, let the sink ladder re-find the floor after.
 void gov_burst(GovState* st, const GovProfile* p);
 
-// Audio low-water: the frontend calls this the frame the audio ring falls under GOV_RING_LOW_PCT. Treated as a deep slip
-// at the current ceiling and climbs to f_max at once (writes it). Returns 1 if the ceiling moved.
+// Audio low-water: the frontend calls this the frame the audio ring falls under GOV_RING_LOW_PCT. Climbs to f_max at once
+// (writes it) and remembers the current ceiling as failed (the ordinary hold, not the audible ban). Returns 1 if moved.
 #define GOV_RING_LOW_PCT 20 // below the lowest healthy servo level measured (31%), ~27 ms of an 8-frame ring left
 int gov_audio_low(GovState* st, const GovProfile* p);
 

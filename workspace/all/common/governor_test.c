@@ -328,7 +328,7 @@ static void test_audible_marks_the_probe(void) {
 }
 
 static void test_audio_low_water(void) {
-	printf("[low-water] a low audio ring climbs to f_max at once, like a deep slip\n");
+	printf("[low-water] a low audio ring climbs to f_max at once and holds the ceiling, but never bans it\n");
 	const GovProfile* p = &GOV_P_16BIT;
 	GovState st; gov_init(&st, p);
 	// sitting sunk for a while (not a fresh probe): climb + failure memory, no audible ban
@@ -348,7 +348,10 @@ static void test_audio_low_water(void) {
 	gov_step(&st, p, 40, GOV_SIGNAL_SLACK);                     // sink: the probe
 	int probe = st.ceil_khz;
 	gov_step(&st, p, 40, GOV_SIGNAL_BUSY);                      // one tick later the ring runs low
-	CHECK(gov_audio_low(&st, p) == 1 && st.audible_khz == probe, "low-water right after a sink must ban the probe %d (audible=%d)", probe, st.audible_khz);
+	// a low ring is not CPU evidence (the audio backend's own xrun refill drops it too): hold the probe, never ban it
+	CHECK(gov_audio_low(&st, p) == 1, "low-water right after a sink must still climb");
+	CHECK(st.audible_khz == 0, "low-water must not ban the probe for the session (audible=%d)", st.audible_khz);
+	CHECK(st.fail_khz == probe && st.fail_hold > 0, "low-water must hold the probe %d off for a while (fail=%d hold=%d)", probe, st.fail_khz, st.fail_hold);
 }
 
 static void test_slip_recovery_priority(void) {
