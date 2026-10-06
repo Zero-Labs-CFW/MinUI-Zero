@@ -1405,11 +1405,12 @@ static void SND_signalSpace(void) {
 // SDL callback size (= the ALSA period; SDL asks for 2 periods). ZERO_AUDIO_SAMPLES overrides the platform's SAMPLES for
 // one launch (D72): tg5040's MinUI.pak sets 1024 for its direct codec, where 512 x 2 = 21 ms was tight for SNES (near-misses
 // every ~0.7 s on the Brick, 4 stream restarts on the Smart Pro) and 1024 x 2 = 43 ms cleared both. Powers of two,
-// 256..4096, else SAMPLES.
+// 256..1024, else SAMPLES: each callback takes one period out of the ring, which holds ~3200 frames at its 50% setpoint,
+// and 2048 already dipped it under the governor's 20% low-water mark every few frames (code review 2026-10-06).
 static int snd_samples(void) {
 	const char* e = getenv("ZERO_AUDIO_SAMPLES");
 	int n = e ? atoi(e) : 0;
-	if (n >= 256 && n <= 4096 && (n & (n - 1)) == 0) return n;
+	if (n >= 256 && n <= 1024 && (n & (n - 1)) == 0) return n;
 	return SAMPLES;
 }
 // REAL-TIME AUDIO THREAD (ZERO_AUDIO_RT=1, D72). Opened straight to the TrimUI codec the hardware buffer is ~43 ms instead
