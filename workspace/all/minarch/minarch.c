@@ -7207,6 +7207,10 @@ static int zero_boot_timing = -1;
 			pthread_mutex_unlock(&core_mx);
 			if (frame) {
 				video_refresh_callback_main(frame->pixels,frame->w,frame->h,frame->pitch);
+				// The threaded path never paces skipped frames, so no slot schedule: a stale serial period here walked the
+				// slot ahead each present, and the first dup after a switch back to serial slept up to ~3 periods
+				// (code review 2026-10-06). 0 = every present anchors at now.
+				GFX_setFrameSlotPeriod(0);
 				GFX_flipGame(screen); // game path — skippable (see invisible-menu fix)
 				mb_flips_total++;
 				static uint64_t last_flip_us = 0;
