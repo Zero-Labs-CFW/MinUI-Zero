@@ -1856,6 +1856,21 @@ void SND_getStats(SND_Stats* out) {
 	out->frame_count = (int)(ring >> 32);
 	out->queue_frames = (int)(uint32_t)ring;
 }
+// One copy of the device-open policy for SND_init and SND_resume (code review 2026-10-06): open; if a launcher-chosen
+// ALSA device (AUDIODEV: tg5040 opens its codec directly, D72) will not open, busy or absent on a model whose codec has
+// another name, drop it and reopen through the system default, so it never costs the game its sound; on success, arm
+// the real-time audio thread (ZERO_AUDIO_RT). `when` tags the log line. Returns 1 when a device is open.
+static int snd_open_device(SDL_AudioSpec* in, SDL_AudioSpec* out, const char* when) {
+	int ok = SDL_OpenAudio(in, out) >= 0;
+	const char* audiodev = getenv("AUDIODEV");
+	if (!ok && audiodev && *audiodev) {
+		LOG_info("SDL_OpenAudio on AUDIODEV=%s failed%s (%s), reopening through the system default\n", audiodev, when, SDL_GetError());
+		unsetenv("AUDIODEV");
+		ok = SDL_OpenAudio(in, out) >= 0;
+	}
+	if (ok) { const char* rt = getenv("ZERO_AUDIO_RT"); snd_rt_armed = rt && rt[0] == '1'; }
+	return ok;
+}
 void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	uint64_t t_snd0 = getMicroseconds();
 #define SNDMARK(what) do { const char* _e = getenv("ZERO_BOOT_TIMING"); \
@@ -1908,16 +1923,7 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	PLAT_muteAudio(1);
 	SNDMARK("pre_open");
 
-	if (SDL_OpenAudio(&spec_in, &spec_out)<0) {
-		// A launcher-chosen ALSA device (AUDIODEV: tg5040 opens its codec directly, D72) that will not open, busy, or
-		// absent on a model whose codec has another name, must never cost the game its sound: drop it and reopen
-		// through the system default (TrimUI's mixer) before anything else.
-		const char* audiodev = getenv("AUDIODEV");
-		if (audiodev && *audiodev) {
-			LOG_info("SDL_OpenAudio on AUDIODEV=%s failed (%s), reopening through the system default\n", audiodev, SDL_GetError());
-			unsetenv("AUDIODEV");
-			if (SDL_OpenAudio(&spec_in, &spec_out) >= 0) goto audio_open_ok;
-		}
+	if (!snd_open_device(&spec_in, &spec_out, "")) {
 		// no device: run silent but SAFE — spec_out is uninitialized on failure and the
 		// producer paths gate on snd.initialized, so leave it cleared (audit 2026-07-11)
 		// The device may still be enabled from a process that died without closing it, in which
@@ -1925,7 +1931,7 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 		// (MEASURED across 5 back-to-back systems). Reset it and try exactly once more.
 		LOG_info("SDL_OpenAudio failed (%s) — resetting the audio device and retrying\n", SDL_GetError());
 		PLAT_resetAudio();
-		if (SDL_OpenAudio(&spec_in, &spec_out) >= 0) {
+		if (snd_open_device(&spec_in, &spec_out, " after the reset")) {
 			LOG_info("audio recovered after reset\n");
 			goto audio_open_ok;
 		}
@@ -1939,7 +1945,6 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 		return;
 	}
 audio_open_ok:
-	{ const char* rt = getenv("ZERO_AUDIO_RT"); snd_rt_armed = rt && rt[0] == '1'; }
 	
 	// Mute AFTER the open: MI_AO rejects SetMute/SetVolume before the device is enabled
 	// (MEASURED in dmesg: "MI_AO_IMPL_SetMute: Dev0 has not been enabled"), so muting earlier was
@@ -2014,14 +2019,7 @@ void SND_resume(void) { // reopen at the rate negotiated in SND_init; ring buffe
 	spec_in.samples = snd_samples();
 	spec_in.callback = SND_audioCallback;
 
-	int resume_ok = SDL_OpenAudio(&spec_in, &spec_out) >= 0;
-	const char* audiodev = getenv("AUDIODEV");
-	if (!resume_ok && audiodev && *audiodev) { // the direct codec device (D72): same fallback as SND_init
-		LOG_info("SDL_OpenAudio on AUDIODEV=%s failed on resume (%s), reopening through the system default\n", audiodev, SDL_GetError());
-		unsetenv("AUDIODEV");
-		resume_ok = SDL_OpenAudio(&spec_in, &spec_out) >= 0;
-	}
-	if (resume_ok) { const char* rt = getenv("ZERO_AUDIO_RT"); snd_rt_armed = rt && rt[0] == '1'; }
+	int resume_ok = snd_open_device(&spec_in, &spec_out, " on resume");
 	if (!resume_ok) {
 		// resume failed: without a consumer the producer would fill the ring and stall
 		// forever — drop to silent-but-safe instead (audit 2026-07-11)
