@@ -7739,11 +7739,14 @@ static int zero_boot_timing = -1;
 			else if (++servo_frames >= 30) { // ~2Hz, the governor tick's cadence
 				servo_frames = 0;
 				SND_Stats ss; SND_getStats(&ss);
-				// wall ms the producer spent blocked on a full ring this window. >0 means the
-				// ring paced the loop (dup streak / overfill): hold the trim, do not sample.
-				long blocked = (servo_prev_wait < 0) ? 1 : ss.wait_ms - servo_prev_wait;
+				// wall ms the producer spent blocked on a full ring this window (>0: the ring paced
+				// the loop, see the block comment above). The first window after (re)arming has no
+				// baseline and only records one: it used to count as blocked, which the full-ring
+				// drain then acted on at every launch and menu close (Codex review 4, 2026-10-06).
+				int baseline = (servo_prev_wait < 0);
+				long blocked = baseline ? 0 : ss.wait_ms - servo_prev_wait;
 				servo_prev_wait = ss.wait_ms;
-				if (ss.frame_count > 0) {
+				if (!baseline && ss.frame_count > 0) {
 					int occ = (int)((100L * ss.queue_frames) / ss.frame_count);
 					// may a full ring drain? (block comment above; read per tick: the MMP's answer follows its vsync option).
 					// ZERO_NO_FULL_DRAIN (presence-only) holds instead, as before, for A/B.
