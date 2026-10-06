@@ -411,7 +411,7 @@ int PLAT_keepAudioOpen(void);
 // Force the audio device back to a closed/disabled state. Called only when opening it FAILED, to
 // recover from a previous process that died without closing it. No-op where not applicable.
 void PLAT_resetAudio(void); // closed-loop governor: set the cpufreq ceiling (scaling_max_freq, kHz)
-int PLAT_supportsUndervolt(void); // 1 only if a confirmed runtime undervolt mechanism exists (tg5040: 0 for now)
+int PLAT_supportsUndervolt(void); // 1 only while a confirmed undervolt table is armed (tg5040: after its off-thread arming); no side effects
 void PLAT_setUndervolt(int millivolts); // legacy spike API, superseded by the table-driven authority below
 void PLAT_setCPUVoltForCeil(int khz);   // apply the calibrated voltage covering any OPP <= (rounded-up) ceiling
 void PLAT_restoreCPUVolt(void);         // always-safe stock restore (clean quit path)

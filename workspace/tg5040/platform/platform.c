@@ -1224,7 +1224,11 @@ static int uv_write(int uv) {
 	uv_applied = uv;
 	return 1;
 }
-int PLAT_supportsUndervolt(void) { return uv_armed(); }
+// A pure query (code review 2026-10-06): 1 once the table has armed and no restore has run. Never starts the arming
+// thread; the governor's ceiling writes do that.
+int PLAT_supportsUndervolt(void) {
+	return __atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE) && !__atomic_load_n(&uv_closed, __ATOMIC_ACQUIRE);
+}
 static int uv_set_for_ceil(int khz) {
 	// voltage that covers the highest OPP the kernel may round the ceiling UP to:
 	// smallest table entry >= khz (table sorted ascending); above the table -> stock.
