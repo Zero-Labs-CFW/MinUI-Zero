@@ -1170,7 +1170,12 @@ static int batteryEmptyNow(void) {
 	if (mv > 100000) mv /= 1000; // uV -> mV
 	int mv_ok = mv >= 2500 && mv <= 4500;
 	if (mv_ok && mv > 3600) return 0; // a healthy cell: a 0-1% gauge reading is the gauge, not the battery
-	return (pct >= 0 && pct <= 1) || (mv_ok && mv <= 3350);
+	// Voltage alone only counts with the gauge near empty too (or unreadable): a loaded cell at 8-12% (PS1 near
+	// 1.5 GHz, backlight up) can sag to 3.30-3.35 V for longer than two polls, and powered the device off with
+	// charge left (code review, 2026-10-05). The thresholds stay INFERRED until a drain-to-cut log.
+	int gauge_empty = pct >= 0 && pct <= 1;
+	int volt_empty = mv_ok && mv <= 3350 && (pct < 0 || pct <= 5);
+	return gauge_empty || volt_empty;
 }
 int PLAT_batteryIsEmpty(void) {
 	return battery_empty_polls >= 2;
