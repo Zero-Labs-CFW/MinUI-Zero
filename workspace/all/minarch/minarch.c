@@ -7716,8 +7716,9 @@ static int zero_boot_timing = -1;
 		// BLOCKED measures the pacer, not the level (review 2026-09-02), so the cubic never
 		// sees it. Where video clocks the loop (PLAT_presentWaitsForVsync, skip pacing on) a
 		// block only means the ring is too full, and at equal rates a full ring stays full:
-		// that window drains at audioservo_full_target_ppm instead (2026-10-05). Elsewhere (MMP
-		// lenient flips, ZERO_NO_SKIP_PACE) audio may be the only clock, so it holds. PS is excluded: presentation-drop's hysteresis (engage <50%,
+		// that window drains at audioservo_blocked_target_ppm instead (2026-10-05). With
+		// ZERO_NO_SKIP_PACE audio may pace dup streaks, so it holds; where presents do not wait
+		// for vsync at all (MMP lenient flips) the servo is not eligible. PS is excluded: presentation-drop's hysteresis (engage <50%,
 		// release >=66%) was tuned against a near-full ring and a servo-held level would eat
 		// its stall margin (v1.7.1 smoothness arc). No DRC term: DRC requires no static match
 		// and this requires one, exclusive by construction (drc_ppm is deliberately left
@@ -7733,9 +7734,13 @@ static int zero_boot_timing = -1;
 #ifdef ZERO_FRONTEND_THREADING_V2
 			servo_threaded = servo_threaded || zero_ftv2_depth2;
 #endif
+			// PLAT_presentWaitsForVsync: the servo trims a loop that VIDEO clocks. Where nothing waits for vsync
+			// (MMP lenient flips) audio paces the loop, the ring sits full, nearly every window blocks, and the
+			// rare unblocked one (a slowdown) read high and left a drain trim held between slowdowns: up to +2%
+			// speed, 35 cents sharp (code review 2026-10-06). It stands down there and releases its trim.
 			int servo_eligible = servo_enabled && !servo_threaded && zero_static_rate_ppm
 				&& !fast_forward && !presentation_drop_supported
-				&& GFX_getVsync() != VSYNC_OFF
+				&& GFX_getVsync() != VSYNC_OFF && PLAT_presentWaitsForVsync()
 				&& SND_isActive() && !SND_isPrefilling();
 			if (!servo_eligible) {
 				if (zero_servo_adj && !servo_threaded) zero_servo_release(); // never write under a CORE producer
@@ -7753,11 +7758,11 @@ static int zero_boot_timing = -1;
 				servo_prev_wait = ss.wait_ms;
 				if (!baseline && ss.frame_count > 0) {
 					int occ = (int)((100L * ss.queue_frames) / ss.frame_count);
-					// may a full ring drain? (block comment above; read per tick: the MMP's answer follows its vsync option).
-					// ZERO_NO_FULL_DRAIN (presence-only) holds instead, as before, for A/B.
+					// may a full ring drain? (block comment above; eligibility already requires presents that wait for
+					// vsync). ZERO_NO_FULL_DRAIN (presence-only) holds instead, as before, for A/B.
 					static int full_drain = -1;
 					if (full_drain < 0) full_drain = (getenv("ZERO_NO_FULL_DRAIN") == NULL);
-					int video_clocked = full_drain && PLAT_presentWaitsForVsync() && skip_pace_enabled();
+					int video_clocked = full_drain && skip_pace_enabled();
 					int act = (blocked <= 0) || video_clocked;
 					if (blocked > 0 && video_clocked) {
 						static int full_logged = 0;

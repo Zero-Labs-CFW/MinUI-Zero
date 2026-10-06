@@ -92,9 +92,10 @@ export CORES_PATH="$SYSTEM_PATH/cores"
 # invented-number hazard this gate exists to prevent. Its panel has never been measured.
 if [ "$IS_PLUS" = "true" ] && [ "$IS_FLIP" != "true" ]; then
 	export MINARCH_PANEL_FPS=59.6720
-	# Occupancy servo (DRC on ring fill, as RetroArch/NextUI do): required since the ring dropped to
-	# a servo-held 8-frame ring and the loop became video-clocked (2026-10-03); it only engages where a static panel
-	# match exists, i.e. here. =0 kills it for an A/B.
+	# Occupancy servo (DRC on ring fill, as RetroArch/NextUI do). It needs a static panel match (here) AND presents
+	# that wait for vsync: only Prevent Tearing = Strict does that on this panel. With the default lenient flips audio
+	# paces the loop and the servo stands down (minarch, PLAT_presentWaitsForVsync; code review 2026-10-06: the old
+	# comment called this loop video-clocked, which it is not). =0 kills it for an A/B.
 	export ZERO_AUDIO_SERVO=1
 fi
 export USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM"
