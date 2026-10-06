@@ -59,7 +59,13 @@ done
 # that is not the one we booted, or a check that cannot run, skips the expansion. Fail closed.
 ROOT_DEV=$(awk '$5 == "/" {d = $3} END {print d}' /proc/self/mountinfo 2>/dev/null)
 [ -n "$ROOT_DEV" ] && [ "$ROOT_DEV" = "$(cat /sys/block/mmcblk0/mmcblk0p5/dev 2>/dev/null)" ] || {
-	say "root filesystem is ${ROOT_DEV:-unreadable}, not mmcblk0p5: $DEV is not the boot card. Skipping."; exit 0; }
+	# Still fail closed, but say so plainly, once per image (the frontend copies this log onto the card), not a
+	# line appended on every boot: a board whose root reports another device number would otherwise keep its
+	# card at the image size with no visible reason (code review, 2026-10-05). Re-checked every boot, so a
+	# transient read failure cannot disable expansion for good.
+	grep -q "expansion skipped" "$LOG" 2>/dev/null ||
+		say "expansion skipped: root filesystem is ${ROOT_DEV:-unreadable}, not mmcblk0p5: $DEV is not the boot card (or cannot be proven to be). The card's free space stays unused."
+	exit 0; }
 [ -b "$PART" ] || { say "no $PART. Skipping."; exit 0; }
 grep -q " $MOUNT " /proc/mounts && { say "card already mounted: wrong hook point. Skipping."; exit 0; }
 
