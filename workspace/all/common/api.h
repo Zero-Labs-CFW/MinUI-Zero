@@ -175,7 +175,8 @@ uint32_t GFX_getFlipWaitUs(void); // how long the last flip blocked on vsync (te
 int GFX_didOverrun(void); // 1 if the most recent frame's CPU work exceeded the frame budget (telemetry; no consumer today)
 uint32_t GFX_getFrameWorkUs(void); // benchmark: us of CPU work in the last frame (GFX_startFrame->GFX_flip)
 void GFX_finishFrameWork(void); // present-skip: close the work sample for a frame that will not flip
-void GFX_markFrameSlot(void); // a game frame just took its slot (real present, post-vsync)
+void GFX_markFrameSlot(void); // a game frame just took its slot (real present; one period on if it returned early)
+void GFX_setFrameSlotPeriod(uint32_t period_us); // the period skipped frames are paced at (0 = not pacing)
 void GFX_paceSkippedFrame(uint32_t period_us); // present-skip: sleep to this frame's slot (video-clocked loop)
 void GFX_quit(void);
 

@@ -4067,15 +4067,18 @@ static int unpresented_frame_serial(void) {
 // static rate match, or DRC's rate while DRC runs (code review 2026-10-05: the static ppm alone ran
 // DRC-paced loops slower than their audio rate through every dup streak). Without this the core free-ran
 // into the audio ring's backpressure, pinning the ring (= the lag) full. ZERO_NO_SKIP_PACE (presence-only)
-// restores the old free-run, for A/B.
-static void pace_unpresented_frame(void) {
-	GFX_finishFrameWork();
+// restores the old free-run, for A/B. A real present takes its slot on the same schedule
+// (GFX_setFrameSlotPeriod before GFX_flipGame), so a present the swap queued early still costs a period.
+static uint32_t unpresented_pace_period_us(void) {
 	static int skip_pace = -1;
 	if (skip_pace < 0) skip_pace = (getenv("ZERO_NO_SKIP_PACE") == NULL);
-	if (skip_pace && unpresented_frame_serial() && !show_menu && !fast_forward && core.fps > 0) {
-		double fps = core.fps * (1.0 + core_pace_ppm / 1000000.0);
-		GFX_paceSkippedFrame((uint32_t)(1000000.0 / fps));
-	}
+	if (!skip_pace || !unpresented_frame_serial() || show_menu || fast_forward || core.fps <= 0) return 0;
+	return (uint32_t)(1000000.0 / (core.fps * (1.0 + core_pace_ppm / 1000000.0)));
+}
+static void pace_unpresented_frame(void) {
+	GFX_finishFrameWork();
+	uint32_t period = unpresented_pace_period_us();
+	if (period) GFX_paceSkippedFrame(period);
 }
 
 static void present_frame(const void *data, unsigned width, unsigned height, size_t pitch, int do_flip) {
@@ -4308,7 +4311,10 @@ static void present_frame(const void *data, unsigned width, unsigned height, siz
 		if (zero_ftv2_depth2) never_skip = 1;
 #endif
 		if (never_skip) GFX_flip(screen);
-		else            GFX_flipGame(screen);
+		else {
+			GFX_setFrameSlotPeriod(unpresented_pace_period_us());
+			GFX_flipGame(screen);
+		}
 	}
 }
 

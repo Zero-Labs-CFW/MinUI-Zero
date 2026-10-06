@@ -422,8 +422,26 @@ void GFX_flipGame(SDL_Surface* screen) {
 // past one dup streak. Absolute CLOCK_MONOTONIC sleep, no spin (runs-cold thesis).
 static struct timespec gfx_slot; // last frame slot (valid while gfx_slot_valid)
 static int gfx_slot_valid = 0;
+static uint32_t gfx_slot_period_us = 0; // the loop's frame period while it paces skipped frames, else 0
+void GFX_setFrameSlotPeriod(uint32_t period_us) { gfx_slot_period_us = period_us; }
 void GFX_markFrameSlot(void) {
-	clock_gettime(CLOCK_MONOTONIC, &gfx_slot);
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	// A present that returns BEFORE its slot still owns that slot. With room in the swap queue the GLES
+	// present returns in ~3.5 ms instead of waiting for vsync, and anchoring "now" let every present skip
+	// its own period: at 73% dups the loop made 4 frames in ~3 periods and sat blocked on a full audio ring
+	// 15-25% of the time, Brick and Brick Pro both (2026-10-05). On one fixed schedule, as MyMinUI's
+	// GFX_flip_fixed_rate keeps every frame. A present that blocked to vsync (returns at or after its slot)
+	// or a stall re-anchors at now, so the panel, not the timer, stays the reference; the slot never runs
+	// more than two periods ahead (the swap queue's depth) of the clock.
+	if (gfx_slot_valid && gfx_slot_period_us) {
+		struct timespec due = gfx_slot;
+		due.tv_nsec += (long)gfx_slot_period_us * 1000L;
+		while (due.tv_nsec >= 1000000000L) { due.tv_sec++; due.tv_nsec -= 1000000000L; }
+		int64_t early_us = ((int64_t)(due.tv_sec - now.tv_sec) * 1000000000LL + (due.tv_nsec - now.tv_nsec)) / 1000;
+		if (early_us > 0 && early_us < 3 * (int64_t)gfx_slot_period_us) { gfx_slot = due; return; }
+	}
+	gfx_slot = now;
 	gfx_slot_valid = 1;
 }
 void GFX_paceSkippedFrame(uint32_t period_us) {
