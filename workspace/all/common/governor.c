@@ -118,6 +118,7 @@ void gov_init(GovState* st, const GovProfile* p) {
 	st->audible_khz = 0;
 	st->since_sink = 255;
 	st->probe_khz = 0;
+	st->last_temp_c = -1;
 }
 
 // A slip at ceil_khz below f_max: remember the ceiling that failed. A slip at/below a ceiling that already failed is a
@@ -125,6 +126,12 @@ void gov_init(GovState* st, const GovProfile* p) {
 // memory only arms for a ceiling BELOW f_max: a slip while already fully provisioned proves nothing about lower clocks.
 // Shared by the tick's slip branch and the audio low-water climb (gov_audio_low).
 static void gov_remember_failure(GovState* st, const GovProfile* p, int deep) {
+	// The audible ban is about the PROBE, not the ceiling now in force, so it comes before the f_max return: the per-frame
+	// low-water climb usually reaches f_max before this tick's BIGSLIP, and returning first meant the generation-rate
+	// evidence never banned the probe, which then came back on the 1-8 min ladder (code review 2026-10-06,
+	// test_low_water_then_bigslip_bans). See the block comment below for why the ban exists.
+	if (deep && st->since_sink <= GOV_AUDIBLE_WINDOW && st->probe_khz > st->audible_khz)
+		st->audible_khz = st->probe_khz;
 	if (st->ceil_khz >= p->f_max) return;
 	if (st->fail_khz > 0 && st->ceil_khz <= st->fail_khz) {
 		if (st->fail_streak < 3) st->fail_streak++;
@@ -137,12 +144,11 @@ static void gov_remember_failure(GovState* st, const GovProfile* p, int deep) {
 	// (NextUI's per-pak speeds) never take this risk at all; we take it once. Own field: later ordinary slips rewrite
 	// fail_hold and must not shorten this (Codex review 2026-10-03). It bans the clock the probe SET (probe_khz): an
 	// ordinary SLIP a tick earlier has already undone the probe, and marking ceil_khz then banned the restored pre-sink
-	// clock, holding the session one OPP too high (code review 2026-10-06, test_audible_marks_the_probe).
-	if (deep && st->since_sink <= GOV_AUDIBLE_WINDOW && st->probe_khz > st->audible_khz)
-		st->audible_khz = st->probe_khz;
+	// clock, holding the session one OPP too high (code review 2026-10-06, test_audible_marks_the_probe). Applied above.
 }
 
 int gov_step(GovState* st, const GovProfile* p, int temp_c, int frame_overrun) {
+	st->last_temp_c = temp_c;
 	// 1) thermal backstop — always wins
 	if (temp_c >= 0 && temp_c >= GOV_T_CEIL_C) {
 		st->ceil_khz -= GOV_STEP_KHZ;
@@ -299,7 +305,14 @@ void gov_burst(GovState* st, const GovProfile* p) {
 // already, or disabled), so the caller can log and dirty its vote window.
 int gov_audio_low(GovState* st, const GovProfile* p) {
 	if (gov_disabled() || st->ceil_khz >= p->f_max) return 0;
-	gov_remember_failure(st, p, 0);
+	// The thermal backstop always wins (gov_step's rule 1): at the thermal ceiling a climb would undo the step-down every
+	// frame the ring dips, and a thermally capped ceiling is not a failed clock (code review 2026-10-06).
+	if (st->last_temp_c >= 0 && st->last_temp_c >= GOV_T_CEIL_C) return 0;
+	// A flat hold, never the escalated ladder: a low ring may be I/O (PS disc loads), not CPU, and escalating 60 s -> 8 min
+	// held clocks high for nothing (code review 2026-10-06). A generation-rate slip at or below this ceiling later still
+	// counts as a repeat offense in gov_remember_failure, which escalates on CPU evidence.
+	if (st->ceil_khz > st->fail_khz) st->fail_khz = st->ceil_khz;
+	if (st->fail_hold < GOV_FAIL_HOLD) st->fail_hold = GOV_FAIL_HOLD;
 	st->ceil_khz = p->f_max;
 	st->slip_run = 0;
 	st->slack_run = 0;

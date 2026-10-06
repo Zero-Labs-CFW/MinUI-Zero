@@ -86,6 +86,7 @@ typedef struct {
 	int presink_khz; // ceiling before the most recent sink — restored in one tick if the probe slips
 	int since_sink;  // ticks since the most recent sink (saturates; small = a probe just happened)
 	int probe_khz;   // the ceiling that sink set: what an audible slip bans (a SLIP's probe-undo moves ceil_khz)
+	int last_temp_c; // temperature at the last tick (-1 unknown): the low-water climb defers to the thermal backstop
 	int audible_khz; // highest ceiling whose probe caused a BIGSLIP: never sunk to again until a scene
 	                 // burst (gov_burst) or gov_init. Separate from fail_* so no later slip can shorten it.
 } GovState;

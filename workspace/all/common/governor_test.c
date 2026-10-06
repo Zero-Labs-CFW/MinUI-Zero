@@ -341,7 +341,7 @@ static void test_audio_low_water(void) {
 	// already at f_max: nothing to do, nothing written
 	g_last_set_khz = 0;
 	CHECK(gov_audio_low(&st, p) == 0 && g_last_set_khz == 0, "low-water at f_max must be a no-op");
-	// right after our own sink: that probe is audible and banned
+	// right after our own sink: held off for a while, but a low ring alone never bans it (see below for the BIGSLIP case)
 	gov_init(&st, p);
 	int from = gov_opp_above(p, p->f_min);
 	st.ceil_khz = from; st.slack_run = GOV_DN_DWELL; st.fail_hold = 0;
@@ -352,6 +352,46 @@ static void test_audio_low_water(void) {
 	CHECK(gov_audio_low(&st, p) == 1, "low-water right after a sink must still climb");
 	CHECK(st.audible_khz == 0, "low-water must not ban the probe for the session (audible=%d)", st.audible_khz);
 	CHECK(st.fail_khz == probe && st.fail_hold > 0, "low-water must hold the probe %d off for a while (fail=%d hold=%d)", probe, st.fail_khz, st.fail_hold);
+}
+
+static void test_low_water_then_bigslip_bans(void) {
+	printf("[low-water] a BIGSLIP that follows the low-water climb still bans the probe that failed\n");
+	// code review 2026-10-06: the per-frame climb reached f_max before the 2 Hz tick, and the ban logic returned early
+	// at f_max, so the generation-rate evidence never banned the probe and it was retried on the 1-8 min ladder.
+	const GovProfile* p = &GOV_P_16BIT;
+	GovState st; gov_init(&st, p);
+	st.ceil_khz = gov_opp_above(p, p->f_min); st.slack_run = GOV_DN_DWELL; st.fail_hold = 0;
+	gov_step(&st, p, 40, GOV_SIGNAL_SLACK);                     // sink: the probe
+	int probe = st.ceil_khz;
+	CHECK(gov_audio_low(&st, p) == 1 && st.ceil_khz == p->f_max, "setup: low-water climbs to f_max");
+	gov_step(&st, p, 40, GOV_SIGNAL_BIGSLIP);                   // the generation tick confirms a CPU deficit
+	CHECK(st.audible_khz == probe, "BIGSLIP after the climb must ban the probe %d (audible=%d)", probe, st.audible_khz);
+}
+
+static void test_low_water_defers_to_thermal(void) {
+	printf("[low-water] the thermal backstop wins over the low-water climb\n");
+	const GovProfile* p = &GOV_P_16BIT;
+	GovState st; gov_init(&st, p);
+	gov_step(&st, p, GOV_T_CEIL_C + 5, GOV_SIGNAL_SLACK);      // hot: thermal steps the ceiling down
+	int hot = st.ceil_khz;
+	CHECK(hot < p->f_max, "setup: thermal should step below f_max (got %d)", hot);
+	g_last_set_khz = 0;
+	CHECK(gov_audio_low(&st, p) == 0, "low-water must not climb while the device is at the thermal ceiling");
+	CHECK(st.ceil_khz == hot && g_last_set_khz == 0, "low-water must leave the thermal ceiling %d alone (got %d)", hot, st.ceil_khz);
+	CHECK(st.fail_hold == 0 && st.fail_khz == 0, "a thermal cap is not a failed clock (fail=%d hold=%d)", st.fail_khz, st.fail_hold);
+}
+
+static void test_low_water_hold_does_not_escalate(void) {
+	printf("[low-water] repeated low rings hold the ceiling for the base time, never the escalated ladder\n");
+	// code review 2026-10-06: an I/O stall (PS disc loads) is not CPU; escalating 60 s -> 8 min held clocks high for nothing
+	const GovProfile* p = &GOV_P_PS1;
+	GovState st; gov_init(&st, p);
+	st.ceil_khz = p->f_min;
+	CHECK(gov_audio_low(&st, p) == 1, "setup: first low ring climbs");
+	int h1 = st.fail_hold;
+	CHECK(h1 > 0 && st.fail_khz == p->f_min, "first low ring holds f_min (fail=%d hold=%d)", st.fail_khz, h1);
+	for (int k = 0; k < 3; k++) { st.ceil_khz = p->f_min; gov_audio_low(&st, p); }
+	CHECK(st.fail_hold == h1 && st.fail_streak == 0, "repeats must not escalate (hold %d -> %d, streak %d)", h1, st.fail_hold, st.fail_streak);
 }
 
 static void test_slip_recovery_priority(void) {
@@ -492,6 +532,9 @@ int main(void) {
 	test_audible_window_edges();
 	test_audible_marks_the_probe();
 	test_audio_low_water();
+	test_low_water_then_bigslip_bans();
+	test_low_water_defers_to_thermal();
+	test_low_water_hold_does_not_escalate();
 	test_scene_burst_resets_floor_memory();
 	test_hot_ceiling();
 	test_hot_caps_below_max();
