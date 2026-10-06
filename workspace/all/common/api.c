@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <sys/stat.h> // mkdir for the devmode screenshot dir
 #include <pthread.h>
+#include <sched.h>
 
 #include <errno.h>
 #include <stdbool.h>
@@ -1401,7 +1402,47 @@ static void SND_signalSpace(void) {
 	pthread_mutex_unlock(&snd_space_mx);
 }
 
+// SDL callback size (= the ALSA period; SDL asks for 2 periods). ZERO_AUDIO_SAMPLES overrides the platform's SAMPLES for
+// one launch, for A/B (D72): on tg5040's direct codec the once-per-session stream restart came at the same rate with 512,
+// 1024 and 2048, so the default stays SAMPLES (512 x 2 = 21 ms). Powers of two, 256..4096, else SAMPLES.
+static int snd_samples(void) {
+	const char* e = getenv("ZERO_AUDIO_SAMPLES");
+	int n = e ? atoi(e) : 0;
+	if (n >= 256 && n <= 4096 && (n & (n - 1)) == 0) return n;
+	return SAMPLES;
+}
+// REAL-TIME AUDIO THREAD (ZERO_AUDIO_RT=1, D72). Opened straight to the TrimUI codec the hardware buffer is ~21 ms instead
+// of the mixer's ~85 ms, so SDL's audio thread must never wait behind emulator threads. SDL 2.30's own switch
+// (SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL) left it SCHED_OTHER on this build, so the callback, which runs ON that thread,
+// moves itself to SCHED_FIFO once per open. Priority 10 of 99; the kernel's RT throttle still caps it. (It did not change
+// the once-per-session stream restart, which the mixer path has too: D72.)
+static volatile int snd_rt_armed = 0; // 1 = take SCHED_FIFO on the next callback (set at every open)
 static void SND_audioCallback(void* userdata, uint8_t* stream, int len) { // plat_sound_callback
+	{ // ZERO_AUDIO_TRACE=1 (diagnostic, D72): log a callback later than two periods after the last one, and a refill burst
+		static int trace = -1; static uint64_t last_us = 0;
+		if (trace < 0) { const char* e = getenv("ZERO_AUDIO_TRACE"); trace = (e && e[0] == '1'); }
+		if (trace) {
+			uint64_t now_us = getMicroseconds();
+			uint64_t period_us = (uint64_t)len / 4 * 1000000ULL / (snd.sample_rate_out > 0 ? snd.sample_rate_out : 48000);
+			if (last_us && now_us - last_us > 2 * period_us)
+				LOG_info("audio-trace: callback gap %llu ms (period %llu ms) at %u ms\n", (unsigned long long)((now_us - last_us) / 1000),
+					(unsigned long long)(period_us / 1000), SDL_GetTicks());
+			// a callback right on the heels of the last one = SDL refilling after a recover (an xrun, at any layer)
+			static uint32_t burst_n = 0;
+			if (last_us && now_us - last_us < period_us / 4) {
+				burst_n++;
+				LOG_info("audio-trace: refill burst %u (%llu us after the last callback) at %u ms\n", burst_n,
+					(unsigned long long)(now_us - last_us), SDL_GetTicks());
+			}
+			last_us = now_us;
+		}
+	}
+	if (snd_rt_armed) {
+		snd_rt_armed = 0;
+		struct sched_param sp = { .sched_priority = 10 };
+		int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
+		LOG_info("audio thread: SCHED_FIFO %d %s\n", sp.sched_priority, rc == 0 ? "set" : "refused");
+	}
 	
 	// return (void)memset(stream,0,len); // TODO: tmp, silent
 	
@@ -1839,7 +1880,7 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	spec_in.freq = PLAT_pickSampleRate(sample_rate, MAX_SAMPLE_RATE);
 	spec_in.format = AUDIO_S16;
 	spec_in.channels = 2;
-	spec_in.samples = SAMPLES;
+	spec_in.samples = snd_samples();
 	spec_in.callback = SND_audioCallback;
 
 	// Mute BEFORE the open as well. Opening reconfigures the DAC (the SigmaStar SDL driver sets
@@ -1854,6 +1895,15 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	SNDMARK("pre_open");
 
 	if (SDL_OpenAudio(&spec_in, &spec_out)<0) {
+		// A launcher-chosen ALSA device (AUDIODEV: tg5040 opens its codec directly, D72) that will not open, busy, or
+		// absent on a model whose codec has another name, must never cost the game its sound: drop it and reopen
+		// through the system default (TrimUI's mixer) before anything else.
+		const char* audiodev = getenv("AUDIODEV");
+		if (audiodev && *audiodev) {
+			LOG_info("SDL_OpenAudio on AUDIODEV=%s failed (%s), reopening through the system default\n", audiodev, SDL_GetError());
+			unsetenv("AUDIODEV");
+			if (SDL_OpenAudio(&spec_in, &spec_out) >= 0) goto audio_open_ok;
+		}
 		// no device: run silent but SAFE — spec_out is uninitialized on failure and the
 		// producer paths gate on snd.initialized, so leave it cleared (audit 2026-07-11)
 		// The device may still be enabled from a process that died without closing it, in which
@@ -1875,6 +1925,7 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 		return;
 	}
 audio_open_ok:
+	{ const char* rt = getenv("ZERO_AUDIO_RT"); snd_rt_armed = rt && rt[0] == '1'; }
 	
 	// Mute AFTER the open: MI_AO rejects SetMute/SetVolume before the device is enabled
 	// (MEASURED in dmesg: "MI_AO_IMPL_SetMute: Dev0 has not been enabled"), so muting earlier was
@@ -1916,7 +1967,8 @@ audio_open_ok:
 	snd.prefilling = 1; // DAC starts when the ring reaches ~75% (see SND_batchSamples)
 
 	SNDMARK("open_done");
-	LOG_info("sample rate: %i (req) %i (rec) [samples %i]\n", snd.sample_rate_in, snd.sample_rate_out, SAMPLES);
+	LOG_info("sample rate: %i (req) %i (rec) [samples %i] device %s\n", snd.sample_rate_in, snd.sample_rate_out, spec_out.samples,
+		getenv("AUDIODEV") && *getenv("AUDIODEV") ? getenv("AUDIODEV") : "default");
 	snd.initialized = 1;
 	SND_publishOccupancy();
 	// device is up and the ring is prefilling — safe to let signal through now (settles first)
@@ -1945,10 +1997,18 @@ void SND_resume(void) { // reopen at the rate negotiated in SND_init; ring buffe
 	spec_in.freq = snd.sample_rate_out;
 	spec_in.format = AUDIO_S16;
 	spec_in.channels = 2;
-	spec_in.samples = SAMPLES;
+	spec_in.samples = snd_samples();
 	spec_in.callback = SND_audioCallback;
 
-	if (SDL_OpenAudio(&spec_in, &spec_out)<0) {
+	int resume_ok = SDL_OpenAudio(&spec_in, &spec_out) >= 0;
+	const char* audiodev = getenv("AUDIODEV");
+	if (!resume_ok && audiodev && *audiodev) { // the direct codec device (D72): same fallback as SND_init
+		LOG_info("SDL_OpenAudio on AUDIODEV=%s failed on resume (%s), reopening through the system default\n", audiodev, SDL_GetError());
+		unsetenv("AUDIODEV");
+		resume_ok = SDL_OpenAudio(&spec_in, &spec_out) >= 0;
+	}
+	if (resume_ok) { const char* rt = getenv("ZERO_AUDIO_RT"); snd_rt_armed = rt && rt[0] == '1'; }
+	if (!resume_ok) {
 		// resume failed: without a consumer the producer would fill the ring and stall
 		// forever — drop to silent-but-safe instead (audit 2026-07-11)
 		LOG_info("SDL_OpenAudio error (resume): %s — audio disabled\n", SDL_GetError());
