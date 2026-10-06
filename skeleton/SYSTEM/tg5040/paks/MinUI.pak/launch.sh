@@ -490,7 +490,12 @@ while [ -f $EXEC_PATH ]; do
 		GAME_WIFI_OFF=0
 		case "$CMD" in *"/Emus/"*)
 			_dn=$(pgrep -f "bin/dev-net[.]sh" 2>/dev/null) # [.]: never matches a shell whose command line merely quotes it
-			if [ ! -f "$SHARED_USERDATA_PATH/keep-wifi-in-games" ] && { [ -n "$_dn" ] || pidof wpa_supplicant >/dev/null 2>&1; }; then
+			# Only on a card that opted into WiFi, the SAME test boot uses to run dev-net.sh at all. Without it, the
+			# firmware's late S96 wpa_supplicant (running behind a blocked radio on a WiFi-off card) made this look
+			# "on", and the restore below then raised the radio, joined a network, started SSH and armed
+			# stay-awake (no deep sleep) for someone who never enabled WiFi (code review, 2026-10-05).
+			if [ ! -f "$SHARED_USERDATA_PATH/keep-wifi-in-games" ] && { devmode || [ -f "$SHARED_USERDATA_PATH/enable-ssh" ]; } &&
+				{ [ -n "$_dn" ] || pidof wpa_supplicant >/dev/null 2>&1; }; then
 				GAME_WIFI_OFF=1
 				touch /tmp/game-wifi-off # bin/suspend keeps the radio down on wake while this exists
 				for p in $_dn; do kill "$p" 2>/dev/null; done
