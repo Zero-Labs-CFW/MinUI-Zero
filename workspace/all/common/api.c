@@ -427,19 +427,22 @@ void GFX_setFrameSlotPeriod(uint32_t period_us) { gfx_slot_period_us = period_us
 void GFX_markFrameSlot(void) {
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	// A present that returns BEFORE its slot still owns that slot. With room in the swap queue the GLES
-	// present returns in ~3.5 ms instead of waiting for vsync, and anchoring "now" let every present skip
-	// its own period: at 73% dups the loop made 4 frames in ~3 periods and sat blocked on a full audio ring
-	// 15-25% of the time, Brick and Brick Pro both (2026-10-05). On one fixed schedule, as MyMinUI's
-	// GFX_flip_fixed_rate keeps every frame. A present that blocked to vsync (returns at or after its slot)
-	// or a stall re-anchors at now, so the panel, not the timer, stays the reference; the slot never runs
-	// more than two periods ahead (the swap queue's depth) of the clock.
+	// A present owns exactly one slot on the schedule, wherever it returns within a period of it. Early:
+	// with room in the swap queue the GLES present returns in ~3.5 ms instead of waiting for vsync, and
+	// anchoring "now" let every present skip its own period (at 73% dups the loop made 4 frames in ~3
+	// periods and sat blocked on a full audio ring 15-25% of the time, Brick and Brick Pro, 2026-10-05).
+	// Late: a present that waited for vsync returns up to a period after its slot, and re-anchoring there
+	// pushed the schedule later at every present (ActRaiser at 96% dups ran the ring down to 25% and the
+	// servo to -0.9%, 2026-10-06). One fixed schedule, as MyMinUI's GFX_flip_fixed_rate keeps every frame
+	// and as GFX_paceSkippedFrame below already treats a late dup. Only a stall (a period or more late) or a
+	// slot more than two periods ahead (the swap queue's depth) re-anchors at now.
 	if (gfx_slot_valid && gfx_slot_period_us) {
 		struct timespec due = gfx_slot;
 		due.tv_nsec += (long)gfx_slot_period_us * 1000L;
 		while (due.tv_nsec >= 1000000000L) { due.tv_sec++; due.tv_nsec -= 1000000000L; }
 		int64_t early_us = ((int64_t)(due.tv_sec - now.tv_sec) * 1000000000LL + (due.tv_nsec - now.tv_nsec)) / 1000;
-		if (early_us > 0 && early_us < 3 * (int64_t)gfx_slot_period_us) { gfx_slot = due; return; }
+		int64_t period = (int64_t)gfx_slot_period_us;
+		if (early_us > -period && early_us < 3 * period) { gfx_slot = due; return; }
 	}
 	gfx_slot = now;
 	gfx_slot_valid = 1;
