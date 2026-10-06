@@ -1451,6 +1451,7 @@ static void SND_audioCallback(void* userdata, uint8_t* stream, int len) { // pla
 	
 	int16_t *out = (int16_t *)stream;
 	len /= (sizeof(int16_t) * 2);
+	const int want = len; // frames SDL asked for: varies with ZERO_AUDIO_SAMPLES, so never the compiled SAMPLES
 	// int full_len = len;
 	
 	// if (snd.frame_out!=snd.frame_in) LOG_info("%8i consuming samples (%i frames)\n", ms(), len);
@@ -1470,7 +1471,10 @@ static void SND_audioCallback(void* userdata, uint8_t* stream, int len) { // pla
 	SND_signalSpace(); // wake a producer blocked on a full ring
 
 	if (len>0) atomic_fetch_add_explicit(&snd.underruns, 1, memory_order_relaxed); // ring drained before the request was filled (audible crackle)
-	int zero = len>0 && len==SAMPLES;
+	// Nothing at all was in the ring: silence. Comparing with the compiled SAMPLES (512) sent an empty 1024-frame callback
+	// into the mirror padding below with `out - 1` before the stream, and zero-filled half of a half-filled one (Codex
+	// review 5, 2026-10-06). The mirror padding needs at least one frame written, which `len < want` guarantees.
+	int zero = len>0 && len==want;
 	if (zero) return (void)memset(out,0,len*(sizeof(int16_t) * 2));
 	// else if (len>=5) LOG_info("%8i BUFFER UNDERRUN (%i/%i frames)\n", ms(), len,full_len);
 
