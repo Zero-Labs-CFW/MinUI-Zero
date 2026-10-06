@@ -1403,15 +1403,16 @@ static void SND_signalSpace(void) {
 }
 
 // SDL callback size (= the ALSA period; SDL asks for 2 periods). ZERO_AUDIO_SAMPLES overrides the platform's SAMPLES for
-// one launch, for A/B (D72): on tg5040's direct codec the once-per-session stream restart came at the same rate with 512,
-// 1024 and 2048, so the default stays SAMPLES (512 x 2 = 21 ms). Powers of two, 256..4096, else SAMPLES.
+// one launch (D72): tg5040's MinUI.pak sets 1024 for its direct codec, where 512 x 2 = 21 ms was tight for SNES (near-misses
+// every ~0.7 s on the Brick, 4 stream restarts on the Smart Pro) and 1024 x 2 = 43 ms cleared both. Powers of two,
+// 256..4096, else SAMPLES.
 static int snd_samples(void) {
 	const char* e = getenv("ZERO_AUDIO_SAMPLES");
 	int n = e ? atoi(e) : 0;
 	if (n >= 256 && n <= 4096 && (n & (n - 1)) == 0) return n;
 	return SAMPLES;
 }
-// REAL-TIME AUDIO THREAD (ZERO_AUDIO_RT=1, D72). Opened straight to the TrimUI codec the hardware buffer is ~21 ms instead
+// REAL-TIME AUDIO THREAD (ZERO_AUDIO_RT=1, D72). Opened straight to the TrimUI codec the hardware buffer is ~43 ms instead
 // of the mixer's ~85 ms, so SDL's audio thread must never wait behind emulator threads. SDL 2.30's own switch
 // (SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL) left it SCHED_OTHER on this build, so the callback, which runs ON that thread,
 // moves itself to SCHED_FIFO once per open. Priority 10 of 99; the kernel's RT throttle still caps it. (It did not change

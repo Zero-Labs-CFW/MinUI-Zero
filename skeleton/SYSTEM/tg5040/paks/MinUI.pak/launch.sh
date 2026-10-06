@@ -491,13 +491,16 @@ while [ -f $EXEC_PATH ]; do
 		case "$CMD" in *"/Emus/"*)
 			# AUDIO STRAIGHT TO THE CODEC (D72, 2026-10-06). TrimUI's ALSA default is softvol -> dmix with 2048-frame
 			# periods, which grants the game a 4096-frame buffer: ~85 ms on top of minarch's own ~67 ms ring
-			# (aplay -v on device). The codec opened directly takes SDL's 512 x 2 = 1024 frames, ~21 ms: what the
-			# muOS-derived H image does (pcm.!default -> hw:0,0). The softvol it skips sits at 100% and MinUI's volume
+			# (aplay -v on device). The codec opened directly, as the muOS-derived H image does (pcm.!default ->
+			# hw:0,0), takes SDL's two periods of ZERO_AUDIO_SAMPLES: 1024 x 2 = 43 ms. 512 x 2 (21 ms) was tight for
+			# SNES (near-misses every ~0.7 s on the Brick, 4 restarts on the Smart Pro); 1024 cleared both. The softvol
+			# it skips sits at 100% and MinUI's volume
 			# drives the codec's own controls; the mixer only matters with two players, and a game is the only one.
 			# Emulators only: a community port may want a rate the bare codec refuses. minarch falls back to the
 			# default if this will not open. A command prefixed AUDIODEV=default overrides it (A/B).
 			export AUDIODEV=hw:audiocodec,0
-			# ...and keep SDL's audio thread on time for that ~21 ms buffer: minarch moves it to SCHED_FIFO (api.c).
+			export ZERO_AUDIO_SAMPLES=1024
+			# ...and keep SDL's audio thread on time for that buffer: minarch moves it to SCHED_FIFO (api.c).
 			export ZERO_AUDIO_RT=1
 			_dn=$(pgrep -f "bin/dev-net[.]sh" 2>/dev/null) # [.]: never matches a shell whose command line merely quotes it
 			# Only on a card that opted into WiFi, the SAME test boot uses to run dev-net.sh at all. Without it, the
@@ -515,7 +518,7 @@ while [ -f $EXEC_PATH ]; do
 			fi ;;
 		esac
 		eval $CMD
-		unset AUDIODEV ZERO_AUDIO_RT
+		unset AUDIODEV ZERO_AUDIO_SAMPLES ZERO_AUDIO_RT
 		if [ "$GAME_WIFI_OFF" = 1 ]; then
 			rm -f /tmp/game-wifi-off
 			# back on only when returning to the menu: a power-off from inside the game removed $EXEC_PATH
