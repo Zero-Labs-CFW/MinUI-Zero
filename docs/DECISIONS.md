@@ -1185,7 +1185,7 @@ Favorites branch binds SELECT = Clear Recents inside Recents only, and the hatch
 only, so they do not overlap; it must still drop its L2+R2+START chord when it lands. Existing
 hide-tools users relearn one chord.
 
-## D67 — Audio: the loop is clocked by video and the ring is held at ~67 ms, as the reference firmwares do (2026-10-03, supersedes the 12-frame ring of ffee9935)
+## D67: Audio: the loop is clocked by video and the ring is held at ~67 ms, as the reference firmwares do (2026-10-03, supersedes the 12-frame ring of ffee9935)
 
 A Brick user reported GBA audio lagging the picture. Measured cause: game sound trailed by ~200 ms on every
 system (274 ms on gpsp). Present-skip (ZERO_DUP_SKIP) returned from video_refresh with no wait, so through
@@ -1226,7 +1226,7 @@ stall margin on these SoCs), keeping sinc with a raised GBC clock (the MMP canno
 Touches: api.c/api.h, minarch.c, audioservo.h, governor.c/h, GB/GBC default.cfg (3 platforms), PS and
 MinUI.pak launch.sh (3 platforms), h700 GB/GBC launch.sh, minui-frontend.sh. Zero-Paks: re-vendor governor.c.
 
-## D68 — TrimUI turns WiFi off while a game runs (2026-10-05)
+## D68: TrimUI turns WiFi off while a game runs (2026-10-05)
 
 With WiFi up, about half of TrimUI boots crackled for the whole session: SDL_RenderPresent stalled 25-70 ms
 about once a second, generation fell to ~58.6 fps against 60.2, and a 2-minute frozen GBA scene logged
@@ -1260,7 +1260,7 @@ undervolt hold, MtpDaemon, ring cushion, a servo integral term, a measured rate 
 the xradio driver is not identified; the radio being up is enough.
 Touches: skeleton/SYSTEM/tg5040/paks/MinUI.pak/launch.sh, skeleton/SYSTEM/tg5040/bin/suspend.
 
-## D69 — TrimUI gets File Transfer and night brightness; Bluetooth is never supported (2026-10-05)
+## D69: TrimUI gets File Transfer and night brightness; Bluetooth is never supported (2026-10-05)
 
 Three owner calls the same day, two of them Reddit asks ("Display too bright"; FTP and USB transfer).
 
