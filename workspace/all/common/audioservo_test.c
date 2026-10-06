@@ -60,15 +60,18 @@ int main(void) {
 
 	// a full ring under a video-clocked loop drains at the gentle floor, never less than the trim in force,
 	// and the floor stays well inside the rail
-	CHECK(audioservo_blocked_target_ppm(0, 90) == AUDIOSERVO_FULL_PPM, "full ring from rest must drain at the floor");
-	CHECK(audioservo_blocked_target_ppm(-3000, 90) == AUDIOSERVO_FULL_PPM, "a filling trim must flip to draining");
-	CHECK(audioservo_blocked_target_ppm(15000, 90) == 15000, "a stronger drain in force must be kept");
-	CHECK(audioservo_blocked_target_ppm(0, SP) == AUDIOSERVO_FULL_PPM, "at the setpoint a block still drains");
+	CHECK(audioservo_blocked_target_ppm(SP) == AUDIOSERVO_FULL_PPM, "at the setpoint a block still drains at the floor");
+	CHECK(audioservo_blocked_target_ppm(SP + 2) == AUDIOSERVO_FULL_PPM, "a burst that touched full near the setpoint drains at the floor, not a stale trim");
+	CHECK(audioservo_blocked_target_ppm(90) == AUDIOSERVO_RAIL_PPM, "a high reading drains at the cubic (the rail)");
 	CHECK(AUDIOSERVO_FULL_PPM > 0 && AUDIOSERVO_FULL_PPM < AUDIOSERVO_RAIL_PPM, "floor must sit inside the rail");
-	// a window that blocked but ENDED low is a real low ring: refill, whatever drain was in force
+	for (int occ = SP; occ <= 100; occ++) {
+		int t = audioservo_blocked_target_ppm(occ);
+		CHECK(t >= AUDIOSERVO_FULL_PPM && t >= audioservo_target_ppm(occ), "blocked at %d%%: max(cubic, floor), got %d", occ, t);
+	}
+	// a window that blocked but ENDED low is a real low ring: refill
 	for (int occ = 0; occ < SP; occ++) {
-		CHECK(audioservo_blocked_target_ppm(20000, occ) == audioservo_target_ppm(occ), "blocked at %d%% must use the cubic", occ);
-		CHECK(audioservo_blocked_target_ppm(20000, occ) <= 0, "blocked at %d%% must not drain", occ);
+		CHECK(audioservo_blocked_target_ppm(occ) == audioservo_target_ppm(occ), "blocked at %d%% must use the cubic", occ);
+		CHECK(audioservo_blocked_target_ppm(occ) <= 0, "blocked at %d%% must not drain", occ);
 	}
 
 	if (fails) { printf("audioservo: %d FAILED\n", fails); return 1; }

@@ -36,14 +36,17 @@ static inline int audioservo_target_ppm(int occ_pct) {
 // level, so the cubic cannot be used. Where something other than audio clocks the loop (presents wait on
 // vsync, skipped frames sleep to their slot) a full ring is only a ring that is too full: at equal video and
 // audio rates it stays full forever, every window blocks, and the servo used to skip them all (Brick Pro
-// 2026-10-05: pinned near full for whole sessions). Drain it gently, at RetroArch's rate-control delta (0.5%,
-// ~9 cents), and never less than the trim already applied; once the ring is off full the cubic takes over.
-// But a window can block early and still END low (a stall after the block drained it): a reading below the
-// setpoint is a real level, not the pacer, so the cubic refills it (Codex review 4, 2026-10-06).
+// 2026-10-05: pinned near full for whole sessions). Drain it at least at RetroArch's rate-control delta (0.5%,
+// ~9 cents), more if the reading is high: max(cubic, floor). Not "the trim already applied": a brief burst that
+// touched full in a window ending at 52% then held a stale +18000 drain until the ring fell below 50 and the
+// cubic flipped, a ~30-cent swing per cycle (code review 2026-10-06). A window can also block early and END low
+// (a stall after the block drained it): a reading below the setpoint is a real level, not the pacer, so the
+// cubic refills it (Codex review 4, 2026-10-06).
 #define AUDIOSERVO_FULL_PPM 5000
-static inline int audioservo_blocked_target_ppm(int adj, int occ_pct) {
-	if (occ_pct < AUDIOSERVO_SETPOINT) return audioservo_target_ppm(occ_pct);
-	return adj > AUDIOSERVO_FULL_PPM ? adj : AUDIOSERVO_FULL_PPM;
+static inline int audioservo_blocked_target_ppm(int occ_pct) {
+	int cubic = audioservo_target_ppm(occ_pct);
+	if (occ_pct < AUDIOSERVO_SETPOINT) return cubic;
+	return cubic > AUDIOSERVO_FULL_PPM ? cubic : AUDIOSERVO_FULL_PPM;
 }
 
 // One smoothing step of the applied trim toward the target; call once per tick. Integer and
