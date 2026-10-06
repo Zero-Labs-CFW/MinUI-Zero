@@ -31,5 +31,6 @@ int Favorites_has(char* sd_path);      // is this rom (absolute card path) in th
 void Favorites_toggle(char* sd_path);  // add if absent, remove if present; atomic rewrite
 
 uint64_t getMicroseconds(void);
+double uptime_seconds(void); // /proc/uptime, 0 if unreadable (boot guards: an unreadable clock reads as "too early")
 
 #endif

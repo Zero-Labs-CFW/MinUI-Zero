@@ -1164,10 +1164,7 @@ static int batteryEmptyNow(int usb_online, int pct) {
 	if (!zero_owns_os()) return 0;
 	static int settled = 0; // the boot guard reads uptime only until it has passed, then never again
 	if (!settled) {
-		double up = 0;
-		FILE* uf = fopen("/proc/uptime", "r");
-		if (uf) { if (fscanf(uf, "%lf", &up) != 1) up = 0; fclose(uf); }
-		if (up < 60) return 0;
+		if (uptime_seconds() < 60) return 0;
 		settled = 1;
 	}
 	if (usb_online != 0) return 0; // cable in, or unknown

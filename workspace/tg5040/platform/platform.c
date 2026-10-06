@@ -1048,10 +1048,7 @@ static int uv_init(void) {
 	// Early-boot guard: auto-resume can launch minarch straight from boot into the same
 	// panic window. Stay unarmed (uv_fd = -1 keeps retrying) until the kernel has settled.
 	{
-		FILE* uf = fopen("/proc/uptime", "r");
-		double up = 0;
-		if (uf) { if (fscanf(uf, "%lf", &up) != 1) up = 0; fclose(uf); }
-		if (up < 30.0) return 0; // not yet — the governor tick will retry
+		if (uptime_seconds() < 30.0) return 0; // not yet — the governor tick will retry
 	}
 	pthread_mutex_lock(&uv_init_lock); // thread_video can race the first call from two threads
 	if (uv_fd != -1) { int ok = __atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE); pthread_mutex_unlock(&uv_init_lock); return ok; }
@@ -1197,10 +1194,7 @@ static int uv_armed(void) {
 	return 0;
 #endif
 	if (__atomic_load_n(&uv_arming, __ATOMIC_ACQUIRE)) return 0; // in flight, or failed for good (stays set)
-	FILE* uf = fopen("/proc/uptime", "r"); // cheap, and keeps the thread from spawning every tick before 30 s
-	double up = 0;
-	if (uf) { if (fscanf(uf, "%lf", &up) != 1) up = 0; fclose(uf); }
-	if (up < 30.0) return 0;
+	if (uptime_seconds() < 30.0) return 0; // cheap, and keeps the thread from spawning every tick before 30 s
 	if (__atomic_exchange_n(&uv_arming, 1, __ATOMIC_ACQ_REL)) return 0;
 	pthread_t t;
 	pthread_attr_t a;

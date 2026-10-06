@@ -195,6 +195,16 @@ char* allocFile(char* path) { // caller must free!
 	}
 	return contents;
 }
+// One reader for the boot guards that wait out early boot (tg5040 undervolt arming, h700 battery check): three
+// hand-rolled copies had drifted in how they treated a failed read (code review 2026-10-06). 0 when unreadable, which
+// every caller treats as "too early", the safe side.
+double uptime_seconds(void) {
+	double up = 0;
+	FILE* f = fopen("/proc/uptime", "r");
+	if (f) { if (fscanf(f, "%lf", &up) != 1) up = 0; fclose(f); }
+	return up;
+}
+
 int getInt(char* path) {
 	int i = 0;
 	FILE *file = fopen(path, "r");
