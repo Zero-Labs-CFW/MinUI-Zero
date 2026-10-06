@@ -1216,7 +1216,8 @@ next scene burst. The h700 sink gate is blind (frame work ~16.7 ms at every cloc
 Results (`.notes/2026-10-02-gba-audio-delay/`): GBA/SNES/MD/GBC 0 underruns on Brick, MMP and H; FF clean
 (H, 4.0x, three cycles); PS indistinguishable from the previous build (MMP BR2 intro is CPU-bound and swings
 56-433 on either). Lag ~200 -> ~67 ms on the video-clocked platforms (occupancy-derived, not measured
-end to end). Codex-reviewed; its four findings fixed.
+end to end). Codex-reviewed; its four findings fixed. Corrected by D70: on TrimUI the ring in fact sat near full
+until every frame kept its slot (2026-10-06).
 
 Known, not fixed: the MMP (fb flips are handed off, nothing video-blocks), PAL cores and the Smart Pro (no
 static rate match, servo ineligible) stay audio-paced at ring capacity (~133 ms, 160 ms at 50 Hz). mGBA is
@@ -1329,3 +1330,35 @@ and FTP (now 44 KB) waits for an armv7 build and an on-device test. h700: nodes
 unverified (the H was offline) and its images release separately.
 Touches: tg5040 msettings/keymon/platform.h, defines.h, minui.c (charging screen), File Transfer.pak,
 tg5040 makefile + makefile.copy, README.md, skeleton/BASE/README.txt.
+
+## D70: Every frame keeps its slot, and a full ring drains where video clocks the loop (2026-10-06, corrects D67)
+
+D67's "~67 ms" did not hold on TrimUI. Measured 2026-10-05 (Bionic Commando, 73% byte-identical frames, both
+the Brick and the Brick Pro, `.notes/2026-10-05-brick-wifi-crackle/servo-findings.md`): the audio ring sat at
+74-99% with the producer blocked on a FULL ring 9-15 s of every minute, so the servo, which skips windows where
+the producer blocked, never acted. The ring sat near its 133 ms capacity for whole sessions. The pre-review
+build showed the same, so this was not from that day's fixes.
+
+- **Cause: a present did not use up its own slot.** With room in the swap queue the GLES present returns in
+  ~3.5 ms instead of waiting for vsync, and GFX_markFrameSlot anchored the next skipped frame at that return.
+  At 73% dups the loop made 4 frames in ~3 periods and the full audio ring throttled the surplus. NULL (dupe)
+  frames after an early present did the same with every frame presented. Fix: an early-returning present
+  takes slot + period (one fixed schedule, as MyMinUI's GFX_flip_fixed_rate keeps every frame); a present
+  that waited for vsync, or a stall, re-anchors at now, so the panel stays the reference; the slot never
+  runs more than two periods ahead. Result, both devices, present-skip on and off: blocking only in the first
+  minute (90-980 ms, the launch burst), then none; the servo holds 35-67% with trims under +-1,700 ppm
+  (~3 cents); 0 underruns.
+- **A full ring may drain where video clocks the loop.** At equal video and audio rates a full ring stays
+  full, and every window blocks. A blocked window now drains at RetroArch's rate-control delta (0.5%, never
+  less than the trim in force) when PLAT_presentWaitsForVsync (TrimUI: PRESENTVSYNC; h700: synchronous pan;
+  MMP: only with Strict vsync) and skipped-frame pacing are both on. Elsewhere audio may be the only clock
+  and the servo holds as before. Forced trap (test build starting the DAC at a 100% ring, Brick, every frame
+  presented): 3,337 ms blocked in the first minute without the drain, 390 ms with it.
+  `ZERO_NO_FULL_DRAIN` (presence-only) restores the hold for A/B.
+- servo-stats now logs `blocked=Xms (max Y/tick)`: the time the producer waited on a full ring.
+- The Brick Pro's display IRQ rate is 60.186/s, so its 60.180 match stands (`fps:60.8` in
+  `/sys/class/disp/disp/attr/sys` is the advertised figure, not the scanout rate).
+
+Unverified: the H (it dropped off the network mid-run, cause unknown) and the MMP (no SSH that night). On the
+MMP the drain is off by default (lenient flips) and the slot rule only changes where a dup after a present
+sleeps to. Touches: api.c/api.h, minarch.c, audioservo.h + test, tg5040/h700/miyoomini platform.c.
