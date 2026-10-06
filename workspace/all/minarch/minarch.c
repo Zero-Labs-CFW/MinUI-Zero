@@ -4074,8 +4074,13 @@ static int skip_pace_enabled(void) {
 	if (skip_pace < 0) skip_pace = (getenv("ZERO_NO_SKIP_PACE") == NULL);
 	return skip_pace;
 }
+// PS stays out (presentation_drop_supported): pcsx_rearmed sends a NULL frame whenever the game did not redraw (every
+// other frame at 30 fps, 3 of 4 in FMV), and its catch-up (presentation-drop) is tuned against an audio-paced loop
+// at a full ring with no servo. Sleeping those frames timer-clocked the loop and capped FMV catch-up at ~1.33-2x on
+// the serial MMP/h700 paths (code review 2026-10-06). It keeps its free-run, as before NULL frames were paced.
 static uint32_t unpresented_pace_period_us(void) {
 	if (!skip_pace_enabled() || !unpresented_frame_serial() || show_menu || fast_forward || core.fps <= 0) return 0;
+	if (presentation_drop_supported) return 0;
 	return (uint32_t)(1000000.0 / (core.fps * (1.0 + core_pace_ppm / 1000000.0)));
 }
 static void pace_unpresented_frame(void) {
