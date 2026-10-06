@@ -74,25 +74,29 @@ rm -f "$SDCARD_PATH/minui-zero.log" 2>/dev/null # the old card-root copy on card
 # each menu start and each WiFi retry, the two places it can grow.
 trim_log() {
 	[ "$(wc -c 2>/dev/null < "$LOG" || echo 0)" -gt 262144 ] || return 0
-	# The menu loop and the WiFi monitor both call this: one at a time (mkdir is atomic; the other skips, the
-	# next call trims), or two trims interleaved on one temp file and emptied the log (code review, 2026-10-05).
-	# The lock is in /tmp so a power cut mid-trim cannot leave it behind on the card.
-	if ! mkdir /tmp/minui-zero-log.trim 2>/dev/null; then
-		# A trim takes milliseconds, so a lock older than a minute was left by a caller killed mid-trim and would
-		# stop every trim until reboot (Codex review 4, 2026-10-06): reclaim it. The lock carries its own creation
-		# time (busybox here may have no stat), and both numbers are checked before any arithmetic: a malformed
-		# $(( )) is fatal to this non-interactive shell. A lock without a readable time is treated as live.
-		_tl_m=$(cat /tmp/minui-zero-log.trim/at 2>/dev/null); _tl_n=$(date +%s 2>/dev/null)
+	# The menu loop and the WiFi monitor both call this: one at a time (the lock below; the other skips, the next
+	# call trims), or two trims interleaved on one temp file and emptied the log (code review, 2026-10-05). The
+	# lock is in /tmp so a power cut mid-trim cannot leave it behind on the card.
+	# The lock is a symlink whose target is its creation time, so lock and time appear in ONE syscall: a caller
+	# killed right after taking it cannot leave a lock without a time. A trim takes milliseconds, so a lock older
+	# than a minute was left by a caller killed mid-trim and would stop every trim until reboot: reclaim it by
+	# renaming (atomic: of two reclaimers only one moves it), then check it moved the stale lock it read and not a
+	# fresh one the other caller just made, else put that back (code review 2026-10-06; Codex review 4). Both
+	# numbers are checked before any arithmetic: a malformed $(( )) is fatal to this non-interactive shell.
+	_tl=/tmp/minui-zero-log.trim
+	if ! ln -s "$(date +%s 2>/dev/null)" "$_tl" 2>/dev/null; then
+		_tl_m=$(readlink "$_tl" 2>/dev/null); _tl_n=$(date +%s 2>/dev/null)
 		case "$_tl_m" in ''|*[!0-9]*) return 0 ;; esac
 		case "$_tl_n" in ''|*[!0-9]*) return 0 ;; esac
 		[ $((_tl_n - _tl_m)) -gt 60 ] || return 0
-		rm -rf /tmp/minui-zero-log.trim
-		mkdir /tmp/minui-zero-log.trim 2>/dev/null || return 0
+		mv "$_tl" "$_tl.$$" 2>/dev/null || return 0
+		if [ "$(readlink "$_tl.$$" 2>/dev/null)" != "$_tl_m" ]; then mv "$_tl.$$" "$_tl" 2>/dev/null; return 0; fi
+		rm -f "$_tl.$$"
+		ln -s "$_tl_n" "$_tl" 2>/dev/null || return 0
 	fi
-	date +%s > /tmp/minui-zero-log.trim/at 2>/dev/null
 	tail -n 1000 "$LOG" > "$LOG.tmp" 2>/dev/null && cat "$LOG.tmp" > "$LOG" && echo "(log trimmed to its newest 1000 lines)" >> "$LOG"
 	rm -f "$LOG.tmp"
-	rm -rf /tmp/minui-zero-log.trim
+	rm -f "$_tl"
 }
 echo "MinUI Zero frontend $(date 2>/dev/null)" >> "$LOG"
 
