@@ -278,13 +278,13 @@ int main(int argc, char* argv[]) {
 			for (int i=start,j=0; i<end; i++,j++) {
 				Row* r = &rows[vis[i]];
 				SDL_Color text_color = COLOR_WHITE;
+				char* val = row_value_text(r);
 
 				if (j==selected_row) {
 					// gray pill: the value's track, so only a row that HAS a value gets one. An action row
 					// drew it empty across the screen and read as a long blank slider (Dan, 2026-10-05,
 					// File Transfer); alone, its white pill matches the main menu and Tools list.
-					char* v = r->count ? r->values[r->value] : r->current;
-					if (v && *v) GFX_blitPill(ASSET_OPTION, screen, &(SDL_Rect){
+					if (val && *val) GFX_blitPill(ASSET_OPTION, screen, &(SDL_Rect){
 						ox,
 						oy+SCALE1(j*BUTTON_SIZE),
 						mw,
@@ -310,7 +310,6 @@ int main(int argc, char* argv[]) {
 				});
 				SDL_FreeSurface(text);
 
-				char* val = r->count ? r->values[r->value] : r->current;
 				if (val && *val) {
 					text = TTF_RenderUTF8_Blended(font.tiny, val, COLOR_WHITE); // always white
 					SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){
