@@ -1373,10 +1373,12 @@ build showed the same, so this was not from that day's fixes.
 - The Brick Pro's display IRQ rate is 60.186/s, so its 60.180 match stands (`fps:60.8` in
   `/sys/class/disp/disp/attr/sys` is the advertised figure, not the scanout rate).
 
-Open: the governor's sink to SNES's 600 MHz floor. ActRaiser's attract demo sits at 600 through static scenes;
-when motion resumes the governor slips and climbs within about a second, and at ~67 ms the ring does not always
-cover that: 3 of 9 runs had one episode (1-4 underruns), once with no undervolt arming nearby, so the arming
-stall above was a contributor, not the cause. The near-full ring hid it. GBC/GBA/NES/Genesis: none in any run.
+TrimUI SNES floor 600 -> 816 MHz. ActRaiser's attract demo sits at the floor through static scenes; when motion
+resumes the governor slips and climbs within about a second, and at ~67 ms the ring does not always cover that: at
+600, 3 of 9 runs had one episode (1-4 underruns), once with no undervolt arming nearby, so the arming stall above was
+a contributor, not the cause. At 816 the slip is shallower and 4 of 4 runs (WiFi off, verified) had none. The
+near-full ring hid it. GBC/GBA/NES/Genesis at their floors: none in any run. (A first 816 attempt ran with WiFi up,
+because MinUI.pak only turns WiFi off for launchers under /Emus/, and showed the D68 present stalls instead.)
 Unverified: the H (it dropped off the network mid-run, cause unknown) and the MMP (no SSH that night). On the
 MMP the drain is off by default (lenient flips) and the slot rule only changes where a dup after a present
 sleeps to. Touches: api.c/api.h, minarch.c, audioservo.h + test, tg5040/h700/miyoomini platform.c (tg5040: undervolt arming).
