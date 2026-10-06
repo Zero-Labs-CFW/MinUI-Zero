@@ -418,10 +418,15 @@ power_off() {
 	sync
 	cd /
 	( sleep 15; echo 0x1801 > /sys/class/axp/axp_reg; poweroff -f ) >/dev/null 2>&1 &
+	_bs=$!
+	# Spare the backstop (and its sleep) from the card-release kill, as paks/MinUI.pak/launch.sh does: a subshell that
+	# inherited any card fd is listed by fuser, and killing it left a hung remount with no power cut, while killing only
+	# its sleep cut power AT ONCE, before the remount (code review 2026-10-06: the two copies had drifted).
+	_spare() { [ "$1" = "$$" ] || [ "$1" = "$_bs" ] || [ "$(awk '{print $4}' "/proc/$1/stat" 2>/dev/null)" = "$_bs" ]; }
 	for _m in $(awk '$1 ~ /^\/dev\// && $3 ~ /^(ext2|ext3|ext4|vfat|msdos|exfat)$/ && $4 !~ /^ro(,|$)/ {
 			if (!($1 in t) || length($2) < length(t[$1])) t[$1] = $2 }
 		END { for (d in t) if (t[d] != "/") print t[d]; for (d in t) if (t[d] == "/") print t[d] }' /proc/mounts 2>/dev/null); do
-		[ "$_m" = / ] || for _p in $(fuser -m "$_m" 2>/dev/null); do [ "$_p" = "$$" ] || kill -9 "$_p" 2>/dev/null; done
+		[ "$_m" = / ] || for _p in $(fuser -m "$_m" 2>/dev/null); do _spare "$_p" || kill -9 "$_p" 2>/dev/null; done
 		for _t in 1 2 3; do mount -o remount,ro "$_m" 2>/dev/null && break; sleep 1; done   # a killed writer exits a moment later
 	done
 	sync
