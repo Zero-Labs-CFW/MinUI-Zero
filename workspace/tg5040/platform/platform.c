@@ -1018,6 +1018,8 @@ static struct { int khz; int uv; } uv_table[UV_TABLE_ROWS];
 static int uv_stock[UV_TABLE_ROWS];
 static int uv_n = 0;
 static int uv_fd = -1;      // -1 = uninitialized, -2 = permanently disabled
+static int uv_ready = 0;    // 1 once uv_init proved the authority (atomic; published LAST, after the decode gate)
+static int uv_arming = 0;   // 1 while (or once) the one-shot arming thread runs (atomic)
 static int uv_applied = 0;  // last commanded uV (0 = stock/untouched)
 static int uv_target = 0;   // the voltage the authority wants HELD right now (0 = none)
 static pthread_t uv_thread;
@@ -1041,7 +1043,7 @@ static int uv_init(void) {
 	return 0;
 #endif
 	if (uv_fd == -2) return 0;
-	if (uv_fd >= 0) return 1;
+	if (__atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE)) return 1;
 	// Early-boot guard: auto-resume can launch minarch straight from boot into the same
 	// panic window. Stay unarmed (uv_fd = -1 keeps retrying) until the kernel has settled.
 	{
@@ -1051,8 +1053,9 @@ static int uv_init(void) {
 		if (up < 30.0) return 0; // not yet — the governor tick will retry
 	}
 	pthread_mutex_lock(&uv_init_lock); // thread_video can race the first call from two threads
-	if (uv_fd != -1) { int ok = (uv_fd >= 0); pthread_mutex_unlock(&uv_init_lock); return ok; }
+	if (uv_fd != -1) { int ok = __atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE); pthread_mutex_unlock(&uv_init_lock); return ok; }
 	uv_fd = -2; // assume failure; prove otherwise
+	uint64_t arm_t0 = getMicroseconds();
 	char* e = getenv("ZERO_NO_UV");
 	if (e && e[0] && e[0] != '0') { pthread_mutex_unlock(&uv_init_lock); return 0; }
 	// CARD-SWAP GUARD: the table describes ONE chip. Require the eFUSE chip serial
@@ -1163,9 +1166,44 @@ static int uv_init(void) {
 		LOG_info("uv: decode mismatch after retries (reg=%d kernel=%d) — staying stock\n", v0, kuv);
 		close(uv_fd); uv_fd = -2; pthread_mutex_unlock(&uv_init_lock); return 0;
 	}
-	LOG_info("uv: voltage authority armed (%d table entries)\n", uv_n);
+	__atomic_store_n(&uv_ready, 1, __ATOMIC_RELEASE);
+	LOG_info("uv: voltage authority armed (%d table entries, %llu ms)\n", uv_n,
+		(unsigned long long)((getMicroseconds() - arm_t0) / 1000));
 	pthread_mutex_unlock(&uv_init_lock);
 	return 1;
+}
+// ARMING NEVER RUNS ON THE GAME LOOP. uv_init reads the card (chip slot, three table files), scans up to 32
+// regulators and retries with 20 ms sleeps, and it first runs at 30 s of uptime: mid-game whenever a game
+// starts soon after boot (boot-to-game resume does exactly that). Called from the governor's ceiling change
+// on MAIN, that stall underran the audio ring once per session (ActRaiser, Brick and Brick Pro, 2026-10-06:
+// "voltage authority armed", then 1-4 underruns), hidden until D70 brought the ring down from near full to its
+// ~67 ms setpoint. A one-shot thread arms it instead; until it is ready the stock voltage stays in charge,
+// which is the safe direction.
+static void* uv_arm_main(void* arg) {
+	(void)arg;
+	uv_init();
+	// deferred by the early-boot guard (uv_fd still -1): let a later tick try again
+	if (uv_fd == -1) __atomic_store_n(&uv_arming, 0, __ATOMIC_RELEASE);
+	return NULL;
+}
+static int uv_armed(void) {
+	if (__atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE)) return 1;
+#ifndef ZERO_UV_ENGINE
+	return 0;
+#endif
+	if (uv_fd == -2 || __atomic_load_n(&uv_arming, __ATOMIC_ACQUIRE)) return 0;
+	FILE* uf = fopen("/proc/uptime", "r"); // cheap, and keeps the thread from spawning every tick before 30 s
+	double up = 0;
+	if (uf) { if (fscanf(uf, "%lf", &up) != 1) up = 0; fclose(uf); }
+	if (up < 30.0) return 0;
+	if (__atomic_exchange_n(&uv_arming, 1, __ATOMIC_ACQ_REL)) return 0;
+	pthread_t t;
+	pthread_attr_t a;
+	pthread_attr_init(&a);
+	pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
+	if (pthread_create(&t, &a, uv_arm_main, NULL) != 0) __atomic_store_n(&uv_arming, 0, __ATOMIC_RELEASE);
+	pthread_attr_destroy(&a);
+	return 0;
 }
 static int uv_write(int uv) {
 	if (uv < UV_BASE_UV || uv > UV_STOCK_MAX || (uv - UV_BASE_UV) % UV_STEP_UV) return 0;
@@ -1181,11 +1219,11 @@ static int uv_write(int uv) {
 	uv_applied = uv;
 	return 1;
 }
-int PLAT_supportsUndervolt(void) { return uv_init(); }
+int PLAT_supportsUndervolt(void) { return uv_armed(); }
 static int uv_set_for_ceil(int khz) {
 	// voltage that covers the highest OPP the kernel may round the ceiling UP to:
 	// smallest table entry >= khz (table sorted ascending); above the table -> stock.
-	if (!uv_init()) return 1; // stock regulator path remains authoritative
+	if (!uv_armed()) return 1; // stock regulator path remains authoritative (arming runs off-thread)
 	int uv = 0;
 	// LIGHT-LOAD FLOOR GUARD (2026-07-09, measured): undervolt holds at a <=816MHz
 	// ceiling brownout-reboot the device within minutes (DK parked at the 408 floor died
