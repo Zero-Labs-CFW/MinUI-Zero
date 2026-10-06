@@ -7756,7 +7756,7 @@ static int zero_boot_timing = -1;
 						if (!full_logged) { LOG_info("audio servo: ring full under a video-clocked loop, draining at >= %+dppm\n", AUDIOSERVO_FULL_PPM); full_logged = 1; }
 					}
 					if (act) {
-						int target = (blocked <= 0) ? audioservo_target_ppm(occ) : audioservo_full_target_ppm(zero_servo_adj);
+						int target = (blocked <= 0) ? audioservo_target_ppm(occ) : audioservo_blocked_target_ppm(zero_servo_adj, occ);
 						int adj = audioservo_step(zero_servo_adj, target);
 						// re-apply when the trim moved OR the static match underneath changed:
 						// Zero_applyRateMatch writes the bare static value, dropping our trim

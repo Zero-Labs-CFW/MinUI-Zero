@@ -32,14 +32,17 @@ static inline int audioservo_target_ppm(int occ_pct) {
 	return (int)(c * AUDIOSERVO_RAIL_PPM / ((long)AUDIOSERVO_BAND * AUDIOSERVO_BAND * AUDIOSERVO_BAND));
 }
 
-// A window in which the producer blocked on a FULL ring. Occupancy then measures the block, not the level,
-// so the cubic cannot be used. Where something other than audio clocks the loop (presents wait on vsync,
-// skipped frames sleep to their slot) a full ring is only a ring that is too full: at equal video and audio
-// rates it stays full forever, every window blocks, and the servo used to skip them all (Brick Pro 2026-10-05:
-// pinned near full for whole sessions). Drain it gently, at RetroArch's rate-control delta (0.5%, ~9 cents),
-// and never less than the trim already applied; once the ring is off full the cubic takes over again.
+// A window in which the producer blocked on a FULL ring. A high reading then measures the block, not the
+// level, so the cubic cannot be used. Where something other than audio clocks the loop (presents wait on
+// vsync, skipped frames sleep to their slot) a full ring is only a ring that is too full: at equal video and
+// audio rates it stays full forever, every window blocks, and the servo used to skip them all (Brick Pro
+// 2026-10-05: pinned near full for whole sessions). Drain it gently, at RetroArch's rate-control delta (0.5%,
+// ~9 cents), and never less than the trim already applied; once the ring is off full the cubic takes over.
+// But a window can block early and still END low (a stall after the block drained it): a reading below the
+// setpoint is a real level, not the pacer, so the cubic refills it (Codex review 4, 2026-10-06).
 #define AUDIOSERVO_FULL_PPM 5000
-static inline int audioservo_full_target_ppm(int adj) {
+static inline int audioservo_blocked_target_ppm(int adj, int occ_pct) {
+	if (occ_pct < AUDIOSERVO_SETPOINT) return audioservo_target_ppm(occ_pct);
 	return adj > AUDIOSERVO_FULL_PPM ? adj : AUDIOSERVO_FULL_PPM;
 }
 
