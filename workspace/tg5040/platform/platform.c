@@ -1394,6 +1394,11 @@ void PLAT_setRumble(int strength) { setRumble(strength, 0); }
 void PLAT_setSystemRumble(int strength) { setRumble(strength, 1); }
 
 int PLAT_pickSampleRate(int requested, int max) {
+	// Opened straight to the codec (AUDIODEV, MinUI.pak/launch.sh, D72) there is no ALSA plug to convert: the codec
+	// refuses a core's odd rate (SNES 32044 Hz: "Couldn't set hardware audio parameters", 2026-10-06) and the open fell
+	// back to the dmix path. Open at the codec's own rate and let minarch's resampler convert, as it does for every core.
+	const char* audiodev = getenv("AUDIODEV");
+	if (audiodev && *audiodev) return max;
 	return MIN(requested, max);
 }
 
