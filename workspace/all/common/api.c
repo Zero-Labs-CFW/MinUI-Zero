@@ -2624,14 +2624,18 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 
 	// LOW-BATTERY POWER-OFF: a platform that can tell its cell is at the cut-off (PLAT_batteryIsEmpty, weak 0
 	// everywhere else) takes the same path as a POWER hold, quicksave included, instead of the PMIC's hard cut
-	// dropping power mid-write. Once per process: PWR_powerOff only returns when power-off is disabled.
-	static int battery_empty_seen = 0;
-	if (!battery_empty_seen && PLAT_batteryIsEmpty()) {
-		battery_empty_seen = 1;
+	// dropping power mid-write. PWR_powerOff only returns when power-off is disabled (or a platform's returns): then the
+	// flag is cleared, so a later ordinary power-off is not labelled "Battery empty", and the check re-arms after a
+	// minute. It used to be once per process, which left a session that hit it while disabled with no low-battery path
+	// at all (back to the PMIC's hard cut) and a mislabelled power-off later (code review 2026-10-06).
+	static uint32_t battery_empty_at = 0; // last attempt, SDL ticks (0 = never)
+	if ((!battery_empty_at || now - battery_empty_at >= 60000) && PLAT_batteryIsEmpty()) {
+		battery_empty_at = now ? now : 1;
 		LOG_info("power: battery empty, powering off\n");
 		pwr.battery_empty = 1;
 		if (before_sleep) before_sleep();
 		PWR_powerOff();
+		pwr.battery_empty = 0;
 	}
 
 	if (PAD_justReleased(BTN_POWEROFF) || (power_pressed_at && now-power_pressed_at>=1000)) {
