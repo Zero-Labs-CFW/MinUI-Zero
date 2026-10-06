@@ -1373,7 +1373,7 @@ build showed the same, so this was not from that day's fixes.
 - The Brick Pro's display IRQ rate is 60.186/s, so its 60.180 match stands (`fps:60.8` in
   `/sys/class/disp/disp/attr/sys` is the advertised figure, not the scanout rate).
 
-TrimUI SNES floor 600 -> 816 MHz. ActRaiser's attract demo sits at the floor through static scenes; when motion
+TrimUI SNES floor 600 -> 816 MHz (superseded the same day by D71, which put it back at 600). ActRaiser's attract demo sits at the floor through static scenes; when motion
 resumes the governor slips and climbs within about a second, and at ~67 ms the ring does not always cover that: at
 600, 3 of 9 runs had one episode (1-4 underruns), once with no undervolt arming nearby, so the arming stall above was
 a contributor, not the cause. At 816 the slip is shallower and 4 of 4 runs (WiFi off, verified) had none. The
@@ -1382,3 +1382,34 @@ because MinUI.pak only turns WiFi off for launchers under /Emus/, and showed the
 Unverified: the H (it dropped off the network mid-run, cause unknown) and the MMP (no SSH that night). On the
 MMP the drain is off by default (lenient flips) and the slot rule only changes where a dup after a present
 sleeps to. Touches: api.c/api.h, minarch.c, audioservo.h + test, tg5040/h700/miyoomini platform.c (tg5040: undervolt arming).
+
+## D71: The governor climbs the moment the audio ring runs low (2026-10-06)
+
+A second /code-review of the release branch called the 816 MHz SNES floor (D70) a patch over the real problem: the
+governor learns of a slowdown from the generation rate, published about once a second and read at 2 Hz, and that
+reaction no longer fits inside D70's ~67 ms ring. Floors per system and per SoC would follow, one by one, each raising
+idle clocks against the thesis. The ring itself is the earliest signal that the core is falling behind, so:
+
+- **Audio low-water climb.** minarch checks the ring every frame; under 20% (below the lowest healthy servo level seen,
+  31%, and ~27 ms ahead of empty on the 8-frame ring) it calls `gov_audio_low`, which treats the moment as a deep slip
+  (the same failure memory, and the audible ban of our own probe if one just ran) and writes f_max at once. Not during
+  the prefill gate or fast-forward, and not when the producer is idle (`SND_getRingPct` returns -1 after 250 ms without
+  a batch, presentation-drop's own gate), so a core that stops producing audio cannot pin the clock high. The vote
+  window is dirtied and a pending fast-sink cancelled, as for a scene burst. Unit-tested.
+- **Result:** ActRaiser at the old 600 MHz floor, 6 of 6 runs clean on Brick + Brick Pro (WiFi off, verified), against
+  3 of 9 underrunning before; the climb fired in two of them, at the moments that used to underrun. GBC: it fired on
+  real dips (ring 15-19%), 0 underruns. The TrimUI SNES floor is back at 600. The h700 GB/GBC 936 MHz floor stays: it
+  exists because the h700 sink gate cannot see headroom (D67, "720 collapsed every time"), not for ring margin.
+
+Same review, also fixed: the audible ban marked the ceiling a SLIP had already restored, not the probe that failed,
+holding sessions one OPP high (now `probe_khz`; `test_audible_marks_the_probe` failed before); PS (serial on MMP/h700)
+was being paced on pcsx_rearmed's NULL frames, defeating presentation-drop catch-up, so PS stays out of the skipped-frame
+schedule; the servo now needs presents that wait for vsync (on the MMP's default lenient flips it could only hold a stale
+trim, up to +2% and 35 cents sharp, between slowdowns; Strict still gets it); a blocked window drains at max(curve, 0.5%)
+instead of holding a stale larger trim; `PLAT_supportsUndervolt` is a pure query; the slot pacer's time math is shared and
+64-bit with the period capped at 100 ms; the h700 log-trim lock is a symlink whose target is its time (atomic, reclaimed
+after 60 s with a rename-and-verify, race-tested); the h700 battery poll shares its reads; File Transfer's pak says why it
+is TrimUI-only. Kept as is: GFX_sync's menu pacer stays separate from the frame-slot pacer (different job).
+Touches: governor.c/h + test, minarch.c, api.c/api.h, audioservo.h + test, tg5040/h700 platform.c, MMP MinUI.pak,
+tg5040 SUPA.pak, File Transfer.pak, minui-frontend.sh. Zero-Paks: re-vendor governor.c. Unverified: MMP and H.
+
