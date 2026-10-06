@@ -1587,6 +1587,13 @@ static void SND_publishOccupancy(void) {
 	                      memory_order_release);
 	__atomic_store_n(&snd_ring_pct, pct, __ATOMIC_RELEASE);
 }
+// Public, for the governor's audio low-water climb (minarch): occupancy %, or -1 while the producer is idle (no batch in
+// 250 ms, presentation-drop's own gate): a core that stops producing audio drains the ring with nothing behind, which
+// is not a core falling behind and must not pin the clock at f_max.
+int SND_getRingPct(void) {
+	if (SDL_GetTicks() - SND_lastBatchMs() >= 250) return -1;
+	return SND_ringPct();
+}
 static int SND_ringPct(void) {
 	return __atomic_load_n(&snd_ring_pct, __ATOMIC_ACQUIRE);
 }

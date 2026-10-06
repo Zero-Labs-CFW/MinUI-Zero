@@ -327,6 +327,30 @@ static void test_audible_marks_the_probe(void) {
 	      "after the ban the floor should be the lowest clock above the failed probe %d (got %d)", probe, lowest);
 }
 
+static void test_audio_low_water(void) {
+	printf("[low-water] a low audio ring climbs to f_max at once, like a deep slip\n");
+	const GovProfile* p = &GOV_P_16BIT;
+	GovState st; gov_init(&st, p);
+	// sitting sunk for a while (not a fresh probe): climb + failure memory, no audible ban
+	st.ceil_khz = p->f_min; st.since_sink = 100; st.probe_khz = p->f_min;
+	g_last_set_khz = 0;
+	CHECK(gov_audio_low(&st, p) == 1, "low-water below f_max must move the ceiling");
+	CHECK(st.ceil_khz == p->f_max && g_last_set_khz == p->f_max, "low-water must write f_max at once (ceil=%d wrote=%d)", st.ceil_khz, g_last_set_khz);
+	CHECK(st.fail_khz == p->f_min && st.fail_hold > 0, "low-water must remember the failed ceiling %d (fail=%d hold=%d)", p->f_min, st.fail_khz, st.fail_hold);
+	CHECK(st.audible_khz == 0, "a low ring long after a sink is a scene change, not an audible probe (audible=%d)", st.audible_khz);
+	// already at f_max: nothing to do, nothing written
+	g_last_set_khz = 0;
+	CHECK(gov_audio_low(&st, p) == 0 && g_last_set_khz == 0, "low-water at f_max must be a no-op");
+	// right after our own sink: that probe is audible and banned
+	gov_init(&st, p);
+	int from = gov_opp_above(p, p->f_min);
+	st.ceil_khz = from; st.slack_run = GOV_DN_DWELL; st.fail_hold = 0;
+	gov_step(&st, p, 40, GOV_SIGNAL_SLACK);                     // sink: the probe
+	int probe = st.ceil_khz;
+	gov_step(&st, p, 40, GOV_SIGNAL_BUSY);                      // one tick later the ring runs low
+	CHECK(gov_audio_low(&st, p) == 1 && st.audible_khz == probe, "low-water right after a sink must ban the probe %d (audible=%d)", probe, st.audible_khz);
+}
+
 static void test_slip_recovery_priority(void) {
 	printf("[slip-recovery] BIGSLIP outranks probe undo; ordinary slip restores presink\n");
 	const GovProfile* p = &GOV_P_PS1;
@@ -464,6 +488,7 @@ int main(void) {
 	test_probe_bigslip_is_not_retried();
 	test_audible_window_edges();
 	test_audible_marks_the_probe();
+	test_audio_low_water();
 	test_scene_burst_resets_floor_memory();
 	test_hot_ceiling();
 	test_hot_caps_below_max();

@@ -123,6 +123,7 @@ void gov_init(GovState* st, const GovProfile* p) {
 // A slip at ceil_khz below f_max: remember the ceiling that failed. A slip at/below a ceiling that already failed is a
 // repeat offense: escalate the hold (60s -> 2m -> 4m -> 8m) so known-bad probes become rare instead of periodic. Fail
 // memory only arms for a ceiling BELOW f_max: a slip while already fully provisioned proves nothing about lower clocks.
+// Shared by the tick's slip branch and the audio low-water climb (gov_audio_low).
 static void gov_remember_failure(GovState* st, const GovProfile* p, int deep) {
 	if (st->ceil_khz >= p->f_max) return;
 	if (st->fail_khz > 0 && st->ceil_khz <= st->fail_khz) {
@@ -285,6 +286,22 @@ void gov_burst(GovState* st, const GovProfile* p) {
 	st->audible_khz = 0;
 	st->since_sink = 255; // not a probe: a slip here must not "undo" to a stale ceiling
 	PLAT_setCPUMaxFreq(st->ceil_khz);
+}
+
+// AUDIO LOW-WATER (code review 2026-10-06): the audio ring running low means the core is falling behind NOW. The
+// generation-rate signal publishes ~1/s and the tick runs at 2 Hz, so a slip after a sink took ~1 s to climb out of,
+// which the ~67 ms ring of D70 does not always cover (ActRaiser at the SNES floor: 3 of 9 runs underran, and the fix
+// was a per-system floor bump). Climbing on the ring is the root-cause fix: called per frame by the frontend, it treats
+// the moment as a deep slip (failure memory, audible ban of our own recent probe) and goes to f_max at once. Returns 1
+// when it moved the ceiling (0 at f_max already, or disabled), so the caller can log and dirty its vote window.
+int gov_audio_low(GovState* st, const GovProfile* p) {
+	if (gov_disabled() || st->ceil_khz >= p->f_max) return 0;
+	gov_remember_failure(st, p, 1);
+	st->ceil_khz = p->f_max;
+	st->slip_run = 0;
+	st->slack_run = 0;
+	PLAT_setCPUMaxFreq(st->ceil_khz);
+	return 1;
 }
 
 void gov_tick(GovState* st, const GovProfile* p, int frame_overrun) {

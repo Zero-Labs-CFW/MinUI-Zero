@@ -7326,6 +7326,20 @@ static int zero_boot_timing = -1;
 					gov_work[gov_frames] = (pace_us > 0 && (uint32_t)pace_us < raw_us) ? raw_us - (uint32_t)pace_us : raw_us;
 					gov_frames++;
 				}
+				// AUDIO LOW-WATER, every frame (governor.c gov_audio_low): a ring under GOV_RING_LOW_PCT means the core
+				// is falling behind now; climb at once instead of waiting up to ~1 s for the generation signal. Not while
+				// the prefill gate holds the DAC (a refilling ring reads low by design) or in fast-forward. The vote
+				// window is dirtied and a pending fast-sink cancelled, as for a scene burst.
+				if (!fast_forward && SND_isActive() && !SND_isPrefilling() && gov_state.ceil_khz < gov_profile.f_max) {
+					int ring = SND_getRingPct();
+					if (ring >= 0 && ring < GOV_RING_LOW_PCT) {
+						int from = gov_state.ceil_khz;
+						if (gov_audio_low(&gov_state, &gov_profile)) {
+							govmem_on_burst(&gov_mem, 1);
+							LOG_info("gov: ceil %d->%d kHz (audio low-water: ring %d%%)\n", from, gov_state.ceil_khz, ring);
+						}
+					}
+				}
 				if (gov_frames >= GOV_TICK_FRAMES) {
 					// PRIMARY signal: the core's generation rate (core.run iterations/sec, from
 					// trackFPS) vs its target fps — jitter-immune ground truth of game speed.
