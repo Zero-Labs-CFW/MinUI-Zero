@@ -77,10 +77,22 @@ trim_log() {
 	# The menu loop and the WiFi monitor both call this: one at a time (mkdir is atomic; the other skips, the
 	# next call trims), or two trims interleaved on one temp file and emptied the log (code review, 2026-10-05).
 	# The lock is in /tmp so a power cut mid-trim cannot leave it behind on the card.
-	mkdir /tmp/minui-zero-log.trim 2>/dev/null || return 0
+	if ! mkdir /tmp/minui-zero-log.trim 2>/dev/null; then
+		# A trim takes milliseconds, so a lock older than a minute was left by a caller killed mid-trim and would
+		# stop every trim until reboot (Codex review 4, 2026-10-06): reclaim it. The lock carries its own creation
+		# time (busybox here may have no stat), and both numbers are checked before any arithmetic: a malformed
+		# $(( )) is fatal to this non-interactive shell. A lock without a readable time is treated as live.
+		_tl_m=$(cat /tmp/minui-zero-log.trim/at 2>/dev/null); _tl_n=$(date +%s 2>/dev/null)
+		case "$_tl_m" in ''|*[!0-9]*) return 0 ;; esac
+		case "$_tl_n" in ''|*[!0-9]*) return 0 ;; esac
+		[ $((_tl_n - _tl_m)) -gt 60 ] || return 0
+		rm -rf /tmp/minui-zero-log.trim
+		mkdir /tmp/minui-zero-log.trim 2>/dev/null || return 0
+	fi
+	date +%s > /tmp/minui-zero-log.trim/at 2>/dev/null
 	tail -n 1000 "$LOG" > "$LOG.tmp" 2>/dev/null && cat "$LOG.tmp" > "$LOG" && echo "(log trimmed to its newest 1000 lines)" >> "$LOG"
 	rm -f "$LOG.tmp"
-	rmdir /tmp/minui-zero-log.trim 2>/dev/null
+	rm -rf /tmp/minui-zero-log.trim
 }
 echo "MinUI Zero frontend $(date 2>/dev/null)" >> "$LOG"
 
