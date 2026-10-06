@@ -423,7 +423,19 @@ void GFX_flipGame(SDL_Surface* screen) {
 static struct timespec gfx_slot; // last frame slot (valid while gfx_slot_valid)
 static int gfx_slot_valid = 0;
 static uint32_t gfx_slot_period_us = 0; // the loop's frame period while it paces skipped frames, else 0
-void GFX_setFrameSlotPeriod(uint32_t period_us) { gfx_slot_period_us = period_us; }
+// Over 100 ms is not a frame period (GFX_paceSkippedFrame's own rule): treat it as not pacing.
+void GFX_setFrameSlotPeriod(uint32_t period_us) { gfx_slot_period_us = period_us > 100000 ? 0 : period_us; }
+// Slot arithmetic shared by both slot functions, in 64 bits: tv_nsec is a 32-bit long on the MMP, and the two
+// hand-rolled copies were where an overflow would have hidden (code review 2026-10-06).
+static struct timespec slot_add_us(struct timespec t, uint32_t us) {
+	int64_t ns = (int64_t)t.tv_nsec + (int64_t)us * 1000;
+	t.tv_sec += (time_t)(ns / 1000000000LL);
+	t.tv_nsec = (long)(ns % 1000000000LL);
+	return t;
+}
+static int64_t slot_diff_us(struct timespec a, struct timespec b) { // a - b
+	return ((int64_t)(a.tv_sec - b.tv_sec) * 1000000000LL + ((int64_t)a.tv_nsec - (int64_t)b.tv_nsec)) / 1000;
+}
 void GFX_markFrameSlot(void) {
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
@@ -437,10 +449,8 @@ void GFX_markFrameSlot(void) {
 	// and as GFX_paceSkippedFrame below already treats a late dup. Only a stall (a period or more late) or a
 	// slot more than two periods ahead (the swap queue's depth) re-anchors at now.
 	if (gfx_slot_valid && gfx_slot_period_us) {
-		struct timespec due = gfx_slot;
-		due.tv_nsec += (long)gfx_slot_period_us * 1000L;
-		while (due.tv_nsec >= 1000000000L) { due.tv_sec++; due.tv_nsec -= 1000000000L; }
-		int64_t early_us = ((int64_t)(due.tv_sec - now.tv_sec) * 1000000000LL + (due.tv_nsec - now.tv_nsec)) / 1000;
+		struct timespec due = slot_add_us(gfx_slot, gfx_slot_period_us);
+		int64_t early_us = slot_diff_us(due, now);
 		int64_t period = (int64_t)gfx_slot_period_us;
 		if (early_us > -period && early_us < 3 * period) { gfx_slot = due; return; }
 	}
@@ -451,10 +461,8 @@ void GFX_paceSkippedFrame(uint32_t period_us) {
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	if (!gfx_slot_valid || period_us == 0 || period_us > 100000) { gfx_slot = now; gfx_slot_valid = 1; return; }
-	struct timespec deadline = gfx_slot;
-	deadline.tv_nsec += (long)period_us * 1000L;
-	while (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
-	int64_t late_us = ((int64_t)(now.tv_sec - deadline.tv_sec) * 1000000000LL + (now.tv_nsec - deadline.tv_nsec)) / 1000;
+	struct timespec deadline = slot_add_us(gfx_slot, period_us);
+	int64_t late_us = slot_diff_us(now, deadline);
 	if (late_us < 0) {
 #if defined(TIMER_ABSTIME) && !defined(__APPLE__)
 		while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &deadline, NULL) == EINTR) {}
