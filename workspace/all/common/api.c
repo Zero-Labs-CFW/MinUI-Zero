@@ -1314,6 +1314,9 @@ void GFX_blitText(TTF_Font* font, char* str, int leading, SDL_Color color, SDL_S
 #define ms SDL_GetTicks
 
 typedef int (*SND_Resampler)(const SND_Frame frame);
+#define SND_PREFILL_LAUNCH 75 // % of the ring before the DAC starts at launch (boot cushion)
+#define SND_PREFILL_RESUME 55 // ...and after a pause-like seam: just above the servo's 50% setpoint
+
 static struct SND_Context {
 	int initialized;
 	double frame_rate;
@@ -1328,6 +1331,7 @@ static struct SND_Context {
 	atomic_int paused;      // device closed for sleep: producers drop instead of waiting. Atomic:
 	                        // the entry guard reads it pre-lock and a future concurrent CORE
 	                        // producer must not race SND_pause/SND_resume (review r3)
+	int prefill_pct;        // where the gate opens: 75 at launch, 55 after a pause-like seam (SND_PREFILL_*)
 	int prefilling;         // DAC gated until the ring is ~75% full (from NextUI: starting
 	                        // on an empty ring guarantees startup underruns — the choppy
 	                        // logo/demo audio on PS1, ear-found 2026-07-08)
@@ -1580,6 +1584,7 @@ static void SND_reprimeLocked(void) {
 	if (snd.initialized && snd.buffer && snd.frame_count>0) {
 		snd.frame_out = snd.frame_in;
 		snd.frame_filled = (snd.frame_in + snd.frame_count - 1) % snd.frame_count;
+		snd.prefill_pct = SND_PREFILL_RESUME;
 		snd.prefilling = 1;
 		SDL_PauseAudio(1);
 		SND_publishOccupancy();
@@ -1620,7 +1625,7 @@ void SND_setFastForward(int active, int audible) {
 	}
 
 	// Silent FF must pause instead of draining into underruns. Every FF exit discards
-	// stale compressed audio and uses the normal 75% prefill gate for a clean handoff.
+	// stale compressed audio and uses the resume prefill gate (SND_PREFILL_RESUME) for a clean handoff.
 	if ((active && !audible) || (!active && was_active)) SND_reprimeLocked();
 	SDL_UnlockAudio();
 	// Wake only after the complete mode/ring transaction is visible. A blocked producer
@@ -1667,14 +1672,18 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 	if (snd.prefilling) {
 		int queued = snd.frame_in - snd.frame_out;
 		if (queued < 0) queued += snd.frame_count;
-		if (queued >= snd.frame_count * 3 / 4) { // ~75% full: start the DAC — ABOVE the
+		if (queued >= (int)(snd.frame_count * snd.prefill_pct / 100)) { // launch: ~75% full, start the DAC, ABOVE the
 			// presentation-drop hysteresis band (engage <50, release 66), so playback never
 			// BEGINS inside catch-up. At the old 40% every PS launch started mid-band and
 			// the drop engaged on the first frames by construction (2026-08-31 receipts).
 			// 75% of the 8-frame ring = ~100ms of boot cushion (boot frames run ~53 fps for a
 			// second or two; 58ms crackled at launch on the h700, 2026-10-03); the servo trims
 			// it to its 50% setpoint within seconds. The full-ring wait below also starts the
-			// DAC, so no threshold can deadlock.
+			// DAC, so no threshold can deadlock. Pause-like seams (menu close, FF exit, wake)
+			// refill only to SND_PREFILL_RESUME: nothing is booting there, and a 75% refill put
+			// the servo at its band edge (setpoint 50 + band 25), bending pitch ~10 cents for
+			// 5-8 s after EVERY menu close (code review, 2026-10-05). 55 is still above the PS
+			// drop band's engage point (<50), so playback never begins in catch-up.
 			snd.prefilling = 0;
 			SDL_PauseAudio(0);
 		}
@@ -1866,6 +1875,7 @@ audio_open_ok:
 	SND_updateAdjustedRate();
 	SND_resizeBuffer();
 	
+	snd.prefill_pct = SND_PREFILL_LAUNCH;
 	snd.prefilling = 1; // DAC starts when the ring reaches ~75% (see SND_batchSamples)
 
 	SNDMARK("open_done");
@@ -1910,6 +1920,7 @@ void SND_resume(void) { // reopen at the rate negotiated in SND_init; ring buffe
 		return;
 	}
 	atomic_store(&snd.paused, 0); // consumer is back: producers may wait again
+	snd.prefill_pct = SND_PREFILL_RESUME;
 	snd.prefilling = 1; // re-arm the prefill gate (empty-ring starts chop audibly)
 	// Release the mute SND_pause took. The reopen above re-enabled/reconfigured the codec, which
 	// is the transient we were hiding; the ring is prefilling so nothing audible is lost.
