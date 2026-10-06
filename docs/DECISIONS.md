@@ -1356,14 +1356,20 @@ build showed the same, so this was not from that day's fixes.
   MMP: only with Strict vsync) and skipped-frame pacing are both on. Elsewhere audio may be the only clock
   and the servo holds as before. Forced trap (test build starting the DAC at a 100% ring, Brick, every frame
   presented): 3,337 ms blocked in the first minute without the drain, 390 ms with it.
-  `ZERO_NO_FULL_DRAIN` (presence-only) restores the hold for A/B.
+  `ZERO_NO_FULL_DRAIN` (presence-only) restores the hold for A/B. Codex review 4 (2026-10-06): a blocked
+  window that ENDS below the setpoint is a real low ring, so the cubic refills it; and the first tick after the
+  servo (re)arms only takes its baseline. It used to count as blocked, so the "ring full ... draining" line
+  that every launch logged was that tick, not a real block (the forced-trap numbers above still stand: only
+  their drain-on side carried it).
 - servo-stats now logs `blocked=Xms (max Y/tick)`: the time the producer waited on a full ring.
 - **The undervolt table arms off the game loop.** It first arms at 30 s of uptime (an early-boot guard), so a
   game started soon after boot (boot-to-game resume) armed it mid-game, on MAIN, from the governor's ceiling
   write: card reads and a 32-regulator scan, 16-26 ms (measured). With the ring at ~67 ms instead of near full,
   that stall plus a governor slip at the 600 MHz floor underran ActRaiser 2 of 3 times (1-4 underruns, once).
   A one-shot thread arms it now; readiness is published only after the decode gate (the old fast path read
-  uv_fd before that gate had passed); the stock voltage stays in charge until then.
+  uv_fd before that gate had passed); the stock voltage stays in charge until then. Cross-thread state is
+  uv_ready/uv_arming/uv_closed only, and after a quit/power-off/crash restore a late arm is ignored (Codex
+  review 4).
 - The Brick Pro's display IRQ rate is 60.186/s, so its 60.180 match stands (`fps:60.8` in
   `/sys/class/disp/disp/attr/sys` is the advertised figure, not the scanout rate).
 
