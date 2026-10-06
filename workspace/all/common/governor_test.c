@@ -304,6 +304,29 @@ static void test_audible_window_edges(void) {
 	}
 }
 
+static void test_audible_marks_the_probe(void) {
+	printf("[audible] the clock banned is the one the probe set, not the one a SLIP restored\n");
+	// code review 2026-10-06: sink 1032 -> 816, a SLIP restores 1032, then a BIGSLIP (window now fully
+	// post-sink) marked 1032 audible, so the session sat at 1200 although only 816 had failed.
+	const GovProfile* p = &GOV_P_16BIT;
+	GovState st; gov_init(&st, p);
+	int from = gov_opp_above(p, gov_opp_above(p, p->f_min));
+	st.ceil_khz = from; st.slack_run = GOV_DN_DWELL; st.fail_hold = 0;
+	gov_step(&st, p, 40, GOV_SIGNAL_SLACK);                     // sink: the probe
+	int probe = st.ceil_khz;
+	CHECK(probe < from, "setup: the sink should lower the ceiling (%d -> %d)", from, probe);
+	gov_step(&st, p, 40, GOV_SIGNAL_SLIP);                      // probe-undo restores the pre-sink ceiling
+	CHECK(st.ceil_khz == from, "setup: SLIP should restore %d (got %d)", from, st.ceil_khz);
+	gov_step(&st, p, 40, GOV_SIGNAL_BIGSLIP);                   // the deep reading arrives a tick later
+	CHECK(st.audible_khz == probe, "BIGSLIP should ban the probed %d, not %d (got %d)", probe, from, st.audible_khz);
+	// and the session can still sink to the lowest clock above the failed probe (not one OPP higher)
+	st.ceil_khz = p->f_max; st.slack_run = 0; st.fail_hold = 0;
+	int lowest = p->f_max;
+	for (int i = 0; i < 4000; i++) { gov_step(&st, p, 40, GOV_SIGNAL_SLACK); if (st.ceil_khz < lowest) lowest = st.ceil_khz; }
+	CHECK(lowest > probe && gov_opp_below(p, lowest) <= probe,
+	      "after the ban the floor should be the lowest clock above the failed probe %d (got %d)", probe, lowest);
+}
+
 static void test_slip_recovery_priority(void) {
 	printf("[slip-recovery] BIGSLIP outranks probe undo; ordinary slip restores presink\n");
 	const GovProfile* p = &GOV_P_PS1;
@@ -440,6 +463,7 @@ int main(void) {
 	test_fail_hold_escalates();
 	test_probe_bigslip_is_not_retried();
 	test_audible_window_edges();
+	test_audible_marks_the_probe();
 	test_scene_burst_resets_floor_memory();
 	test_hot_ceiling();
 	test_hot_caps_below_max();

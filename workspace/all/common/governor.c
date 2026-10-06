@@ -117,6 +117,28 @@ void gov_init(GovState* st, const GovProfile* p) {
 	st->presink_khz = 0;
 	st->audible_khz = 0;
 	st->since_sink = 255;
+	st->probe_khz = 0;
+}
+
+// A slip at ceil_khz below f_max: remember the ceiling that failed. A slip at/below a ceiling that already failed is a
+// repeat offense: escalate the hold (60s -> 2m -> 4m -> 8m) so known-bad probes become rare instead of periodic. Fail
+// memory only arms for a ceiling BELOW f_max: a slip while already fully provisioned proves nothing about lower clocks.
+static void gov_remember_failure(GovState* st, const GovProfile* p, int deep) {
+	if (st->ceil_khz >= p->f_max) return;
+	if (st->fail_khz > 0 && st->ceil_khz <= st->fail_khz) {
+		if (st->fail_streak < 3) st->fail_streak++;
+	}
+	else st->fail_streak = 0;
+	if (st->ceil_khz > st->fail_khz) st->fail_khz = st->ceil_khz;
+	st->fail_hold = GOV_FAIL_HOLD << st->fail_streak;
+	// A deep deficit right after our own sink: that probe is proven audible, so it is never retried until a scene burst
+	// (the 60s->8m re-probe ladder was a dropout burst per retry on GBC, Brick + H 2026-10-02). Fixed-clock firmwares
+	// (NextUI's per-pak speeds) never take this risk at all; we take it once. Own field: later ordinary slips rewrite
+	// fail_hold and must not shorten this (Codex review 2026-10-03). It bans the clock the probe SET (probe_khz): an
+	// ordinary SLIP a tick earlier has already undone the probe, and marking ceil_khz then banned the restored pre-sink
+	// clock, holding the session one OPP too high (code review 2026-10-06, test_audible_marks_the_probe).
+	if (deep && st->since_sink <= GOV_AUDIBLE_WINDOW && st->probe_khz > st->audible_khz)
+		st->audible_khz = st->probe_khz;
 }
 
 int gov_step(GovState* st, const GovProfile* p, int temp_c, int frame_overrun) {
@@ -154,22 +176,7 @@ int gov_step(GovState* st, const GovProfile* p, int temp_c, int frame_overrun) {
 		// it blocked ALL sinking — boot-load slips at f_max pinned GBC at 1008 for up to
 		// 8 min (the escalated hold), refreshed forever by borderline slips. Found by the
 		// 2026-07-09 gate telemetry: signal=SLACK, p95 7.7ms/16.7ms, ceiling frozen.
-		if (st->ceil_khz < p->f_max) {
-			if (st->fail_khz > 0 && st->ceil_khz <= st->fail_khz) {
-				if (st->fail_streak < 3) st->fail_streak++;
-			}
-			else st->fail_streak = 0;
-			if (st->ceil_khz > st->fail_khz) st->fail_khz = st->ceil_khz;
-			st->fail_hold = GOV_FAIL_HOLD << st->fail_streak;
-			// A deep deficit right after our own sink: that probe is proven audible, so it is never
-			// retried until a scene burst (the 60s->8m re-probe ladder was a dropout burst per retry
-			// on GBC, Brick + H 2026-10-02). Fixed-clock firmwares (NextUI's per-pak speeds) never
-			// take this risk at all; we take it once. Own field: later ordinary slips rewrite
-			// fail_hold and must not shorten this (Codex review 2026-10-03).
-			if (frame_overrun == GOV_SIGNAL_BIGSLIP && st->since_sink <= GOV_AUDIBLE_WINDOW
-			    && st->ceil_khz > st->audible_khz)
-				st->audible_khz = st->ceil_khz;
-		}
+		gov_remember_failure(st, p, frame_overrun == GOV_SIGNAL_BIGSLIP);
 		st->slip_run++;
 		st->slack_run = 0;
 		if (st->ceil_khz < p->f_max) {
@@ -202,6 +209,7 @@ int gov_step(GovState* st, const GovProfile* p, int temp_c, int frame_overrun) {
 			st->presink_khz = st->ceil_khz; // remembered so a probe-caused slip undoes in one tick
 			st->since_sink = 0;             // (thermal sinks deliberately don't set these: temp wins)
 			st->ceil_khz = next_khz;
+			st->probe_khz = next_khz;
 			st->slack_run = 0;
 		}
 	}

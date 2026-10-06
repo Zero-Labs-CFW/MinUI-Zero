@@ -85,6 +85,7 @@ typedef struct {
 	int fail_streak; // consecutive re-probes that slipped again — escalates fail_hold (repeat offender)
 	int presink_khz; // ceiling before the most recent sink — restored in one tick if the probe slips
 	int since_sink;  // ticks since the most recent sink (saturates; small = a probe just happened)
+	int probe_khz;   // the ceiling that sink set: what an audible slip bans (a SLIP's probe-undo moves ceil_khz)
 	int audible_khz; // highest ceiling whose probe caused a BIGSLIP: never sunk to again until a scene
 	                 // burst (gov_burst) or gov_init. Separate from fail_* so no later slip can shorten it.
 } GovState;
@@ -131,6 +132,7 @@ void gov_tick(GovState* st, const GovProfile* p, int frame_overrun);
 // Scene-change burst: a video-mode/geometry switch announces new workload before its cost
 // arrives — jump the ceiling to f_max now, let the sink ladder re-find the floor after.
 void gov_burst(GovState* st, const GovProfile* p);
+
 
 // Read the CPU thermal zone in Celsius, or -1 if unavailable. Exposed for logging/tests.
 int gov_read_temp_c(void);
