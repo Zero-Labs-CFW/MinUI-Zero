@@ -13,6 +13,9 @@
 #    transfer from a Mac (libmtp and OpenMTP), so it is never used.
 #  - Browser: dufs, a web file manager and WebDAV server (5 MB): drag files in any browser, or connect
 #    Finder / Windows Explorer to the same address as a network drive. Same one-time password.
+# TrimUI ONLY, by hardware (D69): USB Drive and MTP use the TrimUI USB gadget (setusbconfig, configfs g1), which the
+# Miyoo Mini Plus has no known equivalent for; FTP/Browser wait for armv7 builds of busybox ftpd and dufs plus an
+# on-device test there; the h700 images release separately and its gadget path is unverified.
 
 cd "$(dirname "$0")" || exit 1
 PAK="$(pwd)"
