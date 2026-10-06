@@ -1413,3 +1413,33 @@ is TrimUI-only. Kept as is: GFX_sync's menu pacer stays separate from the frame-
 Touches: governor.c/h + test, minarch.c, api.c/api.h, audioservo.h + test, tg5040/h700 platform.c, MMP MinUI.pak,
 tg5040 SUPA.pak, File Transfer.pak, minui-frontend.sh. Zero-Paks: re-vendor governor.c. Unverified: MMP and H.
 
+
+## D72: TrimUI games send audio straight to the codec (2026-10-06)
+
+Dan, after D70 brought MinUI's own ring to ~67 ms: "We need this TrimUI issue fixed." The rest of the delay was
+TrimUI's ALSA default: softvol (at 100%) -> plug -> dmix with 2048-frame periods, which grants a game a 4096-frame
+buffer, ~85 ms (`aplay -v` on device; an earlier "170 ms" was dmix's own 8192-frame ring, not the game's share).
+
+- Emulators (MinUI.pak, the /Emus/ branch only) now open `hw:audiocodec,0` directly via SDL's AUDIODEV, with
+  ZERO_AUDIO_SAMPLES=1024: SDL's two periods = 2048 frames, ~43 ms. Total ~150 -> ~110 ms. 512 x 2 (21 ms, ~90 total)
+  was tight for SNES: refill near-misses every ~0.7 s on the Brick (157 in 3 min), 4 stream restarts and a 1.3 s
+  callback gap on the Smart Pro; at 1024 all three TrimUIs were clean apart from the once-per-session event below. This is what the muOS-derived H image does (pcm.!default ->
+  hw:0,0); NextUI, upstream and stock TrimUI go through dmix. The softvol it skips sits at 100% and MinUI's volume
+  drives the codec's own controls; dmix only matters with two players and a game is the only one. Community ports
+  keep the default (a bare codec refuses odd rates).
+- The codec refuses odd rates (SNES 32044 Hz), so on the direct path tg5040's PLAT_pickSampleRate opens at 48 kHz
+  and minarch's resampler converts, as for every core. A direct open that fails (busy, a model whose codec has another
+  name) drops AUDIODEV and reopens the default, in SND_init and SND_resume. The opened device is logged.
+- SDL's audio thread runs SCHED_FIFO 10 (ZERO_AUDIO_RT, set from inside the callback; SDL 2.30's own realtime hint did
+  nothing on this build). Known residue: the producer holds SDL's audio lock while it resamples a batch into the ring,
+  so the RT callback can wait behind a preempted producer (priority inversion); a lock-free ring (RetroArch/NextUI)
+  is the follow-up that could allow 512 again.
+- Measured: all three TrimUIs open directly; MinUI ring underruns 0 across GBC/GBA/SNES/PS. Not fixed, and NOT new:
+  about once per session the audio stream recovers from an xrun. On the direct path it shows as a hardware stream
+  restart (trigger_time); on the dmix path the same event recovers at the client (SDL refill bursts, 2 of 4 mixer runs
+  vs 4 of 4 direct runs, with ring underruns only in a mixer run). Ruled out with measurements: SDL thread priority,
+  callback lateness, CPU frequency switching (userspace-locked at 1008 MHz), the governor, undervolt, WiFi, SD writes,
+  GPU runtime suspend, buffer depth (512/1024/2048 the same), and the 2-period DMA setup (aplay idle 120 s clean).
+  Cause unknown; hunt continues (ZERO_AUDIO_TRACE logs callback gaps and refill bursts; ZERO_AUDIO_SAMPLES for A/B).
+Touches: tg5040 MinUI.pak, api.c (SND_init/SND_resume/callback), tg5040 platform.c. Receipts:
+.notes/2026-10-06-v190-release/trimui-direct-audio.md.
