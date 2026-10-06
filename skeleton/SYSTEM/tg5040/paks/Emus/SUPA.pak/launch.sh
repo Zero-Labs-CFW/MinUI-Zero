@@ -11,11 +11,10 @@ mkdir -p "$SAVES_PATH/$EMU_TAG"
 HOME="$USERDATA_PATH"
 cd "$HOME"
 # closed-loop governor clock bracket (kHz); see docs/thermal-governor-design.md
-# Floor 816, not 600 (D70, 2026-10-06, Brick + Brick Pro, ActRaiser attract demo, WiFi off): the governor sinks to the
-# floor through static scenes, and when motion resumes it needs ~1 s to climb. At 600 that deficit underran the ~67 ms
-# audio ring in 3 of 9 runs (1-4 underruns each); at 816 the slip is shallower and 4 of 4 runs had none. The old
-# near-full ring hid it. TrimUI receipt only: other platforms keep their own measured brackets.
-export MINARCH_FMIN=816000
+# Floor 600 again (D71): the governor now climbs the moment the audio ring runs low, so the ~1 s slip after a sink no
+# longer underruns the ~67 ms ring. ActRaiser at 600: 3 of 9 runs underran before, 6 of 6 clean after (Brick + Pro,
+# 2026-10-06). An 816 floor briefly stood in for that fix (D70); it raised every static SNES scene by one OPP.
+export MINARCH_FMIN=600000
 export MINARCH_FMAX=1416000
 # Present-skip default-on (v1.5.2): byte-identical frames skip GLES upload/submit/swap so the
 # CPU idles sooner. Static/menu scenes win (SNES ~-28% CPU on ActRaiser, 100% skip), motion is
