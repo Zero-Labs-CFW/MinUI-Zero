@@ -1392,8 +1392,11 @@ idle clocks against the thesis. The ring itself is the earliest signal that the 
 
 - **Audio low-water climb.** minarch checks the ring every frame; under 20% (below the lowest healthy servo level seen,
   31%, and ~27 ms ahead of empty on the 8-frame ring) it calls `gov_audio_low`, which writes f_max at once and holds
-  the current ceiling with the ordinary failure memory. Not the session-long audible ban (Codex review 5): a low ring is
-  not always CPU, since D72's once-per-session backend xrun refills the device from the ring at any clock. Not during
+  the current ceiling for the base 60 s. Not the session-long audible ban (Codex review 5): a low ring is not always
+  CPU, since D72's once-per-session backend xrun refills the device from the ring at any clock. For the same reason the
+  hold never escalates (a PS disc-load stall once walked it up the 2-8 min ladder), while a BIGSLIP that follows the
+  climb still bans the probe that failed, and at the thermal ceiling the climb stands down: thermal always wins
+  (code review 2026-10-06, all three unit-tested). Not during
   the prefill gate or fast-forward, and not when the producer is idle (`SND_getRingPct` returns -1 after 250 ms without
   a batch, presentation-drop's own gate), so a core that stops producing audio cannot pin the clock high. The vote
   window is dirtied and a pending fast-sink cancelled, as for a scene burst. Unit-tested.
