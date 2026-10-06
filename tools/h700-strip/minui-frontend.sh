@@ -67,14 +67,20 @@ export ZERO_AUDIO_SERVO=1
 LOG="$LOGS_PATH/minui-zero.log"
 mkdir -p "$LOGS_PATH" 2>/dev/null
 : > "$LOG" 2>/dev/null
+rm -f "$SDCARD_PATH/minui-zero.log" 2>/dev/null # the old card-root copy on cards upgraded from before the move (code review, 2026-10-05)
 # Hard cap: past 256KB keep the newest 1000 lines, so no source (a WiFi reconnect loop out of range all day,
 # a chatty menu session that never reboots) can grow it. Rewritten IN PLACE (cat >, not mv) so a writer
 # holding the log open, minui.elf or a background connect, keeps appending to the same file. Called before
 # each menu start and each WiFi retry, the two places it can grow.
 trim_log() {
 	[ "$(wc -c 2>/dev/null < "$LOG" || echo 0)" -gt 262144 ] || return 0
+	# The menu loop and the WiFi monitor both call this: one at a time (mkdir is atomic; the other skips, the
+	# next call trims), or two trims interleaved on one temp file and emptied the log (code review, 2026-10-05).
+	# The lock is in /tmp so a power cut mid-trim cannot leave it behind on the card.
+	mkdir /tmp/minui-zero-log.trim 2>/dev/null || return 0
 	tail -n 1000 "$LOG" > "$LOG.tmp" 2>/dev/null && cat "$LOG.tmp" > "$LOG" && echo "(log trimmed to its newest 1000 lines)" >> "$LOG"
 	rm -f "$LOG.tmp"
+	rmdir /tmp/minui-zero-log.trim 2>/dev/null
 }
 echo "MinUI Zero frontend $(date 2>/dev/null)" >> "$LOG"
 
