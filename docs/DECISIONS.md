@@ -1391,8 +1391,9 @@ reaction no longer fits inside D70's ~67 ms ring. Floors per system and per SoC 
 idle clocks against the thesis. The ring itself is the earliest signal that the core is falling behind, so:
 
 - **Audio low-water climb.** minarch checks the ring every frame; under 20% (below the lowest healthy servo level seen,
-  31%, and ~27 ms ahead of empty on the 8-frame ring) it calls `gov_audio_low`, which treats the moment as a deep slip
-  (the same failure memory, and the audible ban of our own probe if one just ran) and writes f_max at once. Not during
+  31%, and ~27 ms ahead of empty on the 8-frame ring) it calls `gov_audio_low`, which writes f_max at once and holds
+  the current ceiling with the ordinary failure memory. Not the session-long audible ban (Codex review 5): a low ring is
+  not always CPU, since D72's once-per-session backend xrun refills the device from the ring at any clock. Not during
   the prefill gate or fast-forward, and not when the producer is idle (`SND_getRingPct` returns -1 after 250 ms without
   a batch, presentation-drop's own gate), so a core that stops producing audio cannot pin the clock high. The vote
   window is dirtied and a pending fast-sink cancelled, as for a scene burst. Unit-tested.
@@ -1420,13 +1421,14 @@ Dan, after D70 brought MinUI's own ring to ~67 ms: "We need this TrimUI issue fi
 TrimUI's ALSA default: softvol (at 100%) -> plug -> dmix with 2048-frame periods, which grants a game a 4096-frame
 buffer, ~85 ms (`aplay -v` on device; an earlier "170 ms" was dmix's own 8192-frame ring, not the game's share).
 
-- Emulators (MinUI.pak, the /Emus/ branch only) now open `hw:audiocodec,0` directly via SDL's AUDIODEV, with
-  ZERO_AUDIO_SAMPLES=1024: SDL's two periods = 2048 frames, ~43 ms. Total ~150 -> ~110 ms. 512 x 2 (21 ms, ~90 total)
+- minarch now opens `hw:audiocodec,0` directly: MinUI.pak exports ZERO_AUDIO_DEVICE (with ZERO_AUDIO_SAMPLES=1024,
+  ZERO_AUDIO_RT=1) in its /Emus/ branch and minarch makes it SDL's AUDIODEV inside its own process, so a standalone
+  emulator pak under /Emus/ keeps the default device (PPSSPP inherited a plain AUDIODEV in the first cut and opened the
+  bare codec at 256 x 2 = 11.6 ms with no RT thread; Codex review 5). SDL's two periods = 2048 frames, ~43 ms. Total ~150 -> ~110 ms. 512 x 2 (21 ms, ~90 total)
   was tight for SNES: refill near-misses every ~0.7 s on the Brick (157 in 3 min), 4 stream restarts and a 1.3 s
   callback gap on the Smart Pro; at 1024 all three TrimUIs were clean apart from the once-per-session event below. This is what the muOS-derived H image does (pcm.!default ->
   hw:0,0); NextUI, upstream and stock TrimUI go through dmix. The softvol it skips sits at 100% and MinUI's volume
-  drives the codec's own controls; dmix only matters with two players and a game is the only one. Community ports
-  keep the default (a bare codec refuses odd rates).
+  drives the codec's own controls; dmix only matters with two players and a game is the only one.
 - The codec refuses odd rates (SNES 32044 Hz), so on the direct path tg5040's PLAT_pickSampleRate opens at 48 kHz
   and minarch's resampler converts, as for every core. A direct open that fails (busy, a model whose codec has another
   name) drops AUDIODEV and reopens the default, in SND_init and SND_resume. The opened device is logged.
