@@ -66,8 +66,10 @@ listening() {
 	return 1
 }
 # stop any server this tool started, including one a crashed or killed earlier run left behind
+# the listener by its own command line (it starts as ./busybox, so the pak path never matched it; it only
+# died because its argv carries the ftpd command, code review 2026-10-05), then any open sessions
 stop_ftp() {
-	for p in $(pgrep -f "File Transfer.pak/busybox tcpsvd" 2>/dev/null) $(pgrep -f "File Transfer.pak/busybox ftpd" 2>/dev/null); do
+	for p in $(pgrep -f "busybox tcpsvd -E -c 4 0.0.0.0 21" 2>/dev/null) $(pgrep -f "File Transfer.pak/busybox ftpd" 2>/dev/null); do
 		kill "$p" 2>/dev/null
 	done
 }
@@ -97,9 +99,19 @@ stop_mtp() {
 	rm -f "$G/configs/c.1/ffs.mtp"
 	umount "$FFS" 2>/dev/null || umount -l "$FFS" 2>/dev/null
 	rmdir "$G/functions/ffs.mtp" 2>/dev/null
-	rm -f "$G/os_desc/c.1"
+	# undo only what mtp_run changed: the os_desc link only if it made it, the os_desc values as found
+	[ "$MTP_OSLINK" = 1 ] || rm -f "$G/os_desc/c.1"
 	echo "${MTP_OSDESC:-0}" > "$G/os_desc/use" 2>/dev/null
+	[ -n "$MTP_VCODE" ] && echo "$MTP_VCODE" > "$G/os_desc/b_vendor_code" 2>/dev/null
+	[ -n "$MTP_QWSIGN" ] && echo "$MTP_QWSIGN" > "$G/os_desc/qw_sign" 2>/dev/null
 	/bin/setusbconfig "$MTP_PREV" > /dev/null 2>&1
+	# setusbconfig writes the IDs and product string for every function it binds; "none" binds nothing, so put
+	# back the ones mtp_run overwrote (or the next function would enumerate as "MinUI Zero MTP")
+	if [ "$MTP_PREV" = none ]; then
+		[ -n "$MTP_VID" ] && echo "$MTP_VID" > "$G/idVendor" 2>/dev/null
+		[ -n "$MTP_PID_ID" ] && echo "$MTP_PID_ID" > "$G/idProduct" 2>/dev/null
+		[ -n "$MTP_PRODUCT" ] && echo "$MTP_PRODUCT" > "$G/strings/0x409/product" 2>/dev/null
+	fi
 	if usb_restored "$MTP_PREV"; then MTP_PREV=; else echo "stop_mtp: USB not back as $MTP_PREV" >> "$LOGS_PATH/File Transfer.txt"; fi
 }
 # The "is on" screens: say.elf in the background plus `wait`, because a trapped TERM/HUP interrupts `wait`
@@ -170,12 +182,20 @@ mtp_run() {
 	# what to put back, recorded before anything changes; the rollback (MTP_PREV) is armed only right before the
 	# first change, so an early TERM cannot "restore" an untouched gadget to none (Codex review 3). A restore
 	# that failed earlier keeps its original target.
-	if [ -n "$MTP_PREV" ]; then prev=$MTP_PREV; osdesc=$MTP_OSDESC; else
+	if [ -z "$MTP_PREV" ]; then
 		prev=none
 		[ -e "$C/ffs.adb" ] && prev=adb
 		[ -e "$C/mtp.gs0" ] && prev=mtp
 		[ -e "$C/ffs.adb" ] && [ -e "$C/mtp.gs0" ] && prev=mtp,adb
-		osdesc=$(cat "$G/os_desc/use" 2>/dev/null)
+		MTP_OSDESC=$(cat "$G/os_desc/use" 2>/dev/null)
+		MTP_OSLINK=0; [ -e "$G/os_desc/c.1" ] && MTP_OSLINK=1
+		MTP_VCODE=$(cat "$G/os_desc/b_vendor_code" 2>/dev/null)
+		MTP_QWSIGN=$(cat "$G/os_desc/qw_sign" 2>/dev/null)
+		MTP_VID=$(cat "$G/idVendor" 2>/dev/null)
+		MTP_PID_ID=$(cat "$G/idProduct" 2>/dev/null)
+		MTP_PRODUCT=$(cat "$G/strings/0x409/product" 2>/dev/null)
+	else
+		prev=$MTP_PREV
 	fi
 	# muOS's umtprd.conf, sharing only the card; loop_on_disconnect keeps it serving across unplug/replug.
 	# Interface class 0xff + "MTP", as Android announces MTP, not muOS's 0x06: macOS's camera agent
@@ -206,7 +226,7 @@ usb_max_packet_size 0x200
 EOF
 	# the firmware's gadget, emptied (setusbconfig none unlinks every function and leaves it unbound), then
 	# FunctionFS MTP: function, mount, link, umtprd writes its descriptors, and only then bind the controller
-	MTP_OSDESC=$osdesc; MTP_PREV=$prev
+	MTP_PREV=$prev
 	/bin/setusbconfig none > /dev/null 2>&1
 	echo 0x1D6B > "$G/idVendor"; echo 0x0100 > "$G/idProduct"
 	echo "MinUI Zero MTP" > "$G/strings/0x409/product"
