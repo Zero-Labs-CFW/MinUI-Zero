@@ -545,6 +545,7 @@ void GFX_maybeScreenshot(void) {
 }
 
 FALLBACK_IMPLEMENTATION int PLAT_supportsOverscan(void) { return 0; }
+FALLBACK_IMPLEMENTATION int PLAT_presentWaitsForVsync(void) { return 0; } // unknown: the audio servo assumes audio may pace the loop
 FALLBACK_IMPLEMENTATION void PLAT_setEffectColor(int next_color) { }
 FALLBACK_IMPLEMENTATION void PLAT_setCPUMaxFreq(int khz) { } // platforms without a cpufreq cap: no-op
 FALLBACK_IMPLEMENTATION int PLAT_supportsUndervolt(void) { return 0; } // undervolt off unless a platform confirms a mechanism

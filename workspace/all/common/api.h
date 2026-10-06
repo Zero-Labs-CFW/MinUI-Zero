@@ -394,6 +394,7 @@ void PLAT_enableOverlay(int enable);
 void PLAT_getBatteryStatus(int* is_charging, int* charge); // 0,1 and 0,10,20,40,60,80,100
 void PLAT_enableBacklight(int enable);
 int PLAT_supportsDeepSleep(void); // 1 if this platform can suspend-to-RAM (weak fallback: 0)
+int PLAT_presentWaitsForVsync(void); // 1 if a game present blocks until scanout, so video clocks the loop (weak fallback: 0)
 int PLAT_deepSleep(void); // write "mem" to /sys/power/state; returns 0 on a full suspend/resume
 void PLAT_powerOff(void);
 	

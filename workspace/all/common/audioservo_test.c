@@ -58,6 +58,13 @@ int main(void) {
 	CHECK(audioservo_step(160, 160) == 160, "step at target must hold");
 	CHECK(audioservo_step(-1, 0) == 0 && audioservo_step(1, 0) == 0, "1ppm gap must close in one step");
 
+	// a full ring under a video-clocked loop drains at the gentle floor, never less than the trim in force,
+	// and the floor stays well inside the rail
+	CHECK(audioservo_full_target_ppm(0) == AUDIOSERVO_FULL_PPM, "full ring from rest must drain at the floor");
+	CHECK(audioservo_full_target_ppm(-3000) == AUDIOSERVO_FULL_PPM, "a filling trim must flip to draining");
+	CHECK(audioservo_full_target_ppm(15000) == 15000, "a stronger drain in force must be kept");
+	CHECK(AUDIOSERVO_FULL_PPM > 0 && AUDIOSERVO_FULL_PPM < AUDIOSERVO_RAIL_PPM, "floor must sit inside the rail");
+
 	if (fails) { printf("audioservo: %d FAILED\n", fails); return 1; }
 	printf("audioservo: all checks passed\n");
 	return 0;

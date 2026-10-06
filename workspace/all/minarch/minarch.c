@@ -4069,10 +4069,13 @@ static int unpresented_frame_serial(void) {
 // into the audio ring's backpressure, pinning the ring (= the lag) full. ZERO_NO_SKIP_PACE (presence-only)
 // restores the old free-run, for A/B. A real present takes its slot on the same schedule
 // (GFX_setFrameSlotPeriod before GFX_flipGame), so a present the swap queued early still costs a period.
-static uint32_t unpresented_pace_period_us(void) {
+static int skip_pace_enabled(void) {
 	static int skip_pace = -1;
 	if (skip_pace < 0) skip_pace = (getenv("ZERO_NO_SKIP_PACE") == NULL);
-	if (!skip_pace || !unpresented_frame_serial() || show_menu || fast_forward || core.fps <= 0) return 0;
+	return skip_pace;
+}
+static uint32_t unpresented_pace_period_us(void) {
+	if (!skip_pace_enabled() || !unpresented_frame_serial() || show_menu || fast_forward || core.fps <= 0) return 0;
 	return (uint32_t)(1000000.0 / (core.fps * (1.0 + core_pace_ppm / 1000000.0)));
 }
 static void pace_unpresented_frame(void) {
@@ -7704,10 +7707,12 @@ static int zero_boot_timing = -1;
 		// fallback untouched, and an audio-paced loop sits at a full ring by design (a servo
 		// there would just run the game +MAX fast). A skipped present no longer free-runs on the
 		// serial path: GFX_paceSkippedFrame sleeps it to the vsync slot it would have taken
-		// (D67), and NULL (dupe) frames are paced the same way. A window can still see the
-		// producer BLOCK where pacing is off (ZERO_NO_SKIP_PACE, threaded paths, a stall that
-		// overfills the ring), and occupancy then measures the pacer, not the level, so such a
-		// tick is still not sampled (review 2026-09-02). PS is excluded: presentation-drop's hysteresis (engage <50%,
+		// (D67), and NULL (dupe) frames are paced the same way. A window where the producer
+		// BLOCKED measures the pacer, not the level (review 2026-09-02), so the cubic never
+		// sees it. Where video clocks the loop (PLAT_presentWaitsForVsync, skip pacing on) a
+		// block only means the ring is too full, and at equal rates a full ring stays full:
+		// that window drains at audioservo_full_target_ppm instead (2026-10-05). Elsewhere (MMP
+		// lenient flips, ZERO_NO_SKIP_PACE) audio may be the only clock, so it holds. PS is excluded: presentation-drop's hysteresis (engage <50%,
 		// release >=66%) was tuned against a near-full ring and a servo-held level would eat
 		// its stall margin (v1.7.1 smoothness arc). No DRC term: DRC requires no static match
 		// and this requires one, exclusive by construction (drc_ppm is deliberately left
@@ -7740,8 +7745,19 @@ static int zero_boot_timing = -1;
 				servo_prev_wait = ss.wait_ms;
 				if (ss.frame_count > 0) {
 					int occ = (int)((100L * ss.queue_frames) / ss.frame_count);
-					if (blocked <= 0) {
-						int adj = audioservo_step(zero_servo_adj, audioservo_target_ppm(occ));
+					// may a full ring drain? (block comment above; read per tick: the MMP's answer follows its vsync option).
+					// ZERO_NO_FULL_DRAIN (presence-only) holds instead, as before, for A/B.
+					static int full_drain = -1;
+					if (full_drain < 0) full_drain = (getenv("ZERO_NO_FULL_DRAIN") == NULL);
+					int video_clocked = full_drain && PLAT_presentWaitsForVsync() && skip_pace_enabled();
+					int act = (blocked <= 0) || video_clocked;
+					if (blocked > 0 && video_clocked) {
+						static int full_logged = 0;
+						if (!full_logged) { LOG_info("audio servo: ring full under a video-clocked loop, draining at >= %+dppm\n", AUDIOSERVO_FULL_PPM); full_logged = 1; }
+					}
+					if (act) {
+						int target = (blocked <= 0) ? audioservo_target_ppm(occ) : audioservo_full_target_ppm(zero_servo_adj);
+						int adj = audioservo_step(zero_servo_adj, target);
 						// re-apply when the trim moved OR the static match underneath changed:
 						// Zero_applyRateMatch writes the bare static value, dropping our trim
 						if (adj != zero_servo_adj || zero_static_rate_ppm != zero_servo_static) {
@@ -7755,12 +7771,18 @@ static int zero_boot_timing = -1;
 						}
 					}
 					static uint32_t servo_log_at = 0; static int servo_held = 0;
-					if (blocked > 0) servo_held++;
+					static long servo_blocked_ms = 0, servo_blocked_max = 0; // how long held ticks blocked
+					if (blocked > 0) {
+						servo_held++;
+						servo_blocked_ms += blocked;
+						if (blocked > servo_blocked_max) servo_blocked_max = blocked;
+					}
 					uint32_t sl_now = SDL_GetTicks();
 					if (!servo_log_at) servo_log_at = sl_now;
 					else if (sl_now - servo_log_at >= 60000) {
-						LOG_info("servo-stats: adj=%+dppm occ=%d%% held=%d/120 underruns=%ld\n", zero_servo_adj, occ, servo_held, ss.underruns);
-						servo_log_at = sl_now; servo_held = 0;
+						LOG_info("servo-stats: adj=%+dppm occ=%d%% held=%d/120 blocked=%ldms (max %ld/tick) underruns=%ld\n",
+							zero_servo_adj, occ, servo_held, servo_blocked_ms, servo_blocked_max, ss.underruns);
+						servo_log_at = sl_now; servo_held = 0; servo_blocked_ms = servo_blocked_max = 0;
 					}
 				}
 			}

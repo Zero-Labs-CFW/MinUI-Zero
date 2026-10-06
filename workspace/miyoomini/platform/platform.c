@@ -838,6 +838,9 @@ void PLAT_clearAll(void) {
 //   OFF     -> same as lenient here; there is no un-synced pan on this driver (FBIOPAN_DISPLAY
 //              blocks regardless of the activate flag — measured on both).
 static int flip_block = 0; // 1 = STRICT: never coalesce
+// Only STRICT waits for the pan; the default hands the page to the flip thread and carries on, so nothing
+// but the audio ring paces a run of presented frames (D67: the MMP stays audio-paced at ring capacity).
+int PLAT_presentWaitsForVsync(void) { return flip_block; }
 void PLAT_setVsync(int vsync) {
 	flip_block = (vsync == VSYNC_STRICT);
 	LOG_info("fb: vsync=%d (%s)\n", vsync, flip_block ? "strict: wait for pan, drop nothing"

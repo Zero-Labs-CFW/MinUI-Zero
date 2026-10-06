@@ -799,6 +799,7 @@ void PLAT_clearAll(void) {
 void PLAT_setVsync(int vsync) {
 	// the synchronous pan is the vsync; nothing to configure in v0
 }
+int PLAT_presentWaitsForVsync(void) { return 1; } // the synchronous FBIOPAN_DISPLAY above
 
 SDL_Surface* PLAT_resizeVideo(int w, int h, int p) {
 	// minarch resizes the render surface to the SCALED game size (e.g. 480x432 for GBC at 3x) and

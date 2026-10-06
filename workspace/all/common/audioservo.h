@@ -32,6 +32,17 @@ static inline int audioservo_target_ppm(int occ_pct) {
 	return (int)(c * AUDIOSERVO_RAIL_PPM / ((long)AUDIOSERVO_BAND * AUDIOSERVO_BAND * AUDIOSERVO_BAND));
 }
 
+// A window in which the producer blocked on a FULL ring. Occupancy then measures the block, not the level,
+// so the cubic cannot be used. Where something other than audio clocks the loop (presents wait on vsync,
+// skipped frames sleep to their slot) a full ring is only a ring that is too full: at equal video and audio
+// rates it stays full forever, every window blocks, and the servo used to skip them all (Brick Pro 2026-10-05:
+// pinned near full for whole sessions). Drain it gently, at RetroArch's rate-control delta (0.5%, ~9 cents),
+// and never less than the trim already applied; once the ring is off full the cubic takes over again.
+#define AUDIOSERVO_FULL_PPM 5000
+static inline int audioservo_full_target_ppm(int adj) {
+	return adj > AUDIOSERVO_FULL_PPM ? adj : AUDIOSERVO_FULL_PPM;
+}
+
 // One smoothing step of the applied trim toward the target; call once per tick. Integer and
 // exact: the last ppm of a gap is closed by a unit step instead of sticking at a rounded zero.
 static inline int audioservo_step(int adj, int target) {

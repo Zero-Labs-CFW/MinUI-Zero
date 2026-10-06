@@ -860,6 +860,9 @@ void PLAT_powerOff(void) {
 }
 
 int PLAT_supportsDeepSleep(void) { return 1; } // tg5040/Brick can suspend-to-RAM
+// The game present is SDL_RenderPresent on a PRESENTVSYNC renderer: it blocks once the swap queue is full
+// (~8 ms average per present with every frame presented, Brick and Brick Pro, 2026-10-05).
+int PLAT_presentWaitsForVsync(void) { return 1; }
 
 ///////////////////////////////
 
