@@ -1020,6 +1020,7 @@ static int uv_n = 0;
 static int uv_fd = -1;      // -1 = uninitialized, -2 = permanently disabled
 static int uv_ready = 0;    // 1 once uv_init proved the authority (atomic; published LAST, after the decode gate)
 static int uv_arming = 0;   // 1 while (or once) the one-shot arming thread runs (atomic)
+static int uv_closed = 0;   // 1 once a restore ran (quit, power-off, crash; atomic): a late arm is never used
 static int uv_applied = 0;  // last commanded uV (0 = stock/untouched)
 static int uv_target = 0;   // the voltage the authority wants HELD right now (0 = none)
 static pthread_t uv_thread;
@@ -1186,12 +1187,16 @@ static void* uv_arm_main(void* arg) {
 	if (uv_fd == -1) __atomic_store_n(&uv_arming, 0, __ATOMIC_RELEASE);
 	return NULL;
 }
+// Cross-thread state is uv_ready/uv_arming/uv_closed only: uv_fd belongs to the arming thread until uv_ready
+// publishes it (Codex review 4: the restore paths read it bare). After a restore, a late arm is ignored, so no
+// ceiling write can undervolt again on the way out.
 static int uv_armed(void) {
+	if (__atomic_load_n(&uv_closed, __ATOMIC_ACQUIRE)) return 0;
 	if (__atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE)) return 1;
 #ifndef ZERO_UV_ENGINE
 	return 0;
 #endif
-	if (uv_fd == -2 || __atomic_load_n(&uv_arming, __ATOMIC_ACQUIRE)) return 0;
+	if (__atomic_load_n(&uv_arming, __ATOMIC_ACQUIRE)) return 0; // in flight, or failed for good (stays set)
 	FILE* uf = fopen("/proc/uptime", "r"); // cheap, and keeps the thread from spawning every tick before 30 s
 	double up = 0;
 	if (uf) { if (fscanf(uf, "%lf", &up) != 1) up = 0; fclose(uf); }
@@ -1298,7 +1303,7 @@ static void* uv_hold(void* arg) {
 			} else need_check = 1;
 		} else need_check = 1;
 		if (++ticks_since_i2c >= 200) need_check = 1; // 1s heartbeat
-		if (need_check && uv_fd >= 0 && uv_target) {
+		if (need_check && __atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE) && uv_target) {
 			ticks_since_i2c = 0;
 			int v0 = uv_reg_read(0x00);
 			int v1 = uv_reg_read(0x01);
@@ -1317,7 +1322,7 @@ void PLAT_uvReassert(void) {
 	// the flip path must never queue behind uv_lock while it's busy with i2c.
 	if (__atomic_load_n(&uv_thread_started, __ATOMIC_ACQUIRE)) return;
 	pthread_mutex_lock(&uv_lock);
-	if (uv_fd < 0 || !uv_target || __atomic_load_n(&uv_thread_started, __ATOMIC_ACQUIRE)) { pthread_mutex_unlock(&uv_lock); return; }
+	if (!__atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE) || !uv_target || __atomic_load_n(&uv_thread_started, __ATOMIC_ACQUIRE)) { pthread_mutex_unlock(&uv_lock); return; }
 	__atomic_store_n(&uv_thread_run, 1, __ATOMIC_RELEASE);
 	if (pthread_create(&uv_thread, NULL, uv_hold, NULL) != 0)
 		__atomic_store_n(&uv_thread_run, 0, __ATOMIC_RELEASE);
@@ -1333,14 +1338,16 @@ void PLAT_emergencyRestoreCPUVolt(void) {
 	// clear the target first so the hold thread stops re-asserting, then one best-effort
 	// raw write of stock-max. Post-crash, the kernel re-stocks on the next DVFS transition
 	// anyway (and sequences volts-before-freq), so this is belt on top of kernel braces.
+	__atomic_store_n(&uv_closed, 1, __ATOMIC_RELEASE);
 	__atomic_store_n(&uv_thread_run, 0, __ATOMIC_RELEASE);
 	uv_target = 0;
-	if (uv_fd >= 0 && uv_applied) uv_write(UV_STOCK_MAX);
+	if (__atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE) && uv_applied) uv_write(UV_STOCK_MAX);
 	uv_applied = 0;
 }
 void PLAT_restoreCPUVolt(void) {
 	// one always-safe write: stock max voltage; the kernel re-asserts exact stock on the
 	// next OPP transition. Called on quit and from the crash handler.
+	__atomic_store_n(&uv_closed, 1, __ATOMIC_RELEASE); // no ceiling write may arm or apply the table after this
 	__atomic_store_n(&uv_thread_run, 0, __ATOMIC_RELEASE); // stop the hold thread first
 	if (__atomic_load_n(&uv_thread_started, __ATOMIC_ACQUIRE)) {
 		pthread_mutex_lock(&uv_lock);
@@ -1351,7 +1358,7 @@ void PLAT_restoreCPUVolt(void) {
 	}
 	pthread_mutex_lock(&uv_lock);
 	uv_target = 0;
-	if (uv_fd >= 0 && uv_applied) uv_write(UV_STOCK_MAX);
+	if (__atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE) && uv_applied) uv_write(UV_STOCK_MAX);
 	uv_applied = 0;
 	pthread_mutex_unlock(&uv_lock);
 }
