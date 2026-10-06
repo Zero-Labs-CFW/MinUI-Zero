@@ -51,7 +51,8 @@ Then restart."
 # 4-digit code could be walked in minutes from the same WiFi (Codex review, 2026-10-05); FTP shares the style.
 new_pin() {
 	PIN=$(tr -dc 'abcdefghijkmnpqrstuvwxyz23456789' < /dev/urandom 2>/dev/null | head -c 6)
-	[ ${#PIN} -eq 6 ] || PIN=$(printf '%06d' $(( $(date +%s) * 7919 % 1000000 )))
+	# fallback (no /dev/urandom): same alphabet and length, weaker seed (Codex review 3)
+	[ ${#PIN} -eq 6 ] || PIN=$(awk -v s="$(date +%s)$$" 'BEGIN { srand(s); a = "abcdefghijkmnpqrstuvwxyz23456789"; for (i = 0; i < 6; i++) printf "%s", substr(a, int(rand() * 32) + 1, 1) }')
 }
 # up to ~3 s for pid $2 ITSELF to listen on port $1: a leftover server holding the port must not pass
 # for the new one, which would show a password nothing accepts (Codex review)
@@ -73,18 +74,33 @@ stop_ftp() {
 stop_web() { for p in $(pidof dufs 2>/dev/null); do kill "$p" 2>/dev/null; done; }
 G=/sys/kernel/config/usb_gadget/g1
 FFS=/dev/usb-ffs/mtp
-# MTP off and USB back the way it was (MTP_PREV, recorded by mtp_run; dev cards run adb)
+# is USB back as $1 (an MTP_PREV value)? a function linked in, the controller bound, no MTP left
+usb_restored() {
+	C=$G/configs/c.1
+	[ -e "$C/ffs.mtp" ] && return 1
+	case "$1" in
+		none) return 0 ;;
+		adb) [ -e "$C/ffs.adb" ] ;;
+		mtp) [ -e "$C/mtp.gs0" ] ;;
+		mtp,adb) [ -e "$C/ffs.adb" ] && [ -e "$C/mtp.gs0" ] ;;
+	esac && [ -n "$(cat "$G/UDC" 2>/dev/null)" ]
+}
+# MTP off and USB back the way it was (MTP_PREV, recorded by mtp_run; dev cards run adb). umtprd is waited for
+# (then killed hard) before FunctionFS goes away, and the guard is only cleared once USB really is back, so a
+# failed restore is retried by the EXIT trap (Codex review 3)
 stop_mtp() {
 	[ -n "$MTP_PREV" ] || return 0
 	for p in $(pidof umtprd 2>/dev/null); do kill "$p" 2>/dev/null; done
+	i=0; while pidof umtprd > /dev/null 2>&1 && [ $i -lt 10 ]; do sleep 0.2; i=$((i+1)); done
+	for p in $(pidof umtprd 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
 	echo "" > "$G/UDC" 2>/dev/null
 	rm -f "$G/configs/c.1/ffs.mtp"
-	umount "$FFS" 2>/dev/null
+	umount "$FFS" 2>/dev/null || umount -l "$FFS" 2>/dev/null
 	rmdir "$G/functions/ffs.mtp" 2>/dev/null
 	rm -f "$G/os_desc/c.1"
 	echo "${MTP_OSDESC:-0}" > "$G/os_desc/use" 2>/dev/null
 	/bin/setusbconfig "$MTP_PREV" > /dev/null 2>&1
-	MTP_PREV=
+	if usb_restored "$MTP_PREV"; then MTP_PREV=; else echo "stop_mtp: USB not back as $MTP_PREV" >> "$LOGS_PATH/File Transfer.txt"; fi
 }
 # The "is on" screens: say.elf in the background plus `wait`, because a trapped TERM/HUP interrupts `wait`
 # at once, while a foreground say.elf held the trap (and the running server) until A was pressed
@@ -151,11 +167,16 @@ Press A when you're done."
 
 mtp_run() {
 	C=$G/configs/c.1
-	MTP_PREV=none
-	[ -e "$C/ffs.adb" ] && MTP_PREV=adb
-	[ -e "$C/mtp.gs0" ] && MTP_PREV=mtp
-	[ -e "$C/ffs.adb" ] && [ -e "$C/mtp.gs0" ] && MTP_PREV=mtp,adb
-	MTP_OSDESC=$(cat "$G/os_desc/use" 2>/dev/null)
+	# what to put back, recorded before anything changes; the rollback (MTP_PREV) is armed only right before the
+	# first change, so an early TERM cannot "restore" an untouched gadget to none (Codex review 3). A restore
+	# that failed earlier keeps its original target.
+	if [ -n "$MTP_PREV" ]; then prev=$MTP_PREV; osdesc=$MTP_OSDESC; else
+		prev=none
+		[ -e "$C/ffs.adb" ] && prev=adb
+		[ -e "$C/mtp.gs0" ] && prev=mtp
+		[ -e "$C/ffs.adb" ] && [ -e "$C/mtp.gs0" ] && prev=mtp,adb
+		osdesc=$(cat "$G/os_desc/use" 2>/dev/null)
+	fi
 	# muOS's umtprd.conf, sharing only the card; loop_on_disconnect keeps it serving across unplug/replug.
 	# Interface class 0xff + "MTP", as Android announces MTP, not muOS's 0x06: macOS's camera agent
 	# (ptpcamerad) claims any 0x06 still-image device, and every Mac MTP app then failed to open it
@@ -185,6 +206,7 @@ usb_max_packet_size 0x200
 EOF
 	# the firmware's gadget, emptied (setusbconfig none unlinks every function and leaves it unbound), then
 	# FunctionFS MTP: function, mount, link, umtprd writes its descriptors, and only then bind the controller
+	MTP_OSDESC=$osdesc; MTP_PREV=$prev
 	/bin/setusbconfig none > /dev/null 2>&1
 	echo 0x1D6B > "$G/idVendor"; echo 0x0100 > "$G/idProduct"
 	echo "MinUI Zero MTP" > "$G/strings/0x409/product"
@@ -197,6 +219,7 @@ EOF
 	grep -q " $FFS " /proc/mounts || mount -t functionfs mtp "$FFS"
 	ln -s "$G/functions/ffs.mtp" "$C/ffs.mtp" 2>/dev/null
 	./umtprd -conf "$CONF" > "$LOGS_PATH/File Transfer.txt" 2>&1 &
+	MTP_PID=$!
 	i=0; while [ $i -lt 10 ] && [ ! -e "$FFS/ep1" ]; do sleep 0.3; i=$((i+1)); done
 	if [ ! -e "$FFS/ep1" ] || ! ls /sys/class/udc > "$G/UDC" 2>/dev/null; then
 		stop_mtp
@@ -205,14 +228,29 @@ EOF
 Details are in the File Transfer log."
 		return
 	fi
-	say_wait "USB (MTP) is on
+	# like say_wait, but also watching umtprd: if it dies, the screen must not keep saying MTP is on (Codex
+	# review 3). A TERM during `sleep 1` reaches the trap within a second.
+	say.elf "USB (MTP) is on
 
 Connect a computer or phone with a USB
 cable. Windows and Android open it
 directly; a Mac needs an MTP app
 such as OpenMTP.
 
-Press A when you're done."
+Press A when you're done." &
+	SAY=$!
+	while kill -0 "$SAY" 2>/dev/null; do
+		if ! kill -0 "$MTP_PID" 2>/dev/null; then
+			kill -9 "$SAY" 2>/dev/null; SAY=
+			stop_mtp
+			say.elf "USB (MTP) stopped unexpectedly.
+
+Details are in the File Transfer log."
+			return
+		fi
+		sleep 1
+	done
+	SAY=
 	stop_mtp
 }
 

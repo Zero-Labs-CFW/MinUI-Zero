@@ -1273,8 +1273,8 @@ brightness: older builds read the same file, had no case for -3 (an unset raw va
 their keymon could not step back up, so a downgrade could leave a black screen. The node is only written when it must change, wake re-applies it (PLAT_enableBacklight), and the
 charging screen never brightens a night step.
 
-**File Transfer** (Tools > File Transfer), three ways (USB Drive, FTP, Browser), each running only while its screen
-is open:
+**File Transfer** (Tools > File Transfer), four ways (USB Drive, USB (MTP), FTP, Browser), each running only while
+its screen is open:
 - *USB Drive*: TrimUI's own recipe (the stock usb_storage app; CrossMix's usb_storage/launch.sh): stop
   everything holding the card, unmount it, `setusbconfig mass_storage`, then `fsck` and restart. Runs from a RAM
   copy, with the UI on a tmpfs at the card's own paths (RES_PATH is compile-time). A card that will not unmount,
@@ -1288,7 +1288,7 @@ is open:
   card, then check, restart and a clean menu. The computer side still needs a cable test.
 - *FTP* (named by the owner; first drafted as "WiFi Transfer"): busybox `tcpsvd` + `ftpd` (1_36_1, pinned
   commit), a 43.8 KB build of only ftpd/tcpsvd/ls. One patch: the login is FTPD_USER/FTPD_PASS from the
-  environment (a new 4-digit code each time, user `minui`, shown on screen) instead of the system accounts,
+  environment (a new one-time code each time, user `minui`, shown on screen; 6 characters, see below) instead of the system accounts,
   and a wrong password costs 2 s. Chrooted to the card. Always listed (owner: so people learn it exists); without WiFi set up (connected by any
 route, or wifi.txt / wifi.txt.off) its screen explains how to add wifi.txt. Checked from a
   Mac: list (standard `ls -l` columns), 5 MB up/down byte-identical in 6 s, mkdir/rename/delete, wrong

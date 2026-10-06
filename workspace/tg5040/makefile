@@ -47,6 +47,15 @@ UMTPRD_BIN=$(REQUIRES_UMTPRD)/umtprd
 # helpers (fixdep, kconfig) assembled for aarch64 and the build died; the cross compiler is a full path
 # in CROSS_COMPILE anyway, so busybox gets PATH without that one entry
 BUSYBOX_PATH=$(subst /opt/aarch64-linux-gnu/aarch64-linux-gnu/bin:,,$(PATH))
+# Build stamps (Codex review 3): the source checks alone let a binary through that was not built from that source
+# (an older or altered binary copied over it, or an untracked extra .c that the wildcard builds pick up). After a
+# verified build each tree gets .minui-zero-build = sha256 of the binary + sha256 of the inputs it was built from;
+# every build re-checks both, and any untracked, non-ignored file in the tree also forces a clean rebuild.
+STAMP_OK=stamp_ok() { s="$$1/.minui-zero-build"; [ -f "$$2" ] && [ -f "$$s" ] && \
+	[ "$$(sha256sum "$$2" | cut -d" " -f1)" = "$$(sed -n 1p "$$s")" ] && \
+	[ "$$(cat $$3 | sha256sum | cut -d" " -f1)" = "$$(sed -n 2p "$$s")" ] && \
+	[ -z "$$(git -C "$$1" status --porcelain --untracked-files=all | grep "^??" | grep -v "\.minui-zero-")" ]; }
+STAMP_WRITE=stamp_write() { { sha256sum "$$2" | cut -d" " -f1; cat $$3 | sha256sum | cut -d" " -f1; } > "$$1/.minui-zero-build"; }
 
 .PHONY: $(COMMANDER_PIN) $(EVTEST_PIN) $(JSTEST_PIN) $(UNZIP60_PIN)
 
@@ -89,7 +98,9 @@ $(BUSYBOX_PIN): FORCE
 	@want="$$(grep -E '^[-+]' other/patches/busybox-ftpd.patch | grep -vE '^(\+\+\+|---) ')"; \
 	have="$$(git -C $(REQUIRES_BUSYBOX) diff HEAD 2>/dev/null | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ')"; \
 	head="$$(git -C $(REQUIRES_BUSYBOX) rev-parse HEAD 2>/dev/null)"; \
-	if [ -f $(BUSYBOX_PIN) ] && [ "$$head" = "$(BUSYBOX_HASH)" ] && [ "$$have" = "$$want" ]; then exit 0; fi; \
+	$(STAMP_OK); \
+	if [ -f $(BUSYBOX_PIN) ] && [ "$$head" = "$(BUSYBOX_HASH)" ] && [ "$$have" = "$$want" ] && \
+		{ [ ! -f $(BUSYBOX_BIN) ] || stamp_ok $(REQUIRES_BUSYBOX) $(BUSYBOX_BIN) "other/patches/busybox-ftpd.patch other/patches/busybox-ftpd.config"; }; then exit 0; fi; \
 	echo "busybox: (re)pinning $(BUSYBOX_HASH) + patch"; set -e; \
 	[ -d $(REQUIRES_BUSYBOX)/.git ] || (mkdir -p $(REQUIRES_BUSYBOX) && cd $(REQUIRES_BUSYBOX) && git init -q && git remote add origin https://github.com/mirror/busybox.git); \
 	cd $(REQUIRES_BUSYBOX); \
@@ -106,15 +117,17 @@ $(UMTPRD_BIN): FORCE
 	@want="$$(grep -E '^[-+]' other/patches/umtprd-minui.patch | grep -vE '^(\+\+\+|---) ')"; \
 	have="$$(git -C $(REQUIRES_UMTPRD) diff HEAD 2>/dev/null | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ')"; \
 	head="$$(git -C $(REQUIRES_UMTPRD) rev-parse HEAD 2>/dev/null)"; \
-	if [ -f $(UMTPRD_BIN) ] && [ "$$head" = "$(UMTPRD_HASH)" ] && [ "$$have" = "$$want" ]; then \
-		make -s -C $(REQUIRES_UMTPRD) CC=$(CROSS_COMPILE)gcc; exit $$?; fi; \
+	$(STAMP_OK); $(STAMP_WRITE); \
+	if [ "$$head" = "$(UMTPRD_HASH)" ] && [ "$$have" = "$$want" ] && \
+		stamp_ok $(REQUIRES_UMTPRD) $(UMTPRD_BIN) other/patches/umtprd-minui.patch; then exit 0; fi; \
 	echo "umtprd: (re)building $(UMTPRD_HASH) + patch"; set -e; \
 	[ -d $(REQUIRES_UMTPRD)/.git ] || (mkdir -p $(REQUIRES_UMTPRD) && cd $(REQUIRES_UMTPRD) && git init -q && git remote add origin https://github.com/viveris/uMTP-Responder.git); \
 	cd $(REQUIRES_UMTPRD); \
 	git cat-file -e $(UMTPRD_HASH)^{commit} 2>/dev/null || git fetch -q --depth 1 origin $(UMTPRD_HASH); \
 	git checkout -q -f --detach $(UMTPRD_HASH); git clean -qfdx; \
 	git apply ../patches/umtprd-minui.patch; \
-	make -s CC=$(CROSS_COMPILE)gcc
+	make -s CC=$(CROSS_COMPILE)gcc; \
+	cd ../..; stamp_write $(REQUIRES_UMTPRD) $(UMTPRD_BIN) other/patches/umtprd-minui.patch
 # Every build: the binary itself must hash to the pin, or it is fetched again (and the tarball checked) and
 # must then match. A stale binary from an older DUFS_VERSION, or an altered one, can no longer ship (Codex review).
 $(DUFS_BIN): FORCE
@@ -137,6 +150,7 @@ $(BUSYBOX_BIN): $(BUSYBOX_PIN) other/patches/busybox-ftpd.config
 	cd $(REQUIRES_BUSYBOX) && for s in $$(grep -E '^CONFIG_[A-Z0-9_]+=y' ../patches/busybox-ftpd.config | cut -d= -f1); do \
 		grep -qx "$$s=y" .config || { echo "busybox: $$s did not stick"; exit 1; }; done
 	cd $(REQUIRES_BUSYBOX) && PATH="$(BUSYBOX_PATH)" make -s -j CROSS_COMPILE=$(CROSS_COMPILE) busybox
+	@$(STAMP_WRITE); stamp_write $(REQUIRES_BUSYBOX) $(BUSYBOX_BIN) "other/patches/busybox-ftpd.patch other/patches/busybox-ftpd.config"
 
 $(REQUIRES_UNZIP60):
 	git clone https://github.com/shauninman/unzip60.git $(REQUIRES_UNZIP60)
