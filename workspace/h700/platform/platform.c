@@ -1078,13 +1078,18 @@ void PLAT_enableOverlay(int enable) {}
 // AXP2202 — the Brick's exact PMIC, verified on-device 2026-08-04 (identical sysfs paths).
 
 static int online = 0;
-static int batteryEmptyNow(void);
+static int batteryEmptyNow(int usb_online, int pct);
+static int readIntOr(const char* path, int fallback);
 static volatile int battery_empty_polls = 0; // consecutive empty polls, counted on the battery thread
 void PLAT_getBatteryStatus(int* is_charging, int* charge) {
-	*is_charging = getInt("/sys/class/power_supply/axp2202-usb/online");
-	battery_empty_polls = batteryEmptyNow() ? battery_empty_polls + 1 : 0;
+	// One read each, shared with the empty check (code review 2026-10-06: it re-read both every 5 s poll). Read
+	// with a -1 fallback, NOT getInt's 0: a failed capacity read must stay "unknown", never "0%, empty".
+	int usb = readIntOr("/sys/class/power_supply/axp2202-usb/online", -1);
+	int pct = readIntOr("/sys/class/power_supply/axp2202-battery/capacity", -1);
+	*is_charging = usb < 0 ? 0 : usb; // getInt's old answer on a failed read
+	battery_empty_polls = batteryEmptyNow(usb, pct) ? battery_empty_polls + 1 : 0;
 
-	int i = getInt("/sys/class/power_supply/axp2202-battery/capacity");
+	int i = pct < 0 ? 0 : pct;
 	// worry less about battery and more about the game you're playing
 	     if (i>80) *charge = 100;
 	else if (i>60) *charge =  80;
@@ -1155,18 +1160,21 @@ static int readIntOr(const char* path, int fallback) {
 	if (f) { if (fscanf(f, "%d", &v) != 1) v = fallback; fclose(f); }
 	return v;
 }
-static int batteryEmptyNow(void) {
+static int batteryEmptyNow(int usb_online, int pct) {
 	if (!zero_owns_os()) return 0;
-	double up = 0;
-	FILE* uf = fopen("/proc/uptime", "r");
-	if (uf) { if (fscanf(uf, "%lf", &up) != 1) up = 0; fclose(uf); }
-	if (up < 60) return 0;
-	if (readIntOr("/sys/class/power_supply/axp2202-usb/online", -1) != 0) return 0; // cable in, or unknown
+	static int settled = 0; // the boot guard reads uptime only until it has passed, then never again
+	if (!settled) {
+		double up = 0;
+		FILE* uf = fopen("/proc/uptime", "r");
+		if (uf) { if (fscanf(uf, "%lf", &up) != 1) up = 0; fclose(uf); }
+		if (up < 60) return 0;
+		settled = 1;
+	}
+	if (usb_online != 0) return 0; // cable in, or unknown
 	char st[16] = "";
 	FILE* sf = fopen("/sys/class/power_supply/axp2202-battery/status", "r");
 	if (sf) { if (!fgets(st, sizeof(st), sf)) st[0] = 0; fclose(sf); }
 	if (strncmp(st, "Charging", 8) == 0) return 0;
-	int pct = readIntOr("/sys/class/power_supply/axp2202-battery/capacity", -1);
 	int mv = readIntOr("/sys/class/power_supply/axp2202-battery/voltage_now", -1);
 	if (mv > 100000) mv /= 1000; // uV -> mV
 	int mv_ok = mv >= 2500 && mv <= 4500;
