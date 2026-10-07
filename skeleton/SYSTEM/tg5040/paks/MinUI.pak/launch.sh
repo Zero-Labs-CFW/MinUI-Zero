@@ -515,8 +515,12 @@ while [ -f $EXEC_PATH ]; do
 			# firmware's late S96 wpa_supplicant (running behind a blocked radio on a WiFi-off card) made this look
 			# "on", and the restore below then raised the radio, joined a network, started SSH and armed
 			# stay-awake (no deep sleep) for someone who never enabled WiFi (code review, 2026-10-05).
+			# /tmp/wifi-restore-pending: the previous game's delayed restore (below) has not brought WiFi back yet,
+			# so neither dev-net.sh nor wpa_supplicant is running, yet WiFi IS "on" and must come back after this
+			# game too; removing the marker cancels that pending job (code review, 2026-10-07)
 			if [ ! -f "$SHARED_USERDATA_PATH/keep-wifi-in-games" ] && { devmode || [ -f "$SHARED_USERDATA_PATH/enable-ssh" ]; } &&
-				{ [ -n "$_dn" ] || pidof wpa_supplicant >/dev/null 2>&1; }; then
+				{ [ -n "$_dn" ] || pidof wpa_supplicant >/dev/null 2>&1 || [ -f /tmp/wifi-restore-pending ]; }; then
+				rm -f /tmp/wifi-restore-pending
 				GAME_WIFI_OFF=1
 				touch /tmp/game-wifi-off # bin/suspend keeps the radio down on wake while this exists
 				for p in $_dn; do kill "$p" 2>/dev/null; done
@@ -536,8 +540,12 @@ while [ -f $EXEC_PATH ]; do
 			# the menu starts: radio power-up, wpa_supplicant and DHCP on top of that load step is the leading
 			# suspect for a Brick Pro reset right after leaving a SNES game (Codex review, 2026-10-07; unproven).
 			# The exec-path check repeats after the wait, so a power-off started meanwhile still wins.
+			# The pending marker makes a game started within those seconds count as "WiFi on" (above) and cancels
+			# this job, so WiFi cannot come back in the middle of that game.
 			if [ -f $EXEC_PATH ]; then
-				( sleep 3; [ -f $EXEC_PATH ] || exit 0
+				touch /tmp/wifi-restore-pending
+				( sleep 3; [ -f $EXEC_PATH ] && [ -f /tmp/wifi-restore-pending ] || exit 0
+				  rm -f /tmp/wifi-restore-pending
 				  rfkill unblock wifi 2>/dev/null
 				  exec sh "$SYSTEM_PATH/bin/dev-net.sh" >/dev/null 2>&1 ) &
 			fi
