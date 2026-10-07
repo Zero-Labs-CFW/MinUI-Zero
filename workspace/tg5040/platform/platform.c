@@ -1356,7 +1356,21 @@ void PLAT_restoreCPUVolt(void) {
 	}
 	pthread_mutex_lock(&uv_lock);
 	uv_target = 0;
-	if (__atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE) && uv_applied) uv_write(UV_STOCK_MAX);
+	if (__atomic_load_n(&uv_ready, __ATOMIC_ACQUIRE) && uv_applied) {
+		// a failed write must not go unnoticed (Codex review, 2026-10-07): the launcher raises the ceiling to the
+		// top OPP right after the game exits, and a rail still undervolted at 1.8 GHz can reset the device.
+		// Retry; if the regulator still won't take stock, drop the ceiling to the lowest OPP, so the launcher's raise
+		// is a real DVFS transition and the kernel re-asserts its own stock voltage (uvmap.sh's clock bounce).
+		int ok = 0;
+		for (int i = 0; i < 3 && !ok; i++) {
+			ok = uv_write(UV_STOCK_MAX);
+			if (!ok) usleep(2000);
+		}
+		if (!ok) {
+			LOG_warn("uv: stock restore failed 3 times: ceiling to 408 MHz so the kernel re-asserts stock\n");
+			putInt(MAX_FREQ_PATH, 408000);
+		}
+	}
 	uv_applied = 0;
 	pthread_mutex_unlock(&uv_lock);
 }
