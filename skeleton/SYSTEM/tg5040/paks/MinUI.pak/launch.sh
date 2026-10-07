@@ -532,9 +532,14 @@ while [ -f $EXEC_PATH ]; do
 			# back on only when returning to the menu: a power-off from inside the game removed $EXEC_PATH
 			# and the loop is about to exec shutdown, which must not race dev-net.sh writing its log to the
 			# card (Codex review, 2026-10-05)
+			# A few seconds after the menu is back, not in the same instant the CPU ceiling jumps to the top OPP and
+			# the menu starts: radio power-up, wpa_supplicant and DHCP on top of that load step is the leading
+			# suspect for a Brick Pro reset right after leaving a SNES game (Codex review, 2026-10-07; unproven).
+			# The exec-path check repeats after the wait, so a power-off started meanwhile still wins.
 			if [ -f $EXEC_PATH ]; then
-				rfkill unblock wifi 2>/dev/null
-				sh "$SYSTEM_PATH/bin/dev-net.sh" >/dev/null 2>&1 &
+				( sleep 3; [ -f $EXEC_PATH ] || exit 0
+				  rfkill unblock wifi 2>/dev/null
+				  exec sh "$SYSTEM_PATH/bin/dev-net.sh" >/dev/null 2>&1 ) &
 			fi
 		fi
 		rm -f $NEXT_PATH
