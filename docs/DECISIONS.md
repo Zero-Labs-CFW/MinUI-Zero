@@ -1438,7 +1438,7 @@ buffer, ~85 ms (`aplay -v` on device; an earlier "170 ms" was dmix's own 8192-fr
 - SDL's audio thread runs SCHED_FIFO 10 (ZERO_AUDIO_RT, set from inside the callback; SDL 2.30's own realtime hint did
   nothing on this build). Known residue: the producer holds SDL's audio lock while it resamples a batch into the ring,
   so the RT callback can wait behind a preempted producer (priority inversion); a lock-free ring (RetroArch/NextUI)
-  is the follow-up that could allow 512 again.
+  is the follow-up that could allow 512 again. (Done: D73.)
 - Measured: all three TrimUIs open directly; MinUI ring underruns 0 across GBC/GBA/SNES/PS. Not fixed, and NOT new:
   about once per session the audio stream recovers from an xrun. On the direct path it shows as a hardware stream
   restart (trigger_time); on the dmix path the same event recovers at the client (SDL refill bursts, 2 of 4 mixer runs
@@ -1448,3 +1448,32 @@ buffer, ~85 ms (`aplay -v` on device; an earlier "170 ms" was dmix's own 8192-fr
   Cause unknown; hunt continues (ZERO_AUDIO_TRACE logs callback gaps and refill bursts; ZERO_AUDIO_SAMPLES for A/B).
 Touches: tg5040 MinUI.pak, api.c (SND_init/SND_resume/callback), tg5040 platform.c. Receipts:
 .notes/2026-10-06-v190-release/trimui-direct-audio.md.
+
+## D73: The audio callback reads the ring without a lock (2026-10-07)
+
+Dan: "No let's fix the audio ring now." The residue D72 named: the producer (SND_batchSamples) held SDL's audio lock
+for a whole batch, resampling included, and SDL holds that same lock around every callback. Since D72 the callback
+runs SCHED_FIFO against a 43 ms hardware buffer, so a normal-priority emulator thread preempted mid-batch could hold
+the real-time thread off it (priority inversion). Other frontends: RetroArch's sdl_audio and NextUI's api.c both
+resample OUTSIDE the lock and hold it only to copy into the ring (NextUI with its own mutex); MyMinUI pushes through
+SDL_QueueAudio (SDL's own locked queue, no callback); upstream MinUI has our old shape.
+
+- The ring is now single-producer/single-consumer and lock-free on both sides (workspace/all/common/snd_ring.h): the
+  producer owns the write index and publishes a free-running `written` count (release); the callback owns the read
+  index and publishes `read`. Occupancy for presentation-drop, the low-water climb and SND_getStats is `written -
+  read`, read on demand (clamped; it can over-count a racing read, never report a full ring as empty), replacing the
+  snapshot word both sides republished under the lock.
+- snd_prod_mx serializes the producer's own state with the control ops (FF toggle, reprime, resize, quit); ops that
+  move both sides take it, then SDL's lock. The producer touches SDL's lock only inside SDL_PauseAudio at the prefill
+  gate. It publishes once per 100-frame chunk, so the callback can play the start of a batch while the rest resamples.
+- Space wake-up: the producer sleeps only on a full ring; the callback bumps a generation counter after each read and
+  takes the wake-up mutex only while the producer has armed a `waiting` flag (seq_cst on both, so a wake-up cannot be
+  lost). On the normal path the callback takes no lock at all, and when it does the ring is full (~133 ms queued).
+- Tests: snd_ring_test.c (plain, TSan, ASan) covers wrap, publish visibility, drop, uint32 counter wrap, clamping,
+  and threaded stress with api.c's lock shapes. The audio scenarios 4-9 moved there from wakeup_test.c, which mirrored
+  the old locked ring. Checked by injecting bugs: a relaxed publish was caught (the consumer read stale frames) only
+  after adding a starved-ring stress, because full-ring sleeps order memory as a side effect.
+- Not claimed: the once-per-session stream restart (D72). ZERO_AUDIO_TRACE never saw a callback more than two periods
+  late, which an xrun from lock waits would require, so this removes a risk rather than a measured cause. Device A/B
+  of restart counts and underruns, and whether 512 x 2 now holds, pending.
+Touches: api.c (SND_* ring paths), snd_ring.h, snd_ring_test.c, wakeup_test.c, makefile (test-snd-ring).
