@@ -22,9 +22,17 @@ if [ -f "$SHARED/wifi.conf" ]; then # dev-net.sh sources it too
 	psk=$(. "$SHARED/wifi.conf" >/dev/null 2>&1; printf '%s' "$PSK")
 fi
 if [ -z "$ssid" ] && [ -f /etc/wifi/wpa_supplicant.conf ]; then
-	# the first network; wpa_passphrase keeps the plain password as a #psk="..." comment beside the hashed one
-	ssid=$(sed -n 's/^[[:space:]]*ssid="\(.*\)"[[:space:]]*$/\1/p' /etc/wifi/wpa_supplicant.conf | head -1)
-	psk=$(sed -n 's/^[[:space:]]*#\{0,1\}psk="\(.*\)"[[:space:]]*$/\1/p' /etc/wifi/wpa_supplicant.conf | head -1)
+	# the first network={} block with both a name and a plain password, taken from that same block (a name from
+	# one network and a password from another would replace a working config with a wrong one); wpa_passphrase
+	# keeps the plain password as a #psk="..." comment beside the hashed one
+	pair=$(awk '
+		/^[[:space:]]*network[[:space:]]*=[[:space:]]*\{/ { inblk = 1; s = ""; p = ""; next }
+		inblk && /^[[:space:]]*\}/ { if (s != "" && p != "") { print s; print p; exit } inblk = 0; next }
+		inblk && /^[[:space:]]*ssid="/ { s = $0; sub(/^[[:space:]]*ssid="/, "", s); sub(/"[[:space:]]*$/, "", s) }
+		inblk && /^[[:space:]]*#?psk="/ { p = $0; sub(/^[[:space:]]*#?psk="/, "", p); sub(/"[[:space:]]*$/, "", p) }
+	' /etc/wifi/wpa_supplicant.conf)
+	ssid=$(printf '%s\n' "$pair" | sed -n 1p)
+	psk=$(printf '%s\n' "$pair" | sed -n 2p)
 fi
 # wifi.txt splits at the first colon, so a name with one cannot be written; a hashed-only password cannot either
 [ -n "$ssid" ] && [ -n "$psk" ] || exit 0
