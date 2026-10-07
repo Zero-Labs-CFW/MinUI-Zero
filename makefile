@@ -55,7 +55,7 @@ name:
 	@echo $(RELEASE_NAME)
 
 # host-side unit tests (no device, no toolchain)
-.PHONY: test-governor test-telemetry test-save-io test-ff-audio test-undervolt test-reproducibility test-wakeup test-gov-memory test-dupskip test-devicesync test-snd-pacing test-shellquote test-install-safety test-cfg-migrate test-favorites check-parity check-threading-policy
+.PHONY: test-governor test-telemetry test-save-io test-ff-audio test-undervolt test-reproducibility test-wakeup test-gov-memory test-dupskip test-devicesync test-snd-pacing test-snd-ring test-shellquote test-install-safety test-cfg-migrate test-favorites check-parity check-threading-policy
 test-governor:
 	sh ./workspace/all/common/run-governor-tests.sh
 .PHONY: test-recents
@@ -104,6 +104,8 @@ test-devicesync:
 	sh ./workspace/all/common/run-devicesync-tests.sh
 test-snd-pacing:
 	sh ./workspace/all/common/run-snd-pacing-tests.sh
+test-snd-ring:
+	sh ./workspace/all/common/run-snd-ring-tests.sh
 check-threading-policy:
 	sh ./workspace/all/common/check-threading-policy.sh
 # threading v2 framering protocol module (host; TSan/ASan are SEPARATE builds per contract)
