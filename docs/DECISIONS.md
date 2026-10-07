@@ -1274,6 +1274,7 @@ brightness: older builds read the same file, had no case for -3 (an unset raw va
 their keymon could not step back up, so a downgrade could leave a black screen. The node is only written when it must change, wake re-applies it (PLAT_enableBacklight), and the
 charging screen never brightens a night step.
 *Revised 2026-10-07 (tuned by eye on the Brick with Dan):* seven night steps, -1..-7: enhance_bright 35/20/12/6/3/2/1 with enhance_contrast 50/50/46/42/33/29/25. Below bright 10 the engine's brightness barely moves the picture, so the darkest steps lower contrast too, which dims the whites. The save format is unchanged (night N, 1..7).
+*Miyoo Mini Plus, 2026-10-07 (by eye with Dan):* four night steps through the mi_disp colour stage (`csc` on /proc/mi_modules/mi_disp/mi_disp0): luma 36/30/25/20 with contrast 50/50/46/42, backlight held at level 0. The day values are saved to /tmp/day-csc on the first night step and put back when brightness returns to 0 or above. Divergence: 4 steps here vs 7 on TrimUI, picked by eye; the hardware's controls differ. The save format matches TrimUI's (night N in the old unused[0]).
 
 **File Transfer** (Tools > File Transfer), four ways (USB Drive, USB (MTP), FTP, Browser), each running only while
 its screen is open:
