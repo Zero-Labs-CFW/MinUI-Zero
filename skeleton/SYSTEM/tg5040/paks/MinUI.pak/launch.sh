@@ -350,6 +350,9 @@ echo $CPU_SPEED_PERF > $CPU_PATH 2>/dev/null || true
 # it diverged from the Anbernic build for no reason (Dan, 2026-08-28). wifi.txt is translated to
 # the existing pair here, so dev-net.sh and everything downstream are untouched, and the old
 # files keep working for anyone already set up.
+# A dev card that joins WiFi without wifi.txt (devmode, or the old enable-ssh + wifi.conf pair) gets one written from
+# the network it already uses, so Settings can show its On/Off row (bin/wifi-adopt.sh; no-op on every other card).
+sh "$SYSTEM_PATH/bin/wifi-adopt.sh" 2>/dev/null
 if [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	_w=$(sed '/^#/d;/^[[:space:]]*$/d' "$SDCARD_PATH/wifi.txt" | head -1)
 	_ssid=${_w%%:*}; _psk=${_w#*:}

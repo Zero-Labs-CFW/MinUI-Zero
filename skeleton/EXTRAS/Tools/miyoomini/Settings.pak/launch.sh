@@ -102,6 +102,9 @@ while :; do
 		fi
 		set -- "$@" optimize "Optimize CPU" "" "$UV_VALUE" "$UV_DESC"
 	fi
+	# TrimUI: a dev card on WiFi without wifi.txt gets one first, or it had no row (bin/wifi-adopt.sh; absent elsewhere,
+	# where WiFi comes from wifi.txt alone)
+	[ -f "$SYSTEM_PATH/bin/wifi-adopt.sh" ] && sh "$SYSTEM_PATH/bin/wifi-adopt.sh" 2>/dev/null
 	if [ -f "$WTXT" ] || [ -f "$WOFF" ]; then
 		wifi_row
 		set -- "$@" wifi "WiFi" "$WIFI_VALUES" "$WIFI_CURRENT" "$WIFI_DESC"
