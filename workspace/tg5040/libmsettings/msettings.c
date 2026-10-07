@@ -131,7 +131,7 @@ static inline void SaveSettings(void) {
 	}
 }
 
-// NIGHT STEPS (Dan 2026-10-05, after a "Display too bright" report): levels -1..-5 hold the backlight at
+// NIGHT STEPS (Dan 2026-10-05, after a "Display too bright" report): levels -1..-4 hold the backlight at
 // its floor (raw 1 Brick/Pro, 4 Smart Pro) and dim the PICTURE in the display engine: enhance_bright,
 // 50 = neutral (the kernel default). Same node as NextUI's "Exposure" and spruce's brightness; 10 was the
 // floor the stock OS and NextUI keep. -4..-6 go below it (Dan 2026-10-07: "still very bright at night"),
@@ -159,15 +159,15 @@ static void SetRawEnhanceContrast(int val) {
 	if (f) { fprintf(f, "%d", val); fclose(f); }
 }
 
-int GetBrightness(void) { // -5..10 (below 0 = night steps)
+int GetBrightness(void) { // -4..10 (below 0 = night steps)
 	if (!settings) return 0; // callable before InitSettings (NextUI #273 class)
-	if (settings->brightness < 0) return settings->brightness < -5 ? -5 : settings->brightness; // a pre-release save
-	if (settings->brightness == 0 && settings->night > 0) return settings->night > 5 ? -5 : -settings->night;
+	if (settings->brightness < 0) return settings->brightness < -4 ? -4 : settings->brightness; // a pre-release save
+	if (settings->brightness == 0 && settings->night > 0) return settings->night > 4 ? -4 : -settings->night;
 	return settings->brightness;
 }
 void SetBrightness(int value) {
 	if (!settings) return;
-	if (value < -5) value = -5; // = BRIGHTNESS_MIN (platform.h); an out-of-range save left raw unset
+	if (value < -4) value = -4; // = BRIGHTNESS_MIN (platform.h); an out-of-range save left raw unset
 	if (value > 10) value = 10;
 
 	int raw;
@@ -175,9 +175,9 @@ void SetBrightness(int value) {
 	int contrast = 50; // neutral
 	if (value < 0) {
 		raw = (is_brick || is_brickpro) ? 1 : 4; // the level-0 backlight
-		// -1..-5; the darkest (brightness 1, contrast 25) and dropping the old 10/50 step picked by eye on the Brick (Dan, 2026-10-07)
-		static const int night_enhance[5]  = { 35, 20,  6,  3,  1 };
-		static const int night_contrast[5] = { 50, 50, 42, 33, 25 };
+		// -1..-4; the darkest (brightness 1, contrast 25), and dropping the old 20/50 and 10/50 steps, picked by eye on the Brick (Dan, 2026-10-07)
+		static const int night_enhance[4]  = { 35,  6,  3,  1 };
+		static const int night_contrast[4] = { 50, 42, 33, 25 };
 		enhance = night_enhance[-value - 1];
 		contrast = night_contrast[-value - 1];
 	}
