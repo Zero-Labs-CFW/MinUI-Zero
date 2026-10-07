@@ -3,6 +3,10 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
+// Night steps: brightness -1..-4 sit below the backlight floor and dim the picture in the display's colour
+// stage instead (msettings.c SetBrightness). keymon.c mirrors this value as BRIMIN.
+#define BRIGHTNESS_MIN -4
+
 ///////////////////////////////
 
 #include "sdl.h"

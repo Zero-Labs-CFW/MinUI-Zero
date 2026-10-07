@@ -99,7 +99,8 @@ typedef struct Settings {
 	int headphones;
 	int speaker;
 	int jack; 
-	int unused[3]; // for future use
+	int night; // 0, or night step 1..4 with brightness held at 0 (see SetBrightness); was unused[0]
+	int unused[2]; // for future use
 } Settings;
 static Settings DefaultSettings = {
 	.version = SETTINGS_VERSION,
@@ -191,7 +192,8 @@ static inline void SaveSettings(void) {
 	}
 }
 
-int GetBrightness(void) { // 0-10
+int GetBrightness(void) { // -4..10 (below 0 = night steps)
+	if (settings->brightness == 0 && settings->night > 0) return settings->night > 4 ? -4 : -settings->night;
 	return settings->brightness;
 }
 // REVERTED to the linear mapping. I had swapped this for OnionOS's geometric ramp
@@ -202,9 +204,63 @@ int GetBrightness(void) { // 0-10
 // anything. A device already set near the bottom of the range read as "the screen is broken".
 // If a perceptual curve is ever wanted, it needs to migrate the stored setting at the same time,
 // and it should be an explicit decision — not a silent remap.
+// NIGHT STEPS (Dan 2026-10-07, after TrimUI's D69 ladder; four steps here, luma 20 the darkest, picked by eye on the Miyoo Mini Plus): levels -1..-4 hold the backlight at level 0's
+// duty and dim the PICTURE in the display's colour stage instead (mi_disp CSC: luma and contrast, the controls
+// Onion's display settings use). The values the device runs by day (lumon's, or the firmware's) are saved to
+// /tmp the first time a night step is entered and put back when brightness returns to 0 or above, so a device
+// that never uses a night step never has its colour stage touched. Like TrimUI, a night step saves as
+// brightness 0 plus night N: older builds read it as 0, their darkest.
+#define MI_DISP_PATH "/proc/mi_modules/mi_disp/mi_disp0"
+#define DAY_CSC_PATH "/tmp/day-csc"
+static int readCsc(int* luma, int* contrast, int* hue, int* sat) {
+	FILE* f = fopen(MI_DISP_PATH, "r");
+	if (!f) return 0;
+	char line[256]; int next = 0, ok = 0;
+	while (fgets(line, sizeof(line), f)) {
+		if (next) { char a[32], b[32]; int m; ok = sscanf(line, "%31s %31s %d %d %d %d %d", a, b, &m, luma, contrast, hue, sat) == 7; break; }
+		if (strstr(line, "CscMatrix")) next = 1;
+	}
+	fclose(f);
+	return ok;
+}
+static void writeCsc(int luma, int contrast, int hue, int sat) {
+	FILE* f = fopen(MI_DISP_PATH, "w"); // the proc command takes contrast, hue, luma, saturation in that order
+	if (f) { fprintf(f, "csc 0 3 %d %d %d %d 0 0", contrast, hue, luma, sat); fclose(f); }
+}
+static void SetNightCsc(int night) {
+	int luma, contrast, hue, sat;
+	if (night == 0) {
+		FILE* f = fopen(DAY_CSC_PATH, "r");
+		if (!f) return; // never dimmed: nothing to put back
+		int ok = fscanf(f, "%d %d %d %d", &luma, &contrast, &hue, &sat) == 4;
+		fclose(f);
+		if (ok) writeCsc(luma, contrast, hue, sat);
+		unlink(DAY_CSC_PATH);
+		return;
+	}
+	if (access(DAY_CSC_PATH, F_OK) != 0) {
+		if (!readCsc(&luma, &contrast, &hue, &sat)) return;
+		FILE* f = fopen(DAY_CSC_PATH, "w");
+		if (!f) return;
+		fprintf(f, "%d %d %d %d\n", luma, contrast, hue, sat);
+		fclose(f);
+	}
+	else {
+		FILE* f = fopen(DAY_CSC_PATH, "r");
+		if (!f || fscanf(f, "%d %d %d %d", &luma, &contrast, &hue, &sat) != 4) { if (f) fclose(f); return; }
+		fclose(f);
+	}
+	static const int night_luma[4]     = { 36, 30, 25, 20 }; // -1..-4; luma 20 is the darkest Dan would use (2026-10-07, by eye)
+	static const int night_contrast[4] = { 50, 50, 46, 42 };
+	writeCsc(night_luma[night - 1], night_contrast[night - 1], hue, sat);
+}
 void SetBrightness(int value) {
-	SetRawBrightness(value==0?6:value*10);
-	settings->brightness = value;
+	if (value < -4) value = -4; // = BRIGHTNESS_MIN (platform.h)
+	if (value > 10) value = 10;
+	SetRawBrightness(value<=0?6:value*10);
+	SetNightCsc(value < 0 ? -value : 0);
+	settings->brightness = value < 0 ? 0 : value;
+	settings->night = value < 0 ? -value : 0;
 	SaveSettings();
 }
 

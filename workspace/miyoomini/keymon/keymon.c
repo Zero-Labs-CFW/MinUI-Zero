@@ -46,6 +46,7 @@
 #define BRIGHTNESS	1
 #define VOLMAX		20
 #define BRIMAX		10
+#define BRIMIN		-4 // night steps, = platform.h BRIGHTNESS_MIN (msettings.c SetBrightness maps them)
 
 //	for ev.value
 #define RELEASED	0
@@ -436,8 +437,8 @@ int main (int argc, char *argv[]) {
 					}
 					else if ((is_plus && menu_pressed) || button_flag==START) {
 						// VOLUMEDOWN or START + L : brightness down
-						val = GetBrightness();
-						if (val>0) SetBrightness(--val);
+						int b = GetBrightness(); // signed: night steps go below 0, and val is uint32_t
+						if (b>BRIMIN) SetBrightness(b-1);
 					}
 				}
 			}
@@ -462,8 +463,8 @@ int main (int argc, char *argv[]) {
 					}
 					else if ((is_plus && menu_pressed) || button_flag==START) {
 						// VOLUMEUP or START + R : brightness up
-						val = GetBrightness();
-						if (val<BRIMAX) SetBrightness(++val);
+						int b = GetBrightness();
+						if (b<BRIMAX) SetBrightness(b+1);
 					}
 				}
 			}
