@@ -21,7 +21,7 @@
 
 #define VOLUME_MIN 		0
 #define VOLUME_MAX 		20
-#define BRIGHTNESS_MIN 	-6 // night steps, = platform.h (msettings.c SetBrightness maps them)
+#define BRIGHTNESS_MIN 	-7 // night steps, = platform.h (msettings.c SetBrightness maps them)
 #define BRIGHTNESS_MAX 	10
 
 #define CODE_MENU0		314
