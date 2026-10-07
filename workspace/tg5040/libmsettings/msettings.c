@@ -131,7 +131,7 @@ static inline void SaveSettings(void) {
 	}
 }
 
-// NIGHT STEPS (Dan 2026-10-05, after a "Display too bright" report): levels -1..-6 hold the backlight at
+// NIGHT STEPS (Dan 2026-10-05, after a "Display too bright" report): levels -1..-5 hold the backlight at
 // its floor (raw 1 Brick/Pro, 4 Smart Pro) and dim the PICTURE in the display engine: enhance_bright,
 // 50 = neutral (the kernel default). Same node as NextUI's "Exposure" and spruce's brightness; 10 was the
 // floor the stock OS and NextUI keep. -4..-6 go below it (Dan 2026-10-07: "still very bright at night"),
@@ -146,24 +146,40 @@ static void SetRawEnhanceBright(int val) {
 	f = fopen(ENHANCE_BRIGHT_PATH, "w");
 	if (f) { fprintf(f, "%d", val); fclose(f); }
 }
+// Below brightness 10 the engine's brightness barely moves the picture (Dan, 2026-10-07: 6, 3 and 1 "feel the
+// same"), so the darkest night steps also lower contrast, which dims the whites. 50 = neutral; a node never
+// written reads 0 (unset), which counts as neutral, so a device that never uses those steps never writes it.
+#define ENHANCE_CONTRAST_PATH "/sys/class/disp/disp/attr/enhance_contrast"
+static void SetRawEnhanceContrast(int val) {
+	int cur = -1;
+	FILE* f = fopen(ENHANCE_CONTRAST_PATH, "r");
+	if (f) { if (fscanf(f, "%d", &cur) != 1) cur = -1; fclose(f); }
+	if (cur == val || (cur == 0 && val == 50)) return;
+	f = fopen(ENHANCE_CONTRAST_PATH, "w");
+	if (f) { fprintf(f, "%d", val); fclose(f); }
+}
 
-int GetBrightness(void) { // -6..10 (below 0 = night steps)
+int GetBrightness(void) { // -5..10 (below 0 = night steps)
 	if (!settings) return 0; // callable before InitSettings (NextUI #273 class)
-	if (settings->brightness < 0) return settings->brightness < -6 ? -6 : settings->brightness; // a pre-release save
-	if (settings->brightness == 0 && settings->night > 0) return settings->night > 6 ? -6 : -settings->night;
+	if (settings->brightness < 0) return settings->brightness < -5 ? -5 : settings->brightness; // a pre-release save
+	if (settings->brightness == 0 && settings->night > 0) return settings->night > 5 ? -5 : -settings->night;
 	return settings->brightness;
 }
 void SetBrightness(int value) {
 	if (!settings) return;
-	if (value < -6) value = -6; // = BRIGHTNESS_MIN (platform.h); an out-of-range save left raw unset
+	if (value < -5) value = -5; // = BRIGHTNESS_MIN (platform.h); an out-of-range save left raw unset
 	if (value > 10) value = 10;
 
 	int raw;
 	int enhance = 50; // neutral
+	int contrast = 50; // neutral
 	if (value < 0) {
 		raw = (is_brick || is_brickpro) ? 1 : 4; // the level-0 backlight
-		static const int night_enhance[6] = { 35, 20, 10, 6, 3, 1 }; // -1..-6
+		// -1..-5; the darkest (brightness 1, contrast 25) and dropping the old 10/50 step picked by eye on the Brick (Dan, 2026-10-07)
+		static const int night_enhance[5]  = { 35, 20,  6,  3,  1 };
+		static const int night_contrast[5] = { 50, 50, 42, 33, 25 };
 		enhance = night_enhance[-value - 1];
+		contrast = night_contrast[-value - 1];
 	}
 	else if (is_brick || is_brickpro) {
 		switch (value) {
@@ -197,6 +213,7 @@ void SetBrightness(int value) {
 	}
 	SetRawBrightness(raw);
 	SetRawEnhanceBright(enhance);
+	SetRawEnhanceContrast(contrast);
 	// A night step saves as brightness 0 + night N, never as a negative brightness: older builds read the
 	// same file and know only 0..10. Their SetBrightness had no case for -3 (an unset raw value went to the
 	// display) and their keymon could not step back up, so a downgrade could leave a black screen
