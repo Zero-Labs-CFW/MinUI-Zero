@@ -14,6 +14,9 @@ _w=$(sed '/^#/d;/^[[:space:]]*$/d' "$SD/wifi.txt" | head -1)
 _ssid=${_w%%:*}; _psk=${_w#*:}
 [ -n "$_ssid" ] && [ "$_ssid" != "$_w" ] || exit 0
 mkdir -p "$SHARED"
-printf 'SSID=%s\nPSK=%s\n' "$_ssid" "$_psk" > "$SHARED/wifi.conf"
+# single-quoted: dev-net.sh sources this file, so a space or shell character in the name or password must not split
+# or run (same as MinUI.pak/launch.sh's write)
+_q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+printf 'SSID=%s\nPSK=%s\n' "$(_q "$_ssid")" "$(_q "$_psk")" > "$SHARED/wifi.conf"
 touch "$SHARED/enable-ssh"
 exec sh "$SYS/bin/dev-net.sh"

@@ -22,14 +22,18 @@ if [ -f "$SHARED/wifi.conf" ]; then # dev-net.sh sources it too
 	psk=$(. "$SHARED/wifi.conf" >/dev/null 2>&1; printf '%s' "$PSK")
 fi
 if [ -z "$ssid" ] && [ -f /etc/wifi/wpa_supplicant.conf ]; then
-	# the first network={} block with both a name and a plain password, taken from that same block (a name from
-	# one network and a password from another would replace a working config with a wrong one); wpa_passphrase
-	# keeps the plain password as a #psk="..." comment beside the hashed one
+	# Only a config with exactly ONE network={} block, whose name and plain password are both simple quoted values
+	# (no quote or backslash inside, nothing after the closing quote), taken from that block. Anything else is
+	# skipped: adoption rewrites the config from wifi.txt at the next boot, so picking the wrong one of several
+	# networks, or copying an escaped password literally, would replace a working config with a broken one, while
+	# a skip only leaves the Settings row hidden (Codex review, 2026-10-07). wpa_passphrase keeps the plain
+	# password as a #psk="..." comment beside the hashed one.
 	pair=$(awk '
-		/^[[:space:]]*network[[:space:]]*=[[:space:]]*\{/ { inblk = 1; s = ""; p = ""; next }
-		inblk && /^[[:space:]]*\}/ { if (s != "" && p != "") { print s; print p; exit } inblk = 0; next }
-		inblk && /^[[:space:]]*ssid="/ { s = $0; sub(/^[[:space:]]*ssid="/, "", s); sub(/"[[:space:]]*$/, "", s) }
-		inblk && /^[[:space:]]*#?psk="/ { p = $0; sub(/^[[:space:]]*#?psk="/, "", p); sub(/"[[:space:]]*$/, "", p) }
+		/^[[:space:]]*network[[:space:]]*=[[:space:]]*\{/ { blocks++; inblk = 1; next }
+		inblk && /^[[:space:]]*\}/ { inblk = 0; next }
+		inblk && /^[[:space:]]*ssid=/ { if ($0 ~ /^[[:space:]]*ssid="[^"\\]+"[[:space:]]*\r?$/) { s = $0; sub(/^[[:space:]]*ssid="/, "", s); sub(/"[[:space:]]*\r?$/, "", s) } else bad = 1 }
+		inblk && /^[[:space:]]*#?psk="/ { if ($0 ~ /^[[:space:]]*#?psk="[^"\\]+"[[:space:]]*\r?$/) { p = $0; sub(/^[[:space:]]*#?psk="/, "", p); sub(/"[[:space:]]*\r?$/, "", p) } else bad = 1 }
+		END { if (blocks == 1 && !bad && s != "" && p != "") { print s; print p } }
 	' /etc/wifi/wpa_supplicant.conf)
 	ssid=$(printf '%s\n' "$pair" | sed -n 1p)
 	psk=$(printf '%s\n' "$pair" | sed -n 2p)

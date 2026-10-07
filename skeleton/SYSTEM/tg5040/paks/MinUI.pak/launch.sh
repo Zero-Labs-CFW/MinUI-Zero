@@ -358,7 +358,10 @@ if [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	_ssid=${_w%%:*}; _psk=${_w#*:}
 	if [ -n "$_ssid" ] && [ "$_ssid" != "$_w" ]; then
 		mkdir -p "$SHARED_USERDATA_PATH"
-		printf 'SSID=%s\nPSK=%s\n' "$_ssid" "$_psk" > "$SHARED_USERDATA_PATH/wifi.conf"
+		# single-quoted: dev-net.sh sources this file, so a space or shell character in the name or password must
+		# not split or run (Codex review, 2026-10-07: "My Home" set nothing and ran "Home")
+		_q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+		printf 'SSID=%s\nPSK=%s\n' "$(_q "$_ssid")" "$(_q "$_psk")" > "$SHARED_USERDATA_PATH/wifi.conf"
 		touch "$SHARED_USERDATA_PATH/enable-ssh"
 	fi
 elif [ -f "$SDCARD_PATH/wifi.txt.off" ]; then
