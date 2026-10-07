@@ -32,7 +32,9 @@ if [ -z "$ssid" ] && [ -f /etc/wifi/wpa_supplicant.conf ]; then
 		/^[[:space:]]*network[[:space:]]*=[[:space:]]*\{/ { blocks++; inblk = 1; next }
 		inblk && /^[[:space:]]*\}/ { inblk = 0; next }
 		inblk && /^[[:space:]]*ssid=/ { if ($0 ~ /^[[:space:]]*ssid="[^"\\]+"[[:space:]]*\r?$/) { s = $0; sub(/^[[:space:]]*ssid="/, "", s); sub(/"[[:space:]]*\r?$/, "", s) } else bad = 1 }
-		inblk && /^[[:space:]]*#?psk="/ { if ($0 ~ /^[[:space:]]*#?psk="[^"\\]+"[[:space:]]*\r?$/) { p = $0; sub(/^[[:space:]]*#?psk="/, "", p); sub(/"[[:space:]]*\r?$/, "", p) } else bad = 1 }
+		inblk && /^[[:space:]]*#?psk="/ { if ($0 ~ /^[[:space:]]*#?psk="[^"\\]+"[[:space:]]*\r?$/) { p = $0; sub(/^[[:space:]]*#?psk="/, "", p); sub(/"[[:space:]]*\r?$/, "", p) } else bad = 1; next }
+		inblk && /^[[:space:]]*(ssid=|psk=|key_mgmt=WPA-PSK[[:space:]]*\r?$|priority=|#|\r?$)/ { next }
+		inblk { bad = 1 }
 		END { if (blocks == 1 && !bad && s != "" && p != "") { print s; print p } }
 	' /etc/wifi/wpa_supplicant.conf)
 	ssid=$(printf '%s\n' "$pair" | sed -n 1p)
