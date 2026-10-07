@@ -131,11 +131,12 @@ static inline void SaveSettings(void) {
 	}
 }
 
-// NIGHT STEPS (Dan 2026-10-05, after a "Display too bright" report): levels -1..-3 hold the backlight at
+// NIGHT STEPS (Dan 2026-10-05, after a "Display too bright" report): levels -1..-6 hold the backlight at
 // its floor (raw 1 Brick/Pro, 4 Smart Pro) and dim the PICTURE in the display engine: enhance_bright,
-// 50 = neutral (the kernel default). Same node as NextUI's "Exposure" and spruce's brightness; 10 is the
-// floor the stock OS and NextUI keep, so we never go lower. The node is only written when its value
-// must change, so a device that never uses a night step never touches it.
+// 50 = neutral (the kernel default). Same node as NextUI's "Exposure" and spruce's brightness; 10 was the
+// floor the stock OS and NextUI keep. -4..-6 go below it (Dan 2026-10-07: "still very bright at night"),
+// never to 0, so the darkest step still shows a picture to step back up from. The node is only written when
+// its value must change, so a device that never uses a night step never touches it.
 #define ENHANCE_BRIGHT_PATH "/sys/class/disp/disp/attr/enhance_bright"
 static void SetRawEnhanceBright(int val) {
 	int cur = -1;
@@ -146,22 +147,23 @@ static void SetRawEnhanceBright(int val) {
 	if (f) { fprintf(f, "%d", val); fclose(f); }
 }
 
-int GetBrightness(void) { // -3..10 (below 0 = night steps)
+int GetBrightness(void) { // -6..10 (below 0 = night steps)
 	if (!settings) return 0; // callable before InitSettings (NextUI #273 class)
-	if (settings->brightness < 0) return settings->brightness < -3 ? -3 : settings->brightness; // a pre-release save
-	if (settings->brightness == 0 && settings->night > 0) return settings->night > 3 ? -3 : -settings->night;
+	if (settings->brightness < 0) return settings->brightness < -6 ? -6 : settings->brightness; // a pre-release save
+	if (settings->brightness == 0 && settings->night > 0) return settings->night > 6 ? -6 : -settings->night;
 	return settings->brightness;
 }
 void SetBrightness(int value) {
 	if (!settings) return;
-	if (value < -3) value = -3; // = BRIGHTNESS_MIN (platform.h); an out-of-range save left raw unset
+	if (value < -6) value = -6; // = BRIGHTNESS_MIN (platform.h); an out-of-range save left raw unset
 	if (value > 10) value = 10;
 
 	int raw;
 	int enhance = 50; // neutral
 	if (value < 0) {
 		raw = (is_brick || is_brickpro) ? 1 : 4; // the level-0 backlight
-		enhance = value == -1 ? 35 : value == -2 ? 20 : 10;
+		static const int night_enhance[6] = { 35, 20, 10, 6, 3, 1 }; // -1..-6
+		enhance = night_enhance[-value - 1];
 	}
 	else if (is_brick || is_brickpro) {
 		switch (value) {

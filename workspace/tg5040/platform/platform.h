@@ -17,9 +17,9 @@ extern int is_brick;
 // tg5040 support, which is the only tested Brick Pro reference (checked 2026-08-30).
 extern int is_brickpro;
 
-// Night steps: brightness -1..-3 sit below the backlight floor and dim the picture in the display
+// Night steps: brightness -1..-6 sit below the backlight floor and dim the picture in the display
 // engine instead (msettings.c SetBrightness). keymon.c mirrors this value; it includes neither header.
-#define BRIGHTNESS_MIN -3
+#define BRIGHTNESS_MIN -6
 
 ///////////////////////////////
 
