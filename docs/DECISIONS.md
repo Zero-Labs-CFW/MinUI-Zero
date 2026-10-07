@@ -1273,6 +1273,7 @@ migration. A night step saves as brightness 0 plus `night` N (the struct's old u
 brightness: older builds read the same file, had no case for -3 (an unset raw value reached the display) and
 their keymon could not step back up, so a downgrade could leave a black screen. The node is only written when it must change, wake re-applies it (PLAT_enableBacklight), and the
 charging screen never brightens a night step.
+*Revised 2026-10-07 (tuned by eye on the Brick with Dan):* seven night steps, -1..-7: enhance_bright 35/20/12/6/3/2/1 with enhance_contrast 50/50/46/42/33/29/25. Below bright 10 the engine's brightness barely moves the picture, so the darkest steps lower contrast too, which dims the whites. The save format is unchanged (night N, 1..7).
 
 **File Transfer** (Tools > File Transfer), four ways (USB Drive, USB (MTP), FTP, Browser), each running only while
 its screen is open:
