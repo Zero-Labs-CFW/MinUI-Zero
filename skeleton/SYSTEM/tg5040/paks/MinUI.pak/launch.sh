@@ -529,6 +529,14 @@ while [ -f $EXEC_PATH ]; do
 				rfkill block wifi 2>/dev/null
 			fi ;;
 		esac
+		# Keep the previous game's log for this system (Dan 2026-10-08): an emulator pak truncates
+		# $LOGS_PATH/<TAG>.txt at every launch, so a crash's evidence was gone as soon as the next game of that
+		# system started (the Brick Pro reboot after DKC, 2026-10-07). One .prev per system: bounded, never grows.
+		case "$CMD" in *"/Emus/"*)
+			_pak=$(printf '%s' "$CMD" | sed -n "s|^'\([^']*\)/launch\.sh'.*|\1|p")
+			_tag=$(basename "$_pak" .pak)
+			[ -n "$_pak" ] && [ -f "$LOGS_PATH/$_tag.txt" ] && mv -f "$LOGS_PATH/$_tag.txt" "$LOGS_PATH/$_tag.prev.txt"
+		esac
 		eval $CMD
 		unset ZERO_AUDIO_DEVICE ZERO_AUDIO_SAMPLES ZERO_AUDIO_RT
 		if [ "$GAME_WIFI_OFF" = 1 ]; then

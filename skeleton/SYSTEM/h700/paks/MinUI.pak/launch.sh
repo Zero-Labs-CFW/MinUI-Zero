@@ -359,6 +359,14 @@ while : ; do
 		CMD=$(cat /tmp/next)
 		echo "launch: $CMD" >> "$LOG"
 		apply_volume   # a mute left behind by the menu process must not follow us into the game
+		# Keep the previous game's log for this system (Dan 2026-10-08): an emulator pak truncates
+		# $LOGS_PATH/<TAG>.txt at every launch, so a crash's evidence was gone as soon as the next game of that
+		# system started (the Brick Pro reboot after DKC, 2026-10-07). One .prev per system: bounded, never grows.
+		case "$CMD" in *"/Emus/"*)
+			_pak=$(printf '%s' "$CMD" | sed -n "s|^'\([^']*\)/launch\.sh'.*|\1|p")
+			_tag=$(basename "$_pak" .pak)
+			[ -n "$_pak" ] && [ -f "$LOGS_PATH/$_tag.txt" ] && mv -f "$LOGS_PATH/$_tag.txt" "$LOGS_PATH/$_tag.prev.txt"
+		esac
 		sh -c "$CMD"
 		echo "game exited rc=$?" >> "$LOG"
 		apply_volume   # ...nor back into the menu if the game was killed while muted
