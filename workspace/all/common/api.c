@@ -297,6 +297,7 @@ static uint32_t frame_start = 0;
 static int frame_overran = 0; // closed-loop governor: did the last frame's CPU work exceed the budget?
 static uint64_t frame_start_us = 0; // benchmark telemetry: us timestamp at frame start
 static uint32_t frame_work_us = 0;  // us of CPU work from GFX_startFrame to GFX_flip
+static uint32_t gfx_max_work_us = 0, gfx_max_flip_us = 0; // per latency-log window, MAIN only (GFX_takeFrameMax)
 void GFX_startFrame(void) {
 	// NOTE: an earlier per-frame PERIOD check here (frame gap vs core budget) was removed — the
 	// pipeline is bursty by design (audio-block pacing + GL buffering), so a healthy 60fps
@@ -315,6 +316,7 @@ void GFX_finishFrameWork(void) {
 	if (frame_start_us) {
 		frame_work_us = (uint32_t)(getMicroseconds() - frame_start_us);
 		frame_start_us = 0;
+		if (frame_work_us > gfx_max_work_us) gfx_max_work_us = frame_work_us; // latency log (GFX_takeFrameMax)
 	}
 }
 int GFX_didOverrun(void) {
@@ -352,6 +354,13 @@ void GFX_flip(SDL_Surface* screen) {
 	uint64_t flip_t0 = getMicroseconds();
 	PLAT_flip(screen, should_vsync);
 	gfx_flip_wait_us = (uint32_t)(getMicroseconds() - flip_t0); // how long the flip blocked (vsync-bound signal)
+	if (frame_work_us > gfx_max_work_us) gfx_max_work_us = frame_work_us; // latency log window maxima (GFX_takeFrameMax)
+	if (gfx_flip_wait_us > gfx_max_flip_us) gfx_max_flip_us = gfx_flip_wait_us;
+}
+void GFX_takeFrameMax(uint32_t* work_us, uint32_t* flip_us) {
+	if (work_us) *work_us = gfx_max_work_us;
+	if (flip_us) *flip_us = gfx_max_flip_us;
+	gfx_max_work_us = gfx_max_flip_us = 0;
 }
 void GFX_flipGame(SDL_Surface* screen) {
 	// GAME-RUN-LOOP present: the ONLY path where presentation-drop may skip.
@@ -1407,6 +1416,7 @@ static void SND_signalSpace(void) { snd_space_signal(&snd_space); }
 // minimum update is load-then-store, so a reset racing a callback can keep one stale value for a take: harmless.
 static _Atomic uint32_t snd_cb_qsum = 0, snd_cb_n = 0, snd_cb_period = 0;
 static _Atomic uint32_t snd_cb_min[2] = { UINT32_MAX, UINT32_MAX };
+static _Atomic uint32_t snd_max_gap_us = 0; // longest producer gap between batches since the last SND_takeMaxBatchGapUs
 // LATENCY PROBE (ZERO_MEASURE or ZERO_AUDIO_LATLOG only): once a second the producer notes the ring's write count after a batch and the
 // time; the callback whose read covers that frame notes when, and where in its period the frame fell. 0 idle, 1 armed
 // (producer), 2 result ready (callback), back to 0 when minarch takes it (3 while taking) or after 2.5 s unclaimed (a reprime dropped it).
@@ -1832,6 +1842,15 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 		snd_ring_publish(&snd.ring); // per chunk: the callback can play these while the rest resample
 	}
 	__atomic_store_n(&snd_last_batch_ms, SDL_GetTicks(), __ATOMIC_RELEASE);
+	{ // longest gap between two batches (latency log): a late producer is what empties a short ring
+		static uint64_t last_us = 0;
+		uint64_t now_us = getMicroseconds();
+		if (last_us) {
+			uint32_t gap = (uint32_t)(now_us - last_us > UINT32_MAX ? UINT32_MAX : now_us - last_us);
+			if (gap > atomic_load_explicit(&snd_max_gap_us, memory_order_relaxed)) atomic_store_explicit(&snd_max_gap_us, gap, memory_order_relaxed);
+		}
+		last_us = now_us;
+	}
 	if (snd_probe_on && consumed > 0) { // latency probe (ZERO_MEASURE): follow the newest published frame, once a second
 		int st = atomic_load_explicit(&snd_probe_state, memory_order_acquire);
 		uint64_t now_us = getMicroseconds();
@@ -1883,6 +1902,7 @@ int SND_takeTroughMs(int slot) {
 	if (SDL_GetTicks() - SND_lastBatchMs() >= 250) return -1; // producer idle: a draining ring is not a slow core
 	return (int)((uint64_t)m * 1000 / (uint32_t)snd.sample_rate_out);
 }
+uint32_t SND_takeMaxBatchGapUs(void) { return atomic_exchange_explicit(&snd_max_gap_us, 0, memory_order_relaxed); }
 int SND_takeProbe(uint32_t* ring_us, int* offset_frames) {
 	int two = 2;
 	if (!atomic_compare_exchange_strong_explicit(&snd_probe_state, &two, 3, memory_order_acquire, memory_order_relaxed)) return 0;
@@ -1955,7 +1975,8 @@ static void snd_latency_setup(void) {
 	snd.target_setpoint = snd_ms_to_pct(t, cap_ms);
 	snd.target_band = snd_ms_to_pct(band_ms, cap_ms);
 	snd.target_low_ms = low;
-	snd.prefill_launch_pct = snd_ms_to_pct(t + 33, cap_ms);
+	const char* pf = getenv("ZERO_AUDIO_PREFILL_MS"); // A/B: the launch fill in ms (default target + 33)
+	snd.prefill_launch_pct = snd_ms_to_pct((pf && atoi(pf) > t) ? atoi(pf) : t + 33, cap_ms);
 	snd.prefill_resume_pct = snd_ms_to_pct(t + 7, cap_ms);
 	if (snd.prefill_launch_pct > SND_PREFILL_LAUNCH) snd.prefill_launch_pct = SND_PREFILL_LAUNCH;
 	if (snd.prefill_resume_pct > snd.prefill_launch_pct) snd.prefill_resume_pct = snd.prefill_launch_pct;

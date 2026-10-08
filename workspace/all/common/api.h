@@ -264,6 +264,8 @@ int SND_takeProbe(uint32_t* ring_us, int* offset_frames);
 // ALSA hardware queue right now (frames, from /proc/asound/card0/pcm0p/sub0/status or ZERO_AUDIO_STATUS), -1 when the
 // file or its delay line is absent (MMP, a closed stream). File I/O: MEASURE lines only, never per frame.
 int SND_getDeviceDelayFrames(void);
+uint32_t SND_takeMaxBatchGapUs(void); // longest gap between two producer batches since the last take (latency log)
+void GFX_takeFrameMax(uint32_t* work_us, uint32_t* flip_us); // longest frame work / present since the last take
 int SND_isActive(void); // audio device open and pacing (present-skip is only legal while true)
 
 ///////////////////////////////

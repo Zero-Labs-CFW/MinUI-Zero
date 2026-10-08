@@ -6545,7 +6545,8 @@ static void trackFPS(void) {
 		//   buffer, the hardware holds 1.5 on average, the read itself removes half a period from the ring's mean);
 		//   probe = frames followed from publish to the DAC (ring time + offset in the period + 2 periods),
 		//   min/avg/max over n; alsa = /proc hardware-queue snapshots min/avg/max (-1 = unknown); under = underruns in
-		//   the window; fps = lowest generation rate of the window; mhz = cpu0 clock now; ceil = governor ceiling.
+		//   the window; fps = lowest generation rate of the window; mhz = cpu0 clock now; ceil = governor ceiling;
+		//   gap / work / flip = the window's longest producer gap between audio batches, frame work, present (ms).
 		{
 			static int ll_every = -1;
 			if (ll_every < 0) {
@@ -6580,14 +6581,16 @@ static void trackFPS(void) {
 				if (++ll_secs >= ll_every) {
 					uint32_t n = ls.cb_n - ll_n0, qs = ls.cb_qsum - ll_qsum0;
 					double mean = n ? (double)(qs / n) * 1000.0 / rate : -1.0;
+					uint32_t gap_us = SND_takeMaxBatchGapUs(), work_us = 0, flip_us = 0;
+					GFX_takeFrameMax(&work_us, &flip_us);
 					int mhz = -1;
 					FILE* cf = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "r");
 					if (cf) { if (fscanf(cf, "%d", &mhz) == 1) mhz /= 1000; else mhz = -1; fclose(cf); }
-					LOG_info("audio-lat: cb/s=%.1f mean=%.1f trough=%d per=%.1f est=%.1f probe=%.1f/%.1f/%.1f(n%d) alsa=%.1f/%.1f/%.1f under=%ld fps=%.1f mhz=%d ceil=%d\n",
+					LOG_info("audio-lat: cb/s=%.1f mean=%.1f trough=%d per=%.1f est=%.1f probe=%.1f/%.1f/%.1f(n%d) alsa=%.1f/%.1f/%.1f under=%ld fps=%.1f mhz=%d ceil=%d gap=%.1f work=%.1f flip=%.1f\n",
 						(double)n / ll_secs, mean, ll_trough, per, mean >= 0 ? mean + 2 * per : -1.0,
 						ll_pn ? ll_pmin : -1.0, ll_pn ? ll_psum / ll_pn : -1.0, ll_pn ? ll_pmax : -1.0, ll_pn,
 						ll_an ? ll_amin : -1.0, ll_an ? ll_asum / ll_an : -1.0, ll_an ? ll_amax : -1.0,
-						ls.underruns - ll_u0, ll_fps, mhz, gov_state.ceil_khz / 1000);
+						ls.underruns - ll_u0, ll_fps, mhz, gov_state.ceil_khz / 1000, gap_us / 1000.0, work_us / 1000.0, flip_us / 1000.0);
 					ll_qsum0 = ls.cb_qsum; ll_n0 = ls.cb_n; ll_u0 = ls.underruns;
 					ll_secs = 0; ll_trough = -1; ll_pn = ll_an = 0;
 					ll_pmin = ll_amin = 1e9; ll_pmax = ll_amax = ll_psum = ll_asum = 0; ll_fps = 1e9;
