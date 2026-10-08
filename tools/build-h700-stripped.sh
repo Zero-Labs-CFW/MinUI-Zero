@@ -631,6 +631,16 @@ if [ -d "$REPO/skeleton/EXTRAS/Tools/h700" ]; then
 		cp "$DC/DinguxCommander-h700" "$STAGE/Tools/h700/Files.pak/DinguxCommander"
 		cp -R "$DC/res" "$STAGE/Tools/h700/Files.pak/" 2>/dev/null || true
 	fi
+	# File Transfer (FTP + Browser, 2026-10-08): the Brick's own busybox ftpd and dufs, built and verified by
+	# workspace/tg5040/makefile (pinned commit + patch, build stamp; dufs by hash). Both aarch64: busybox links
+	# glibc, which this rootfs has; dufs is static. USB rows are TrimUI only (gadget path unverified here).
+	FT="$STAGE/Tools/h700/File Transfer.pak"
+	if [ -d "$FT" ]; then
+		for _f in busybox dufs; do
+			[ -f "$REPO/workspace/tg5040/other/$_f/$_f" ] || { echo "ERROR: workspace/tg5040/other/$_f/$_f missing; run 'make tg5040' (its early target builds it)"; exit 1; }
+			cp "$REPO/workspace/tg5040/other/$_f/$_f" "$FT/"
+		done
+	fi
 fi
 # CORE COVERAGE GATE. The image advertises one pak per system, but the cores are whatever happens
 # to be sitting in the tg5040 output directory, so a partially built core tree silently produced an

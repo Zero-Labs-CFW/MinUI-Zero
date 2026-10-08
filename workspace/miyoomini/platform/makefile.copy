@@ -27,3 +27,7 @@ $(PLATFORM):
 	mkdir -p ./build/EXTRAS/Tools/$@/Files.pak
 	cp ./workspace/$@/other/DinguxCommander/output/DinguxCommander ./build/EXTRAS/Tools/$@/Files.pak/
 	cp -r ./workspace/$@/other/DinguxCommander/res ./build/EXTRAS/Tools/$@/Files.pak/
+	# File Transfer (FTP + Browser; USB rows are TrimUI only): busybox ftpd and dufs, armv7 builds from this
+	# platform's `early:` target, same pins and ftpd patch as tg5040's
+	cp ./workspace/$@/other/busybox/busybox "./build/EXTRAS/Tools/$@/File Transfer.pak/"
+	cp ./workspace/$@/other/dufs/dufs "./build/EXTRAS/Tools/$@/File Transfer.pak/"

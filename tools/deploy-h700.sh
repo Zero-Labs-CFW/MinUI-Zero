@@ -28,6 +28,13 @@ DC="$REPO/workspace/tg5040/other/DinguxCommander-sdl2"
 if [ -d "$STAGE/Tools/h700/Files.pak" ] && [ -f "$DC/DinguxCommander-h700" ]; then
 	cp "$DC/DinguxCommander-h700" "$STAGE/Tools/h700/Files.pak/DinguxCommander"; cp -R "$DC/res" "$STAGE/Tools/h700/Files.pak/" 2>/dev/null || true
 fi
+# File Transfer: tg5040's aarch64 busybox ftpd + dufs (same binaries the image ships; see build-h700-stripped.sh)
+FT="$STAGE/Tools/h700/File Transfer.pak"
+if [ -d "$FT" ]; then
+	for _f in busybox dufs; do
+		cp "$REPO/workspace/tg5040/other/$_f/$_f" "$FT/" || { echo "ERROR: workspace/tg5040/other/$_f/$_f missing; run 'make tg5040-frontend' (its early target builds it)"; exit 1; }
+	done
+fi
 # version stamp: same shape the image writes, from the git tree
 V="MinUI Zero (dev-$(date +%Y%m%d))"; H=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)
 printf '%s\n%s\n' "$V" "$H" > "$STAGE/.system/version.txt"

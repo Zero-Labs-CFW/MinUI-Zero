@@ -1331,6 +1331,14 @@ The radio is blocked at boot and stays blocked across sleep (424c5fa9).
 Divergence: TrimUI only for now. MMP: no display-engine enhance node for night steps, no known USB gadget path,
 and FTP (now 44 KB) waits for an armv7 build and an on-device test. h700: nodes
 unverified (the H was offline) and its images release separately.
+*File Transfer parity, 2026-10-08 (Dan approved):* FTP and Browser now ship on the Miyoo Mini Plus and the h700 too,
+the same launch.sh on all three (Tools/<platform>/File Transfer.pak, duplicated; the USB rows are listed only when
+the pak's folder is tg5040). Miyoo: busybox ftpd built for armv7 from the same pinned commit, with the patch and
+config read from the tg5040 tree (one source), and dufs 0.46.0's own armv7 musl release, pinned by tarball and
+binary hash. h700: the tg5040 aarch64 binaries as built (busybox needs glibc + libcrypt, both on the h700 rootfs;
+dufs is static), staged by build-h700-stripped.sh and deploy-h700.sh. Same posture everywhere: only while the
+screen is open, chroot to the card, user `minui` + a 6-character one-time code. Remaining divergence, earned by
+hardware: USB Drive and USB (MTP) stay TrimUI only (TrimUI's gadget; none known on the MMP, unverified on the h700).
 Touches: tg5040 msettings/keymon/platform.h, defines.h, minui.c (charging screen), File Transfer.pak,
 tg5040 makefile + makefile.copy, README.md, skeleton/BASE/README.txt.
 

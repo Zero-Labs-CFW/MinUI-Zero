@@ -70,15 +70,15 @@ MinUI creates a quicksave when powering off in-game and resumes from it
 automatically on the next boot.
 
 ----------------------------------------------------------------------------
-File transfer (TrimUI)
+File transfer
 
 Tools > File Transfer moves files without taking the card out.
 
-USB Drive: the card shows up on a computer as a drive. When you're done,
+USB Drive (TrimUI only): the card shows up on a computer as a drive. When you're done,
 eject it on the computer, then unplug or press A. The device checks the
 card and restarts.
 
-USB (MTP): no restart. Windows and Android open it directly; a Mac needs
+USB (MTP) (TrimUI only): no restart. Windows and Android open it directly; a Mac needs
 an MTP app such as OpenMTP.
 
 FTP and Browser (need WiFi, see wifi.txt): run over WiFi while their screen

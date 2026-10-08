@@ -13,12 +13,17 @@
 #    transfer from a Mac (libmtp and OpenMTP), so it is never used.
 #  - Browser: dufs, a web file manager and WebDAV server (5 MB): drag files in any browser, or connect
 #    Finder / Windows Explorer to the same address as a network drive. Same one-time password.
-# TrimUI ONLY, by hardware (D69): USB Drive and MTP use the TrimUI USB gadget (setusbconfig, configfs g1), which the
-# Miyoo Mini Plus has no known equivalent for; FTP/Browser wait for armv7 builds of busybox ftpd and dufs plus an
-# on-device test there; the h700 images release separately and its gadget path is unverified.
+# ONE script, duplicated per platform (parity rule: change one, diff the others; Tools/<platform>/File Transfer.pak).
+# FTP and Browser are on every platform (2026-10-08): the pak carries busybox and dufs built for the platform
+# (aarch64 for TrimUI and the h700, armv7 for the Miyoo Mini Plus; same pins, same ftpd patch).
+# USB Drive and USB (MTP) are TrimUI ONLY, by hardware (D69): both drive the TrimUI USB gadget (setusbconfig,
+# configfs g1). The Miyoo Mini Plus has no known gadget path, and the h700's is unverified, so those rows are not
+# listed there (and usb-drive.sh / umtprd ship only in the TrimUI pak).
 
 cd "$(dirname "$0")" || exit 1
 PAK="$(pwd)"
+# the platform is the folder this pak sits in (Tools/<platform>/), not the caller's environment
+PLAT=$(basename "$(dirname "$PAK")")
 
 wifi_ip() {
 	ip=$(ifconfig wlan0 2>/dev/null | sed -n 's/.*inet addr:\([0-9.]*\).*/\1/p')
@@ -297,7 +302,8 @@ The device restarts afterwards." "START" "BACK" || return
 }
 
 while :; do
-	set -- usb "USB Drive" "" "" "The card shows up as a drive on any computer.
+	set --
+	[ "$PLAT" = tg5040 ] && set -- usb "USB Drive" "" "" "The card shows up as a drive on any computer.
 The device restarts afterwards. Press A."
 	# FTP and Browser are always listed, so people learn they exist (Dan, 2026-10-05); without WiFi set
 	# up, the description and the A screen say how
@@ -312,15 +318,15 @@ Needs WiFi: add wifi.txt to the card."
 		WEB_DESC="Drag files in a web browser over WiFi.
 Needs WiFi: add wifi.txt to the card."
 	fi
-	set -- "$@" mtp "USB (MTP)" "" "" "No restart. Windows and Android open it;
+	[ "$PLAT" = tg5040 ] && set -- "$@" mtp "USB (MTP)" "" "" "No restart. Windows and Android open it;
 a Mac needs an MTP app. Press A."
 	set -- "$@" ftp "FTP" "" "" "$FTP_DESC"
 	set -- "$@" web "Browser" "" "" "$WEB_DESC"
 	# --wide: left-aligned like the Tools list; rows without a value draw only their label pill
 	OUT=$(settings.elf --wide --title "File Transfer" "$@")
 	case "$OUT" in
-		*OPEN=usb*) usb_run ;;
-		*OPEN=mtp*) mtp_run ;;
+		*OPEN=usb*) [ "$PLAT" = tg5040 ] && usb_run ;;
+		*OPEN=mtp*) [ "$PLAT" = tg5040 ] && mtp_run ;;
 		*OPEN=ftp*) ftp_run ;;
 		*OPEN=web*) web_run ;;
 		*) break ;;
