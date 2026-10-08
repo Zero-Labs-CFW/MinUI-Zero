@@ -256,7 +256,7 @@ void SND_getStats(SND_Stats* out);
 int SND_getLatencyTarget(int* setpoint_pct, int* band_pct, int* low_ms);
 // The lowest ring level any callback found before its read since the last take of this slot, in ms; -1 when no
 // callback ran since, audio is closed, or the producer is idle (no batch in 250 ms). Slot 0 = the per-frame low-water
-// check, slot 1 = the ZERO_MEASURE line; each take resets its own slot only.
+// check, slot 1 = the latency log, slot 2 = the servo's jitter guard; each take resets its own slot only.
 int SND_takeTroughMs(int slot);
 // ZERO_MEASURE or ZERO_AUDIO_LATLOG only: one sample per second is followed through the ring. Returns 1 with the time it sat in the ring
 // until a callback copied it out (us) and its frame offset inside that callback's period; 0 when no result is ready.

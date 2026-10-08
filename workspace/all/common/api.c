@@ -1415,7 +1415,7 @@ static void SND_signalSpace(void) { snd_space_signal(&snd_space); }
 // (SND_getStats, diffed by the reader) and two independent minimums that their readers reset (SND_takeTroughMs). The
 // minimum update is load-then-store, so a reset racing a callback can keep one stale value for a take: harmless.
 static _Atomic uint32_t snd_cb_qsum = 0, snd_cb_n = 0, snd_cb_period = 0;
-static _Atomic uint32_t snd_cb_min[2] = { UINT32_MAX, UINT32_MAX };
+static _Atomic uint32_t snd_cb_min[3] = { UINT32_MAX, UINT32_MAX, UINT32_MAX };
 static _Atomic uint32_t snd_max_gap_us = 0; // longest producer gap between batches since the last SND_takeMaxBatchGapUs
 // LATENCY PROBE (ZERO_MEASURE or ZERO_AUDIO_LATLOG only): once a second the producer notes the ring's write count after a batch and the
 // time; the callback whose read covers that frame notes when, and where in its period the frame fell. 0 idle, 1 armed
@@ -1429,7 +1429,7 @@ static void SND_callbackStats(uint32_t want) {
 	atomic_fetch_add_explicit(&snd_cb_qsum, q, memory_order_relaxed);
 	atomic_fetch_add_explicit(&snd_cb_n, 1, memory_order_relaxed);
 	atomic_store_explicit(&snd_cb_period, want, memory_order_relaxed);
-	for (int i = 0; i < 2; i++)
+	for (int i = 0; i < 3; i++)
 		if (q < atomic_load_explicit(&snd_cb_min[i], memory_order_relaxed))
 			atomic_store_explicit(&snd_cb_min[i], q, memory_order_relaxed);
 	if (snd_probe_on && atomic_load_explicit(&snd_probe_state, memory_order_acquire) == 1) {
@@ -1896,7 +1896,7 @@ int SND_getLatencyTarget(int* setpoint_pct, int* band_pct, int* low_ms) {
 	return snd.initialized ? snd.target_ms : 0;
 }
 int SND_takeTroughMs(int slot) {
-	if (slot < 0 || slot > 1) return -1;
+	if (slot < 0 || slot > 2) return -1;
 	uint32_t m = atomic_exchange_explicit(&snd_cb_min[slot], UINT32_MAX, memory_order_relaxed);
 	if (!snd.initialized || snd.sample_rate_out <= 0 || m == UINT32_MAX) return -1;
 	if (SDL_GetTicks() - SND_lastBatchMs() >= 250) return -1; // producer idle: a draining ring is not a slow core

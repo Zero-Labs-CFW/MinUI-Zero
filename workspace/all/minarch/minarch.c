@@ -7850,10 +7850,41 @@ static int zero_boot_timing = -1;
 				static uint32_t servo_prev_qsum = 0, servo_prev_n = 0;
 				uint32_t win_n = ss.cb_n - servo_prev_n, win_qsum = ss.cb_qsum - servo_prev_qsum;
 				servo_prev_n = ss.cb_n; servo_prev_qsum = ss.cb_qsum;
+				static int jg_rearm = 1; // jitter guard (below): the first tick after (re)arming starts warm
+				if (baseline) jg_rearm = 1;
 				if (!baseline && ss.frame_count > 0 && (!lat_target || win_n > 0)) {
 					int occ = lat_target ? (int)((100ULL * (win_qsum / win_n)) / (uint32_t)ss.frame_count)
 						: (int)((100L * ss.queue_frames) / ss.frame_count);
-					const int sp = lat_target ? lat_sp : AUDIOSERVO_SETPOINT, band = lat_target ? lat_band : AUDIOSERVO_BAND;
+					int sp = lat_target ? lat_sp : AUDIOSERVO_SETPOINT;
+					const int band = lat_target ? lat_band : AUDIOSERVO_BAND;
+					// JITTER GUARD (ZERO_AUDIO_WARM_MS=W, low-latency A/B 2026-10-08). The Brick run showed the steady
+					// state holds a 40 ms target with no underruns while launch does not: DKC's intro ran 25-29 ms frames
+					// under the governor's launch sink and emptied a 40-50 ms ring, where today's ~80 ms absorbed it. So the
+					// level starts at W after every (re)arm (launch, menu close, wake), holds 30 s, then glides down 2 ms/s
+					// to the target; a tick whose callbacks found under 10 ms bumps it 10 ms (up to W) and holds 30 s again,
+					// the way a VoIP jitter buffer grows on loss. Off (0) by default: the plain target holds as before.
+					if (lat_target) {
+						static int warm_ms = -1, eff_ms = 0;
+						static uint32_t hold_until = 0;
+						if (warm_ms < 0) { const char* w = getenv("ZERO_AUDIO_WARM_MS"); warm_ms = w ? atoi(w) : 0; }
+						int jg_rate = ss.rate_out > 0 ? ss.rate_out : 48000;
+						int cap_ms = (int)((uint64_t)ss.frame_count * 1000 / (uint32_t)jg_rate);
+						int tr = SND_takeTroughMs(2);
+						if (warm_ms > lat_target && cap_ms > warm_ms) {
+							uint32_t jg_now = SDL_GetTicks();
+							if (jg_rearm || eff_ms <= 0) { eff_ms = warm_ms; hold_until = jg_now + 30000; }
+							else if (tr >= 0 && tr < 10) {
+								if (eff_ms < warm_ms) LOG_info("audio jitter guard: trough %d ms, target %d -> %d ms\n", tr, eff_ms, eff_ms + 10 < warm_ms ? eff_ms + 10 : warm_ms);
+								eff_ms = eff_ms + 10 < warm_ms ? eff_ms + 10 : warm_ms;
+								hold_until = jg_now + 30000;
+							}
+							else if ((int32_t)(jg_now - hold_until) >= 0 && eff_ms > lat_target) eff_ms--;
+							if (eff_ms < lat_target) eff_ms = lat_target;
+							sp = (eff_ms * 100 + cap_ms / 2) / cap_ms;
+							if (sp < 1) sp = 1;
+						}
+						jg_rearm = 0;
+					}
 					// may a full ring drain? (block comment above; eligibility already requires presents that wait for
 					// vsync). ZERO_NO_FULL_DRAIN (presence-only) holds instead, as before, for A/B.
 					static int full_drain = -1;
