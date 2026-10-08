@@ -510,6 +510,12 @@ while [ -f $EXEC_PATH ]; do
 			export ZERO_AUDIO_SAMPLES=1024
 			# ...and keep SDL's audio thread on time for that buffer: minarch moves it to SCHED_FIFO (api.c).
 			export ZERO_AUDIO_RT=1
+			# LOW-LATENCY AUDIO CANDIDATE (opt-in test, 2026-10-08): ~55 ms instead of ~115 on the Brick (latency matrix
+			# round 3, .notes/2026-10-08-audio-latency/test-plan.md). Off unless this file exists, until Dan's play checks
+			# and a drain A/B clear it; TrimUI only for now because only TrimUI was measured.
+			if [ -f "$SHARED_USERDATA_PATH/low-latency-audio" ]; then
+				export ZERO_AUDIO_SAMPLES=256 ZERO_AUDIO_TARGET_MS=40 ZERO_AUDIO_WARM_MS=80 ZERO_AUDIO_PREFILL_MS=100
+			fi
 			_dn=$(pgrep -f "bin/dev-net[.]sh" 2>/dev/null) # [.]: never matches a shell whose command line merely quotes it
 			# Only on a card that opted into WiFi, the SAME test boot uses to run dev-net.sh at all. Without it, the
 			# firmware's late S96 wpa_supplicant (running behind a blocked radio on a WiFi-off card) made this look
@@ -538,7 +544,7 @@ while [ -f $EXEC_PATH ]; do
 			[ -n "$_pak" ] && [ -f "$LOGS_PATH/$_tag.txt" ] && mv -f "$LOGS_PATH/$_tag.txt" "$LOGS_PATH/$_tag.prev.txt"
 		esac
 		eval $CMD
-		unset ZERO_AUDIO_DEVICE ZERO_AUDIO_SAMPLES ZERO_AUDIO_RT
+		unset ZERO_AUDIO_DEVICE ZERO_AUDIO_SAMPLES ZERO_AUDIO_RT ZERO_AUDIO_TARGET_MS ZERO_AUDIO_WARM_MS ZERO_AUDIO_PREFILL_MS
 		if [ "$GAME_WIFI_OFF" = 1 ]; then
 			rm -f /tmp/game-wifi-off
 			# back on only when returning to the menu: a power-off from inside the game removed $EXEC_PATH
