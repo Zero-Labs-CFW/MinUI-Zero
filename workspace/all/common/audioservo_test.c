@@ -74,6 +74,22 @@ int main(void) {
 		CHECK(audioservo_blocked_target_ppm(occ) <= 0, "blocked at %d%% must not drain", occ);
 	}
 
+	// parametrized setpoint/band (ZERO_AUDIO_TARGET_MS A/B): the wrappers are exactly the default parameters, and a
+	// low setpoint keeps the same law around itself
+	for (int occ = 0; occ <= 100; occ++) {
+		CHECK(audioservo_target_ppm(occ) == audioservo_target_ppm_at(occ, AUDIOSERVO_SETPOINT, AUDIOSERVO_BAND), "wrapper differs at %d", occ);
+		CHECK(audioservo_blocked_target_ppm(occ) == audioservo_blocked_target_ppm_at(occ, AUDIOSERVO_SETPOINT, AUDIOSERVO_BAND), "blocked wrapper differs at %d", occ);
+	}
+	CHECK(audioservo_target_ppm_at(20, 20, 20) == 0, "low setpoint must be silent at itself");
+	CHECK(audioservo_target_ppm_at(0, 20, 20) == -AUDIOSERVO_RAIL_PPM, "empty ring at band = setpoint must be -rail");
+	CHECK(audioservo_target_ppm_at(40, 20, 20) == AUDIOSERVO_RAIL_PPM, "setpoint + band must be +rail");
+	CHECK(audioservo_target_ppm_at(10, 20, 20) == -AUDIOSERVO_RAIL_PPM / 8, "half the band must be rail/8, got %d", audioservo_target_ppm_at(10, 20, 20));
+	for (int occ = 1; occ <= 100; occ++)
+		CHECK(audioservo_target_ppm_at(occ, 20, 20) >= audioservo_target_ppm_at(occ - 1, 20, 20), "low setpoint not monotonic at %d", occ);
+	CHECK(audioservo_blocked_target_ppm_at(25, 20, 20) >= AUDIOSERVO_FULL_PPM, "low setpoint: a block above it drains at least at the floor");
+	CHECK(audioservo_blocked_target_ppm_at(15, 20, 20) < 0, "low setpoint: a block that ended below it refills");
+	CHECK(abs(audioservo_target_ppm_at(100, 5, 100)) <= AUDIOSERVO_RAIL_PPM && audioservo_target_ppm_at(50, 50, 0) == 0, "extreme bands stay inside the rail");
+
 	if (fails) { printf("audioservo: %d FAILED\n", fails); return 1; }
 	printf("audioservo: all checks passed\n");
 	return 0;

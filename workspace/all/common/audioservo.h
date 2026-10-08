@@ -23,13 +23,20 @@
 #define AUDIOSERVO_RAIL_PPM 20000 // 2% pitch at the rails
 #define AUDIOSERVO_SMOOTH   4     // first-order filter, in ticks; at 2Hz ~2s time constant
 
-// Trim the resampler should converge to for this occupancy (clamped to +-RAIL by construction).
+// Trim the resampler should converge to for this occupancy (clamped to +-RAIL by construction), around any setpoint
+// and band in points. The low-latency A/B (ZERO_AUDIO_TARGET_MS, 2026-10-08) moves both; the default path passes
+// AUDIOSERVO_SETPOINT/AUDIOSERVO_BAND through the wrappers below and is unchanged.
+static inline int audioservo_target_ppm_at(int occ_pct, int setpoint, int band) {
+	if (band < 1) band = 1;
+	if (band > 100) band = 100;
+	int e = occ_pct - setpoint;
+	if (e >  band) e =  band;
+	if (e < -band) e = -band;
+	long long c = (long long)e * e * e; // |c| <= band^3 <= 1e6; c * RAIL fits 64 bits
+	return (int)(c * AUDIOSERVO_RAIL_PPM / ((long long)band * band * band));
+}
 static inline int audioservo_target_ppm(int occ_pct) {
-	int e = occ_pct - AUDIOSERVO_SETPOINT;
-	if (e >  AUDIOSERVO_BAND) e =  AUDIOSERVO_BAND;
-	if (e < -AUDIOSERVO_BAND) e = -AUDIOSERVO_BAND;
-	long c = (long)e * e * e; // |c| <= BAND^3 = 15625; c * RAIL = 3.1e8, fits a 32-bit long
-	return (int)(c * AUDIOSERVO_RAIL_PPM / ((long)AUDIOSERVO_BAND * AUDIOSERVO_BAND * AUDIOSERVO_BAND));
+	return audioservo_target_ppm_at(occ_pct, AUDIOSERVO_SETPOINT, AUDIOSERVO_BAND);
 }
 
 // A window in which the producer blocked on a FULL ring. A high reading then measures the block, not the
@@ -43,10 +50,13 @@ static inline int audioservo_target_ppm(int occ_pct) {
 // (a stall after the block drained it): a reading below the setpoint is a real level, not the pacer, so the
 // cubic refills it (Codex review 4, 2026-10-06).
 #define AUDIOSERVO_FULL_PPM 5000
-static inline int audioservo_blocked_target_ppm(int occ_pct) {
-	int cubic = audioservo_target_ppm(occ_pct);
-	if (occ_pct < AUDIOSERVO_SETPOINT) return cubic;
+static inline int audioservo_blocked_target_ppm_at(int occ_pct, int setpoint, int band) {
+	int cubic = audioservo_target_ppm_at(occ_pct, setpoint, band);
+	if (occ_pct < setpoint) return cubic;
 	return cubic > AUDIOSERVO_FULL_PPM ? cubic : AUDIOSERVO_FULL_PPM;
+}
+static inline int audioservo_blocked_target_ppm(int occ_pct) {
+	return audioservo_blocked_target_ppm_at(occ_pct, AUDIOSERVO_SETPOINT, AUDIOSERVO_BAND);
 }
 
 // One smoothing step of the applied trim toward the target; call once per tick. Integer and

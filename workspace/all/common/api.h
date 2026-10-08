@@ -244,8 +244,26 @@ void SND_quit(void);
 // whole ~20ms as "work" — which read as 1-in-6 frames over budget on PS1 games that were
 // actually running at full speed (MMP, 2026-07-28: six A/B knobs including a pin-verified
 // +24%% clock all "failed" to move a number that was never work).
-typedef struct SND_Stats { long underruns; long overruns; long wait_ms; uint32_t wait_us; int queue_frames; int frame_count; } SND_Stats;
+typedef struct SND_Stats { long underruns; long overruns; long wait_ms; uint32_t wait_us; int queue_frames; int frame_count;
+	// Callback-side occupancy (2026-10-08 latency work): the ring level each callback found BEFORE its read, summed into
+	// free-running wrap-safe counters (diff two snapshots for a window mean that does not depend on where the main loop
+	// samples), plus the period the callback last served and the output rate, to turn frames into ms.
+	uint32_t cb_qsum; uint32_t cb_n; int period_frames; int rate_out; } SND_Stats;
 void SND_getStats(SND_Stats* out);
+// Low-latency A/B (ZERO_AUDIO_TARGET_MS): returns the target in ms (0 = the default servo path) and fills the servo
+// setpoint and band in points of the ring and the low-water trough in ms for minarch. Unset, or a pak that sets
+// MINARCH_SND_RING_FRAMES (PS), leaves every default exactly as before.
+int SND_getLatencyTarget(int* setpoint_pct, int* band_pct, int* low_ms);
+// The lowest ring level any callback found before its read since the last take of this slot, in ms; -1 when no
+// callback ran since, audio is closed, or the producer is idle (no batch in 250 ms). Slot 0 = the per-frame low-water
+// check, slot 1 = the ZERO_MEASURE line; each take resets its own slot only.
+int SND_takeTroughMs(int slot);
+// ZERO_MEASURE or ZERO_AUDIO_LATLOG only: one sample per second is followed through the ring. Returns 1 with the time it sat in the ring
+// until a callback copied it out (us) and its frame offset inside that callback's period; 0 when no result is ready.
+int SND_takeProbe(uint32_t* ring_us, int* offset_frames);
+// ALSA hardware queue right now (frames, from /proc/asound/card0/pcm0p/sub0/status or ZERO_AUDIO_STATUS), -1 when the
+// file or its delay line is absent (MMP, a closed stream). File I/O: MEASURE lines only, never per frame.
+int SND_getDeviceDelayFrames(void);
 int SND_isActive(void); // audio device open and pacing (present-skip is only legal while true)
 
 ///////////////////////////////

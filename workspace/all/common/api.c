@@ -1364,6 +1364,12 @@ static struct SND_Context {
 	                        // the entry guard reads it pre-lock and a future concurrent CORE
 	                        // producer must not race SND_pause/SND_resume (review r3)
 	int prefill_pct;        // where the gate opens: 75 at launch, 55 after a pause-like seam (SND_PREFILL_*)
+	int prefill_launch_pct; // SND_PREFILL_LAUNCH, or the low-latency target's own (snd_latency_setup)
+	int prefill_resume_pct; // SND_PREFILL_RESUME, likewise
+	int target_ms;          // ZERO_AUDIO_TARGET_MS: callback-side mean ring level the servo holds (0 = default path)
+	int target_setpoint;    // ...as points of the ring, with the servo band and the low-water trough (ms)
+	int target_band;
+	int target_low_ms;
 	int prefilling;         // DAC gated until the ring is ~75% full (from NextUI: starting
 	                        // on an empty ring guarantees startup underruns — the choppy
 	                        // logo/demo audio on PS1, ear-found 2026-07-08)
@@ -1394,6 +1400,41 @@ static pthread_mutex_t snd_prod_mx = PTHREAD_MUTEX_INITIALIZER;
 // each read, touching the mutex only while a producer is actually asleep (snd_ring.h).
 static SndSpace snd_space = SND_SPACE_INIT;
 static void SND_signalSpace(void) { snd_space_signal(&snd_space); }
+// CALLBACK-SIDE OCCUPANCY (2026-10-08, .notes/2026-10-08-audio-latency/). What protects against an underrun is the level
+// a callback finds when it arrives, not the level wherever the main loop happens to look (just after a write it reads up
+// to a frame of audio plus a period high). Each callback records that level, lock-free: a free-running sum and count
+// (SND_getStats, diffed by the reader) and two independent minimums that their readers reset (SND_takeTroughMs). The
+// minimum update is load-then-store, so a reset racing a callback can keep one stale value for a take: harmless.
+static _Atomic uint32_t snd_cb_qsum = 0, snd_cb_n = 0, snd_cb_period = 0;
+static _Atomic uint32_t snd_cb_min[2] = { UINT32_MAX, UINT32_MAX };
+// LATENCY PROBE (ZERO_MEASURE or ZERO_AUDIO_LATLOG only): once a second the producer notes the ring's write count after a batch and the
+// time; the callback whose read covers that frame notes when, and where in its period the frame fell. 0 idle, 1 armed
+// (producer), 2 result ready (callback), back to 0 when minarch takes it (3 while taking) or after 2.5 s unclaimed (a reprime dropped it).
+static int snd_probe_on = 0;
+static _Atomic int snd_probe_state = 0;
+static uint32_t snd_probe_target = 0, snd_probe_offset = 0;
+static uint64_t snd_probe_t0_us = 0, snd_probe_t1_us = 0;
+static void SND_callbackStats(uint32_t want) {
+	uint32_t q = snd_ring_queued(&snd.ring, NULL);
+	atomic_fetch_add_explicit(&snd_cb_qsum, q, memory_order_relaxed);
+	atomic_fetch_add_explicit(&snd_cb_n, 1, memory_order_relaxed);
+	atomic_store_explicit(&snd_cb_period, want, memory_order_relaxed);
+	for (int i = 0; i < 2; i++)
+		if (q < atomic_load_explicit(&snd_cb_min[i], memory_order_relaxed))
+			atomic_store_explicit(&snd_cb_min[i], q, memory_order_relaxed);
+	if (snd_probe_on && atomic_load_explicit(&snd_probe_state, memory_order_acquire) == 1) {
+		uint32_t done = atomic_load_explicit(&snd.ring.read, memory_order_relaxed); // our own counter, before this read
+		uint32_t ahead = snd_probe_target - done; // frames up to and including the probed one
+		if ((int32_t)ahead <= 0) { // already passed (a drop moved `read` beyond it): discard
+			int one = 1; atomic_compare_exchange_strong(&snd_probe_state, &one, 0);
+		}
+		else if (ahead <= want && ahead <= q) { // this read copies it out
+			snd_probe_t1_us = getMicroseconds();
+			snd_probe_offset = ahead;
+			int one = 1; atomic_compare_exchange_strong_explicit(&snd_probe_state, &one, 2, memory_order_release, memory_order_relaxed);
+		}
+	}
+}
 
 // SDL callback size (= the ALSA period; SDL asks for 2 periods). ZERO_AUDIO_SAMPLES overrides the platform's SAMPLES for
 // one launch (D72): tg5040's MinUI.pak sets 1024 for its direct codec, where 512 x 2 = 21 ms was tight for SNES (near-misses
@@ -1447,6 +1488,7 @@ static void SND_audioCallback(void* userdata, uint8_t* stream, int len) { // pla
 	len /= (sizeof(int16_t) * 2);
 	const int want = len; // frames SDL asked for: varies with ZERO_AUDIO_SAMPLES, so never the compiled SAMPLES
 	
+	SND_callbackStats((uint32_t)want); // the level this callback found, before its read
 	// Lock-free (D73): never waits on the producer, so a preempted emulator thread cannot stall this RT thread.
 	uint32_t got = snd_ring_read(&snd.ring, out, (uint32_t)len);
 	out += 2 * got;
@@ -1628,7 +1670,7 @@ void SND_reprime(void) {
 static void SND_reprimeLocked(void) { // caller holds snd_prod_mx and SDL_LockAudio
 	if (snd.initialized && atomic_load_explicit(&snd.ring.cap, memory_order_relaxed)) {
 		snd_ring_drop(&snd.ring);
-		snd.prefill_pct = SND_PREFILL_RESUME;
+		snd.prefill_pct = snd.prefill_resume_pct;
 		snd.prefilling = 1;
 		SDL_PauseAudio(1);
 	}
@@ -1790,6 +1832,17 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 		snd_ring_publish(&snd.ring); // per chunk: the callback can play these while the rest resample
 	}
 	__atomic_store_n(&snd_last_batch_ms, SDL_GetTicks(), __ATOMIC_RELEASE);
+	if (snd_probe_on && consumed > 0) { // latency probe (ZERO_MEASURE): follow the newest published frame, once a second
+		int st = atomic_load_explicit(&snd_probe_state, memory_order_acquire);
+		uint64_t now_us = getMicroseconds();
+		if (st == 0 && now_us - snd_probe_t0_us >= 1000000) {
+			snd_probe_target = snd.ring.w_count; // published: outside a chunk w_count == written
+			snd_probe_t0_us = now_us;
+			atomic_store_explicit(&snd_probe_state, 1, memory_order_release);
+		}
+		else if ((st == 1 || st == 2) && now_us - snd_probe_t0_us > 2500000) // unclaimed or dropped (3 = being taken)
+			atomic_compare_exchange_strong(&snd_probe_state, &st, 0);
+	}
 	pthread_mutex_unlock(&snd_prod_mx);
 
 	return consumed;
@@ -1812,6 +1865,43 @@ void SND_getStats(SND_Stats* out) {
 	uint32_t cap = 0;
 	out->queue_frames = (int)snd_ring_queued(&snd.ring, &cap);
 	out->frame_count = (int)cap;
+	out->cb_qsum = atomic_load_explicit(&snd_cb_qsum, memory_order_relaxed);
+	out->cb_n = atomic_load_explicit(&snd_cb_n, memory_order_relaxed);
+	out->period_frames = (int)atomic_load_explicit(&snd_cb_period, memory_order_relaxed);
+	out->rate_out = snd.sample_rate_out;
+}
+int SND_getLatencyTarget(int* setpoint_pct, int* band_pct, int* low_ms) {
+	if (setpoint_pct) *setpoint_pct = snd.target_setpoint;
+	if (band_pct) *band_pct = snd.target_band;
+	if (low_ms) *low_ms = snd.target_low_ms;
+	return snd.initialized ? snd.target_ms : 0;
+}
+int SND_takeTroughMs(int slot) {
+	if (slot < 0 || slot > 1) return -1;
+	uint32_t m = atomic_exchange_explicit(&snd_cb_min[slot], UINT32_MAX, memory_order_relaxed);
+	if (!snd.initialized || snd.sample_rate_out <= 0 || m == UINT32_MAX) return -1;
+	if (SDL_GetTicks() - SND_lastBatchMs() >= 250) return -1; // producer idle: a draining ring is not a slow core
+	return (int)((uint64_t)m * 1000 / (uint32_t)snd.sample_rate_out);
+}
+int SND_takeProbe(uint32_t* ring_us, int* offset_frames) {
+	int two = 2;
+	if (!atomic_compare_exchange_strong_explicit(&snd_probe_state, &two, 3, memory_order_acquire, memory_order_relaxed)) return 0;
+	uint64_t d = snd_probe_t1_us > snd_probe_t0_us ? snd_probe_t1_us - snd_probe_t0_us : 0;
+	if (ring_us) *ring_us = (uint32_t)(d > UINT32_MAX ? UINT32_MAX : d);
+	if (offset_frames) *offset_frames = (int)snd_probe_offset;
+	atomic_store_explicit(&snd_probe_state, 0, memory_order_release);
+	return 1;
+}
+int SND_getDeviceDelayFrames(void) {
+	const char* path = getenv("ZERO_AUDIO_STATUS");
+	FILE* f = fopen(path && *path ? path : "/proc/asound/card0/pcm0p/sub0/status", "r");
+	if (!f) return -1;
+	char line[128]; int delay = -1;
+	while (fgets(line, sizeof(line), f)) {
+		if (strncmp(line, "delay", 5) == 0) { char* c = strchr(line, ':'); if (c) delay = atoi(c + 1); break; }
+	}
+	fclose(f);
+	return delay;
 }
 // One copy of the device-open policy for SND_init and SND_resume (code review 2026-10-06): open; if a launcher-chosen
 // ALSA device (AUDIODEV: tg5040 opens its codec directly, D72) will not open, busy or absent on a model whose codec has
@@ -1827,6 +1917,50 @@ static int snd_open_device(SDL_AudioSpec* in, SDL_AudioSpec* out, const char* wh
 	}
 	if (ok) { const char* rt = getenv("ZERO_AUDIO_RT"); snd_rt_armed = rt && rt[0] == '1'; }
 	return ok;
+}
+// LOW-LATENCY A/B (2026-10-08, .notes/2026-10-08-audio-latency/). Default: nothing changes (prefill 75/55, servo at
+// AUDIOSERVO_SETPOINT of the ring as sampled by the main loop, low-water at GOV_RING_LOW_PCT). ZERO_AUDIO_TARGET_MS=T
+// instead holds the CALLBACK-SIDE mean ring level at T ms (total queued audio ~= T + 2 periods on SDL's blocking ALSA
+// path: one period waits in SDL's mix buffer, the hardware averages 1.5) while the ring keeps its capacity, so burst
+// room above and the boot cushion's shape are unchanged. ZERO_AUDIO_BAND_MS (default T: the rail at an empty ring) and
+// ZERO_AUDIO_LOW_MS (callback-side trough that triggers the governor's climb, default 8) tune it. The prefill gates move
+// with it (launch T+33 ms, resume T+7 ms: the same distances above the setpoint as 75/55 on the 8-frame ring), else the
+// servo would spend seconds at its rail after every launch. Ignored where a pak sets MINARCH_SND_RING_FRAMES (PS: its
+// own ring, prefill and presentation-drop band).
+static int snd_ms_to_pct(int ms_, int cap_ms) {
+	int p = (int)(((long)ms_ * 100 + cap_ms / 2) / cap_ms);
+	return p < 1 ? 1 : p > 100 ? 100 : p;
+}
+static void snd_latency_setup(void) {
+	snd.prefill_launch_pct = SND_PREFILL_LAUNCH;
+	snd.prefill_resume_pct = SND_PREFILL_RESUME;
+	snd.target_ms = snd.target_setpoint = snd.target_band = snd.target_low_ms = 0;
+	const char* m = getenv("ZERO_MEASURE");
+	const char* ll = getenv("ZERO_AUDIO_LATLOG"); // minarch's latency log consumes the probe
+	snd_probe_on = (m && m[0] && m[0] != '0') || (ll && atoi(ll) > 0);
+	const char* e = getenv("ZERO_AUDIO_TARGET_MS");
+	if (!e || !*e) return;
+	if (getenv("MINARCH_SND_RING_FRAMES")) { LOG_info("audio latency: ZERO_AUDIO_TARGET_MS ignored (pak sets its own ring)\n"); return; }
+	uint32_t cap = atomic_load_explicit(&snd.ring.cap, memory_order_relaxed);
+	if (!cap || snd.sample_rate_out <= 0) return;
+	int cap_ms = (int)((uint64_t)cap * 1000 / (uint32_t)snd.sample_rate_out);
+	int t = atoi(e);
+	if (t < 8 || t > 100 || t + 40 > cap_ms) { LOG_info("audio latency: ZERO_AUDIO_TARGET_MS=%s outside 8..%d, default path\n", e, cap_ms - 40); return; }
+	const char* b = getenv("ZERO_AUDIO_BAND_MS");
+	int band_ms = (b && atoi(b) >= 4) ? atoi(b) : t;
+	const char* l = getenv("ZERO_AUDIO_LOW_MS");
+	int low = (l && atoi(l) >= 0) ? atoi(l) : 8;
+	if (low > t) low = t;
+	snd.target_ms = t;
+	snd.target_setpoint = snd_ms_to_pct(t, cap_ms);
+	snd.target_band = snd_ms_to_pct(band_ms, cap_ms);
+	snd.target_low_ms = low;
+	snd.prefill_launch_pct = snd_ms_to_pct(t + 33, cap_ms);
+	snd.prefill_resume_pct = snd_ms_to_pct(t + 7, cap_ms);
+	if (snd.prefill_launch_pct > SND_PREFILL_LAUNCH) snd.prefill_launch_pct = SND_PREFILL_LAUNCH;
+	if (snd.prefill_resume_pct > snd.prefill_launch_pct) snd.prefill_resume_pct = snd.prefill_launch_pct;
+	LOG_info("audio latency: target %d ms (setpoint %d%% of a %d ms ring, band %d%%, low-water trough %d ms, prefill %d%%/%d%%)\n",
+		t, snd.target_setpoint, cap_ms, snd.target_band, low, snd.prefill_launch_pct, snd.prefill_resume_pct);
 }
 void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	uint64_t t_snd0 = getMicroseconds();
@@ -1938,8 +2072,9 @@ audio_open_ok:
 	
 	SND_updateAdjustedRate();
 	SND_resizeBuffer();
-	
-	snd.prefill_pct = SND_PREFILL_LAUNCH;
+	snd_latency_setup();
+
+	snd.prefill_pct = snd.prefill_launch_pct;
 	snd.prefilling = 1; // DAC starts when the ring reaches ~75% (see SND_batchSamples)
 
 	SNDMARK("open_done");
@@ -1985,7 +2120,7 @@ void SND_resume(void) { // reopen at the rate negotiated in SND_init; ring buffe
 		return;
 	}
 	atomic_store(&snd.paused, 0); // consumer is back: producers may wait again
-	snd.prefill_pct = SND_PREFILL_RESUME;
+	snd.prefill_pct = snd.prefill_resume_pct;
 	snd.prefilling = 1; // re-arm the prefill gate (empty-ring starts chop audibly)
 	// Release the mute SND_pause took. The reopen above re-enabled/reconfigured the codec, which
 	// is the transient we were hiding; the ring is prefilling so nothing audible is lost.

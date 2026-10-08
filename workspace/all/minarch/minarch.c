@@ -6536,6 +6536,65 @@ static void trackFPS(void) {
 			}
 		}
 
+		// AUDIO LATENCY LOG (2026-10-08, method: .notes/2026-10-08-audio-latency/method.md). ZERO_AUDIO_LATLOG=N logs
+		// one aggregate line every N s (ZERO_MEASURE alone = every second); off by default. One line per N s, not per
+		// second, because per-second SD writes stall the Brick (NOSTATS, 2026-10-02 gate). Per window:
+		//   cb/s = callbacks per second (also the wakeup cost of a period); mean = ring level the callbacks found
+		//   before reading (ms); trough = the lowest such level (what protects against an underrun); per = period;
+		//   est = mean + 2 periods = total queued audio on SDL's blocking ALSA path (one period waits in SDL's mix
+		//   buffer, the hardware holds 1.5 on average, the read itself removes half a period from the ring's mean);
+		//   probe = frames followed from publish to the DAC (ring time + offset in the period + 2 periods),
+		//   min/avg/max over n; alsa = /proc hardware-queue snapshots min/avg/max (-1 = unknown); under = underruns in
+		//   the window; fps = lowest generation rate of the window; mhz = cpu0 clock now; ceil = governor ceiling.
+		{
+			static int ll_every = -1;
+			if (ll_every < 0) {
+				const char* e = getenv("ZERO_AUDIO_LATLOG"); const char* m = getenv("ZERO_MEASURE");
+				ll_every = (e && atoi(e) > 0) ? atoi(e) : ((m && m[0] && m[0] != '0') ? 1 : 0);
+			}
+			if (ll_every > 0) {
+				static int ll_secs = 0, ll_trough = -1, ll_pn = 0, ll_an = 0, ll_primed = 0;
+				static double ll_pmin = 1e9, ll_pmax = 0, ll_psum = 0, ll_amin = 1e9, ll_amax = 0, ll_asum = 0, ll_fps = 1e9;
+				static uint32_t ll_qsum0 = 0, ll_n0 = 0; static long ll_u0 = 0;
+				SND_Stats ls; SND_getStats(&ls);
+				if (!ll_primed) { ll_qsum0 = ls.cb_qsum; ll_n0 = ls.cb_n; ll_u0 = ls.underruns; ll_primed = 1; }
+				int rate = ls.rate_out > 0 ? ls.rate_out : 48000;
+				double per = ls.period_frames * 1000.0 / rate;
+				int t = SND_takeTroughMs(1);
+				if (t >= 0 && (ll_trough < 0 || t < ll_trough)) ll_trough = t;
+				uint32_t pr_us = 0; int pr_off = 0;
+				if (SND_takeProbe(&pr_us, &pr_off)) {
+					double v = pr_us / 1000.0 + pr_off * 1000.0 / rate + 2 * per;
+					if (v < ll_pmin) ll_pmin = v;
+					if (v > ll_pmax) ll_pmax = v;
+					ll_psum += v; ll_pn++;
+				}
+				int ad = SND_getDeviceDelayFrames();
+				if (ad >= 0) {
+					double v = ad * 1000.0 / rate;
+					if (v < ll_amin) ll_amin = v;
+					if (v > ll_amax) ll_amax = v;
+					ll_asum += v; ll_an++;
+				}
+				if (fps_double < ll_fps) ll_fps = fps_double;
+				if (++ll_secs >= ll_every) {
+					uint32_t n = ls.cb_n - ll_n0, qs = ls.cb_qsum - ll_qsum0;
+					double mean = n ? (double)(qs / n) * 1000.0 / rate : -1.0;
+					int mhz = -1;
+					FILE* cf = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "r");
+					if (cf) { if (fscanf(cf, "%d", &mhz) == 1) mhz /= 1000; else mhz = -1; fclose(cf); }
+					LOG_info("audio-lat: cb/s=%.1f mean=%.1f trough=%d per=%.1f est=%.1f probe=%.1f/%.1f/%.1f(n%d) alsa=%.1f/%.1f/%.1f under=%ld fps=%.1f mhz=%d ceil=%d\n",
+						(double)n / ll_secs, mean, ll_trough, per, mean >= 0 ? mean + 2 * per : -1.0,
+						ll_pn ? ll_pmin : -1.0, ll_pn ? ll_psum / ll_pn : -1.0, ll_pn ? ll_pmax : -1.0, ll_pn,
+						ll_an ? ll_amin : -1.0, ll_an ? ll_asum / ll_an : -1.0, ll_an ? ll_amax : -1.0,
+						ls.underruns - ll_u0, ll_fps, mhz, gov_state.ceil_khz / 1000);
+					ll_qsum0 = ls.cb_qsum; ll_n0 = ls.cb_n; ll_u0 = ls.underruns;
+					ll_secs = 0; ll_trough = -1; ll_pn = ll_an = 0;
+					ll_pmin = ll_amin = 1e9; ll_pmax = ll_amax = ll_psum = ll_asum = 0; ll_fps = 1e9;
+				}
+			}
+		}
+
 		sec_start = now;
 		cpu_ticks = 0;
 		fps_ticks = 0;
@@ -7334,13 +7393,19 @@ static int zero_boot_timing = -1;
 				// is falling behind now; climb at once instead of waiting up to ~1 s for the generation signal. Not while
 				// the prefill gate holds the DAC (a refilling ring reads low by design) or in fast-forward. The vote
 				// window is dirtied and a pending fast-sink cancelled, as for a scene burst.
+				// ZERO_AUDIO_TARGET_MS: the level is held far below GOV_RING_LOW_PCT on purpose, so the trigger is the
+				// lowest level a callback found since the last frame (ms) against the target's own low-water mark. Taken
+				// every frame, so a dip from before a pause or a stretch at f_max never fires later.
+				int low_ms = 0;
+				int lat_target = SND_getLatencyTarget(NULL, NULL, &low_ms);
+				int lat_trough = lat_target ? SND_takeTroughMs(0) : -1;
 				if (!fast_forward && SND_isActive() && !SND_isPrefilling() && gov_state.ceil_khz < gov_profile.f_max) {
-					int ring = SND_getRingPct();
-					if (ring >= 0 && ring < GOV_RING_LOW_PCT) {
+					int ring = lat_target ? lat_trough : SND_getRingPct();
+					if (ring >= 0 && ring < (lat_target ? low_ms : GOV_RING_LOW_PCT)) {
 						int from = gov_state.ceil_khz;
 						if (gov_audio_low(&gov_state, &gov_profile)) {
 							govmem_on_burst(&gov_mem, 1);
-							LOG_info("gov: ceil %d->%d kHz (audio low-water: ring %d%%)\n", from, gov_state.ceil_khz, ring);
+							LOG_info("gov: ceil %d->%d kHz (audio low-water: ring %d%s)\n", from, gov_state.ceil_khz, ring, lat_target ? " ms trough" : "%");
 						}
 					}
 				}
@@ -7774,8 +7839,18 @@ static int zero_boot_timing = -1;
 				int baseline = (servo_prev_wait < 0);
 				long blocked = baseline ? 0 : ss.wait_ms - servo_prev_wait;
 				servo_prev_wait = ss.wait_ms;
-				if (!baseline && ss.frame_count > 0) {
-					int occ = (int)((100L * ss.queue_frames) / ss.frame_count);
+				// ZERO_AUDIO_TARGET_MS (low-latency A/B, SND_getLatencyTarget): the servo reads the mean level the
+				// callbacks found this window instead of one main-loop sample (which swings by a frame of audio plus a
+				// period with where in the loop it lands), and holds that at the target's own setpoint and band.
+				int lat_sp = 0, lat_band = 0;
+				int lat_target = SND_getLatencyTarget(&lat_sp, &lat_band, NULL);
+				static uint32_t servo_prev_qsum = 0, servo_prev_n = 0;
+				uint32_t win_n = ss.cb_n - servo_prev_n, win_qsum = ss.cb_qsum - servo_prev_qsum;
+				servo_prev_n = ss.cb_n; servo_prev_qsum = ss.cb_qsum;
+				if (!baseline && ss.frame_count > 0 && (!lat_target || win_n > 0)) {
+					int occ = lat_target ? (int)((100ULL * (win_qsum / win_n)) / (uint32_t)ss.frame_count)
+						: (int)((100L * ss.queue_frames) / ss.frame_count);
+					const int sp = lat_target ? lat_sp : AUDIOSERVO_SETPOINT, band = lat_target ? lat_band : AUDIOSERVO_BAND;
 					// may a full ring drain? (block comment above; eligibility already requires presents that wait for
 					// vsync). ZERO_NO_FULL_DRAIN (presence-only) holds instead, as before, for A/B.
 					static int full_drain = -1;
@@ -7787,14 +7862,14 @@ static int zero_boot_timing = -1;
 						if (!full_logged) { LOG_info("audio servo: ring full under a video-clocked loop, draining at >= %+dppm\n", AUDIOSERVO_FULL_PPM); full_logged = 1; }
 					}
 					if (act) {
-						int target = (blocked <= 0) ? audioservo_target_ppm(occ) : audioservo_blocked_target_ppm(occ);
+						int target = (blocked <= 0) ? audioservo_target_ppm_at(occ, sp, band) : audioservo_blocked_target_ppm_at(occ, sp, band);
 						int adj = audioservo_step(zero_servo_adj, target);
 						// re-apply when the trim moved OR the static match underneath changed:
 						// Zero_applyRateMatch writes the bare static value, dropping our trim
 						if (adj != zero_servo_adj || zero_static_rate_ppm != zero_servo_static) {
 							static int servo_armed_logged = 0;
 							if (!servo_armed_logged) {
-								LOG_info("audio servo: armed (static %+dppm, setpoint %d%%, rail +-%dppm, smooth %d ticks)\n", zero_static_rate_ppm, AUDIOSERVO_SETPOINT, AUDIOSERVO_RAIL_PPM, AUDIOSERVO_SMOOTH);
+								LOG_info("audio servo: armed (static %+dppm, setpoint %d%%, rail +-%dppm, smooth %d ticks)\n", zero_static_rate_ppm, sp, AUDIOSERVO_RAIL_PPM, AUDIOSERVO_SMOOTH);
 								servo_armed_logged = 1;
 							}
 							zero_servo_adj = adj; zero_servo_static = zero_static_rate_ppm;
