@@ -1788,7 +1788,9 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 			// refill only to SND_PREFILL_RESUME: nothing is booting there, and a 75% refill put
 			// the servo at its band edge (setpoint 50 + band 25), bending pitch ~10 cents for
 			// 5-8 s after EVERY menu close (code review, 2026-10-05). 55 is still above the PS
-			// drop band's engage point (<50), so playback never begins in catch-up.
+			// drop band's engage point (<50), so playback never begins in catch-up. With ZERO_AUDIO_TARGET_MS these gates
+			// are snd.prefill_launch_pct/prefill_resume_pct instead (snd_latency_setup: resume refills to the jitter
+			// guard's warm level when one is set).
 			snd.prefilling = 0;
 			SDL_PauseAudio(0);
 		}

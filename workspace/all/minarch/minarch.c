@@ -6558,6 +6558,16 @@ static void trackFPS(void) {
 				static double ll_pmin = 1e9, ll_pmax = 0, ll_psum = 0, ll_amin = 1e9, ll_amax = 0, ll_asum = 0, ll_fps = 1e9;
 				static uint32_t ll_qsum0 = 0, ll_n0 = 0; static long ll_u0 = 0;
 				SND_Stats ls; SND_getStats(&ls);
+				// A seam (menu, wake, FF reprime) restarts the window: the callback drains the ring while the menu is open and
+				// the producer-gap timer runs across a sleep, so a window spanning one reports a dead ring that never played
+				// (Codex review 2026-10-09).
+				static uint32_t ll_seam = 0;
+				uint32_t seam = SND_getSeam();
+				if (seam != ll_seam) {
+					ll_seam = seam; ll_primed = 0; ll_secs = 0; ll_trough = -1; ll_pn = ll_an = 0;
+					ll_pmin = ll_amin = 1e9; ll_pmax = ll_amax = ll_psum = ll_asum = 0; ll_fps = 1e9;
+					(void)SND_takeTroughMs(1); (void)SND_takeMaxBatchGapUs(); GFX_takeFrameMax(NULL, NULL);
+				}
 				if (!ll_primed) { ll_qsum0 = ls.cb_qsum; ll_n0 = ls.cb_n; ll_u0 = ls.underruns; ll_primed = 1; }
 				int rate = ls.rate_out > 0 ? ls.rate_out : 48000;
 				double per = ls.period_frames * 1000.0 / rate;
