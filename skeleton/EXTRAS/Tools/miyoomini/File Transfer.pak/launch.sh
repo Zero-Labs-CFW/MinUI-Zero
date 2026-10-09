@@ -63,11 +63,16 @@ new_pin() {
 	[ ${#PIN} -eq 6 ] || PIN=$(awk -v s="$(date +%s)$$" 'BEGIN { srand(s); a = "abcdefghijkmnpqrstuvwxyz23456789"; for (i = 0; i < 6; i++) printf "%s", substr(a, int(rand() * 32) + 1, 1) }')
 }
 # up to ~3 s for pid $2 ITSELF to listen on port $1: a leftover server holding the port must not pass
-# for the new one, which would show a password nothing accepts (Codex review)
+# for the new one, which would show a password nothing accepts (Codex review). Read from /proc, not
+# `netstat -p`: the h700 rootfs busybox has no -p, so the check failed there and FTP and Browser never
+# started (found on-device, 2026-10-09). The port's listening socket inode, then whether $2 holds it.
 listening() {
+	hex=$(printf ':%04X' "$1")
 	i=0
 	while [ $i -lt 10 ]; do
-		netstat -tlnp 2>/dev/null | grep ":$1 " | grep -q "[[:space:]]$2/" && return 0
+		for ino in $(awk -v p="$hex" '$4 == "0A" && substr($2, length($2) - 4) == p { print $10 }' /proc/net/tcp 2>/dev/null); do
+			ls -l "/proc/$2/fd" 2>/dev/null | grep -q "socket:\[$ino\]" && return 0
+		done
 		kill -0 "$2" 2>/dev/null || return 1
 		sleep 0.3; i=$((i+1))
 	done
