@@ -254,6 +254,8 @@ void SND_getStats(SND_Stats* out);
 // setpoint and band in points of the ring and the low-water trough in ms for minarch. Unset, or a pak that sets
 // MINARCH_SND_RING_FRAMES (PS), leaves every default exactly as before.
 int SND_getLatencyTarget(int* setpoint_pct, int* band_pct, int* low_ms);
+int SND_getWarmMs(void);   // the jitter guard's warm level in ms (ZERO_AUDIO_WARM_MS, clamped to headroom), 0 = off or no target
+uint32_t SND_getSeam(void); // changes at every launch, resume and reprime (the guard re-warms on a change)
 // The lowest ring level any callback found before its read since the last take of this slot, in ms; -1 when no
 // callback ran since, audio is closed, or the producer is idle (no batch in 250 ms). Slot 0 = the per-frame low-water
 // check, slot 1 = the latency log, slot 2 = the servo's jitter guard; each take resets its own slot only.

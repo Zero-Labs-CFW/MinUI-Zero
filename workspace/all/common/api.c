@@ -1379,6 +1379,7 @@ static struct SND_Context {
 	int target_setpoint;    // ...as points of the ring, with the servo band and the low-water trough (ms)
 	int target_band;
 	int target_low_ms;
+	int target_warm_ms;     // ZERO_AUDIO_WARM_MS: the jitter guard's starting level (0 = off), clamped to the ring's headroom
 	int prefilling;         // DAC gated until the ring is ~75% full (from NextUI: starting
 	                        // on an empty ring guarantees startup underruns — the choppy
 	                        // logo/demo audio on PS1, ear-found 2026-07-08)
@@ -1416,6 +1417,7 @@ static void SND_signalSpace(void) { snd_space_signal(&snd_space); }
 // minimum update is load-then-store, so a reset racing a callback can keep one stale value for a take: harmless.
 static _Atomic uint32_t snd_cb_qsum = 0, snd_cb_n = 0, snd_cb_period = 0;
 static _Atomic uint32_t snd_cb_min[3] = { UINT32_MAX, UINT32_MAX, UINT32_MAX };
+static _Atomic uint32_t snd_seam = 0; // bumped at every launch/resume/reprime: the jitter guard re-warms on a change (SND_getSeam)
 static _Atomic uint32_t snd_max_gap_us = 0; // longest producer gap between batches since the last SND_takeMaxBatchGapUs
 // LATENCY PROBE (ZERO_MEASURE or ZERO_AUDIO_LATLOG only): once a second the producer notes the ring's write count after a batch and the
 // time; the callback whose read covers that frame notes when, and where in its period the frame fell. 0 idle, 1 armed
@@ -1682,6 +1684,7 @@ static void SND_reprimeLocked(void) { // caller holds snd_prod_mx and SDL_LockAu
 		snd_ring_drop(&snd.ring);
 		snd.prefill_pct = snd.prefill_resume_pct;
 		snd.prefilling = 1;
+		atomic_fetch_add(&snd_seam, 1);
 		SDL_PauseAudio(1);
 	}
 }
@@ -1895,6 +1898,8 @@ int SND_getLatencyTarget(int* setpoint_pct, int* band_pct, int* low_ms) {
 	if (low_ms) *low_ms = snd.target_low_ms;
 	return snd.initialized ? snd.target_ms : 0;
 }
+int SND_getWarmMs(void) { return snd.initialized && snd.target_ms ? snd.target_warm_ms : 0; }
+uint32_t SND_getSeam(void) { return atomic_load(&snd_seam); }
 int SND_takeTroughMs(int slot) {
 	if (slot < 0 || slot > 2) return -1;
 	uint32_t m = atomic_exchange_explicit(&snd_cb_min[slot], UINT32_MAX, memory_order_relaxed);
@@ -1954,7 +1959,7 @@ static int snd_ms_to_pct(int ms_, int cap_ms) {
 static void snd_latency_setup(void) {
 	snd.prefill_launch_pct = SND_PREFILL_LAUNCH;
 	snd.prefill_resume_pct = SND_PREFILL_RESUME;
-	snd.target_ms = snd.target_setpoint = snd.target_band = snd.target_low_ms = 0;
+	snd.target_ms = snd.target_setpoint = snd.target_band = snd.target_low_ms = snd.target_warm_ms = 0;
 	const char* m = getenv("ZERO_MEASURE");
 	const char* ll = getenv("ZERO_AUDIO_LATLOG"); // minarch's latency log consumes the probe
 	snd_probe_on = (m && m[0] && m[0] != '0') || (ll && atoi(ll) > 0);
@@ -1977,11 +1982,18 @@ static void snd_latency_setup(void) {
 	snd.target_low_ms = low;
 	const char* pf = getenv("ZERO_AUDIO_PREFILL_MS"); // A/B: the launch fill in ms (default target + 33)
 	snd.prefill_launch_pct = snd_ms_to_pct((pf && atoi(pf) > t) ? atoi(pf) : t + 33, cap_ms);
-	snd.prefill_resume_pct = snd_ms_to_pct(t + 7, cap_ms);
+	// Jitter guard (ZERO_AUDIO_WARM_MS, Codex review 2026-10-09): kept inside the same 40 ms of headroom the target needs,
+	// and a resume or reprime refills to the warm level, not the target, so the guard's 80 ms is there from the first
+	// callback after a seam instead of a servo climb seconds later.
+	const char* w = getenv("ZERO_AUDIO_WARM_MS");
+	int warm = w ? atoi(w) : 0;
+	if (warm > cap_ms - 40) warm = cap_ms - 40;
+	if (warm > t) snd.target_warm_ms = warm;
+	snd.prefill_resume_pct = snd_ms_to_pct((snd.target_warm_ms ? snd.target_warm_ms : t) + 7, cap_ms);
 	if (snd.prefill_launch_pct > SND_PREFILL_LAUNCH) snd.prefill_launch_pct = SND_PREFILL_LAUNCH;
 	if (snd.prefill_resume_pct > snd.prefill_launch_pct) snd.prefill_resume_pct = snd.prefill_launch_pct;
-	LOG_info("audio latency: target %d ms (setpoint %d%% of a %d ms ring, band %d%%, low-water trough %d ms, prefill %d%%/%d%%)\n",
-		t, snd.target_setpoint, cap_ms, snd.target_band, low, snd.prefill_launch_pct, snd.prefill_resume_pct);
+	LOG_info("audio latency: target %d ms (setpoint %d%% of a %d ms ring, band %d%%, low-water trough %d ms, prefill %d%%/%d%%, warm %d ms)\n",
+		t, snd.target_setpoint, cap_ms, snd.target_band, low, snd.prefill_launch_pct, snd.prefill_resume_pct, snd.target_warm_ms);
 }
 void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	uint64_t t_snd0 = getMicroseconds();
@@ -2096,6 +2108,7 @@ audio_open_ok:
 	snd_latency_setup();
 
 	snd.prefill_pct = snd.prefill_launch_pct;
+	atomic_fetch_add(&snd_seam, 1);
 	snd.prefilling = 1; // DAC starts when the ring reaches ~75% (see SND_batchSamples)
 
 	SNDMARK("open_done");
@@ -2142,6 +2155,7 @@ void SND_resume(void) { // reopen at the rate negotiated in SND_init; ring buffe
 	}
 	atomic_store(&snd.paused, 0); // consumer is back: producers may wait again
 	snd.prefill_pct = snd.prefill_resume_pct;
+	atomic_fetch_add(&snd_seam, 1); // a wake keeps its ring, so the prefill gate may clear before MAIN sees it: the guard keys off this
 	snd.prefilling = 1; // re-arm the prefill gate (empty-ring starts chop audibly)
 	// Release the mute SND_pause took. The reopen above re-enabled/reconfigured the codec, which
 	// is the transient we were hiding; the ring is prefilling so nothing audible is lost.

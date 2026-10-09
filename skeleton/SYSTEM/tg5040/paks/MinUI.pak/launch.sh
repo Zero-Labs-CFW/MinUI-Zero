@@ -512,8 +512,11 @@ while [ -f $EXEC_PATH ]; do
 			export ZERO_AUDIO_RT=1
 			# LOW-LATENCY AUDIO CANDIDATE (opt-in test, 2026-10-08): ~55 ms instead of ~115 on the Brick (latency matrix
 			# round 3, .notes/2026-10-08-audio-latency/test-plan.md). Off unless this file exists, until Dan's play checks
-			# and a drain A/B clear it; TrimUI only for now because only TrimUI was measured.
-			if [ -f "$SHARED_USERDATA_PATH/low-latency-audio" ]; then
+			# and a drain A/B clear it; TrimUI only for now because only TrimUI was measured. Needs a measured panel rate:
+			# the servo that holds the target only runs on a static rate match, so on the Smart Pro (no MINARCH_PANEL_FPS)
+			# the ring stays audio-paced at capacity and the target would do nothing (Codex review 2026-10-09). PAL (50 Hz)
+			# content has no match either and keeps today's audio-paced ring with or without the flag.
+			if [ -f "$SHARED_USERDATA_PATH/low-latency-audio" ] && [ -n "$MINARCH_PANEL_FPS" ]; then
 				export ZERO_AUDIO_SAMPLES=256 ZERO_AUDIO_TARGET_MS=40 ZERO_AUDIO_WARM_MS=80 ZERO_AUDIO_PREFILL_MS=100
 			fi
 			_dn=$(pgrep -f "bin/dev-net[.]sh" 2>/dev/null) # [.]: never matches a shell whose command line merely quotes it
