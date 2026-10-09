@@ -31,6 +31,7 @@ fi
 # File Transfer: tg5040's aarch64 busybox ftpd + dufs (same binaries the image ships; see build-h700-stripped.sh)
 FT="$STAGE/Tools/h700/File Transfer.pak"
 if [ -d "$FT" ]; then
+	sh "$REPO/tools/h700-check-ft-bins.sh" "$REPO" || exit 1 # the pins, not just presence (Codex review 2026-10-09)
 	for _f in busybox dufs; do
 		cp "$REPO/workspace/tg5040/other/$_f/$_f" "$FT/" || { echo "ERROR: workspace/tg5040/other/$_f/$_f missing; run 'make tg5040-frontend' (its early target builds it)"; exit 1; }
 	done

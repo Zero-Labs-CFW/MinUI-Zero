@@ -636,8 +636,8 @@ if [ -d "$REPO/skeleton/EXTRAS/Tools/h700" ]; then
 	# glibc, which this rootfs has; dufs is static. USB rows are TrimUI only (gadget path unverified here).
 	FT="$STAGE/Tools/h700/File Transfer.pak"
 	if [ -d "$FT" ]; then
+		sh "$REPO/tools/h700-check-ft-bins.sh" "$REPO" || exit 1 # the pins, not just presence (Codex review 2026-10-09)
 		for _f in busybox dufs; do
-			[ -f "$REPO/workspace/tg5040/other/$_f/$_f" ] || { echo "ERROR: workspace/tg5040/other/$_f/$_f missing; run 'make tg5040' (its early target builds it)"; exit 1; }
 			cp "$REPO/workspace/tg5040/other/$_f/$_f" "$FT/"
 		done
 	fi
