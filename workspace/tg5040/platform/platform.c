@@ -398,94 +398,89 @@ static void updateEffect(void) {
 	if (effect.type==EFFECT_NONE) return; // disabled
 	if (effect.type==effect.live_type && effect.scale==live_scale && effect.color==live_color) return; // already loaded
 	
-	char* effect_path;
+	// The pattern is BUILT here, not decoded from res/line-N.png / grid-N.png. Each of those PNGs is an exact
+	// tiling of a small black cell (checked pixel for pixel 2026-10-09, all 13 files), but decoding one is a
+	// 1280x960 RGBA inflate that ran inline in PLAT_flip at every effect scale change: 64-83 ms at 600 MHz on
+	// the Brick Pro. A core that switches resolution (DKC's 256<->512 intro, PS1 menus) re-paid it at each
+	// switch, and that one late present drained the ~80 ms audio ring (underruns and a 53 fps second; on-device
+	// A/B in .notes/2026-10-09-brickpro-snes-slowdown). Filling the same surface from the cell is a few ms.
+	// Line cells: one alpha per row, '#' = 255, '+' = 128, '.' = 0. Grid cells: opaque wherever x%period or
+	// y%period is below the bar width. Surface size, colors and opacities are the PNGs' exactly.
+	const char* line_rows = NULL;
+	int period = 2, bar = 1;
 	int opacity = 128; // 1 - 1/2 = 50%
+	int is_grid = (effect.type==EFFECT_GRID || effect.type==EFFECT_GRID50 || effect.type==EFFECT_GRID25);
 	if (effect.type==EFFECT_LINE || effect.type==EFFECT_LINE50 || effect.type==EFFECT_LINE25) {
-		if (effect.scale<3) {
-			effect_path = RES_PATH "/line-2.png";
-		}
-		else if (effect.scale<4) {
-			effect_path = RES_PATH "/line-3.png";
-		}
-		else if (effect.scale<5) {
-			effect_path = RES_PATH "/line-4.png";
-		}
-		else if (effect.scale<6) {
-			effect_path = RES_PATH "/line-5.png";
-		}
-		else if (effect.scale<8) {
-			effect_path = RES_PATH "/line-6.png";
-		}
-		else {
-			effect_path = RES_PATH "/line-8.png";
-		}
+		if (effect.scale<3) line_rows = "#.";          // line-2
+		else if (effect.scale<4) line_rows = "#+.";    // line-3
+		else if (effect.scale<5) line_rows = "##..";   // line-4
+		else if (effect.scale<6) line_rows = "##+..";  // line-5
+		else if (effect.scale<8) line_rows = "###..."; // line-6
+		else line_rows = "####....";                  // line-8
+		period = strlen(line_rows);
 	}
-	else if (effect.type==EFFECT_GRID || effect.type==EFFECT_GRID50 || effect.type==EFFECT_GRID25) {
+	else if (is_grid) {
 		if (effect.scale<3) {
-			effect_path = RES_PATH "/grid-2.png";
+			period = 2; bar = 1; // grid-2
 			opacity = 64; // 1 - 3/4 = 25%
 		}
 		else if (effect.scale<4) {
-			effect_path = RES_PATH "/grid-3.png";
+			period = 3; bar = 1; // grid-3
 			opacity = 112; // 1 - 5/9 = ~44%
 		}
 		else if (effect.scale<5) {
-			effect_path = RES_PATH "/grid-4.png";
+			period = 4; bar = 1; // grid-4
 			opacity = 144; // 1 - 7/16 = ~56%
 		}
 		else if (effect.scale<6) {
-			effect_path = RES_PATH "/grid-5.png";
+			period = 5; bar = 1; // grid-5
 			opacity = 160; // 1 - 9/25 = ~64%
 			// opacity = 96; // TODO: tmp, for white grid
 		}
 		else if (effect.scale<8) {
-			effect_path = RES_PATH "/grid-6.png";
+			period = 6; bar = 2; // grid-6
 			opacity = 112; // 1 - 5/9 = ~44%
 		}
 		else if (effect.scale<11) {
-			effect_path = RES_PATH "/grid-8.png";
+			period = 8; bar = 2; // grid-8
 			opacity = 144; // 1 - 7/16 = ~56%
 		}
 		else {
-			effect_path = RES_PATH "/grid-11.png";
+			period = 11; bar = 3; // grid-11
 			opacity = 136; // 1 - 57/121 = ~52%
 		}
 	}
+	else return; // no pattern for this type (the PNG path would have loaded nothing either)
 	if (effect.type==EFFECT_LINE50 || effect.type==EFFECT_GRID50) opacity /= 2;      // half-opacity variants
 	else if (effect.type==EFFECT_LINE25 || effect.type==EFFECT_GRID25) opacity /= 4; // quarter-opacity variants
-	
-	// LOG_info("effect: %s opacity: %i\n", effect_path, opacity);
-	SDL_Surface* tmp = IMG_Load(effect_path);
+
+	uint64_t fx_t0 = getMicroseconds();
+	enum { FX_W = 1280, FX_H = 960 }; // the retired PNGs' size; PLAT_flip draws a dst-sized corner of it
+	SDL_Surface* tmp = SDL_CreateRGBSurfaceWithFormat(0, FX_W, FX_H, 32, SDL_PIXELFORMAT_ABGR8888); // IMG_Load's RGBA layout
 	if (tmp) {
-		if (effect.type==EFFECT_GRID || effect.type==EFFECT_GRID50 || effect.type==EFFECT_GRID25) {
-			if (effect.color) {
-				// LOG_info("dmg color grid...\n");
-			
-				uint8_t r,g,b;
-				rgb565_to_rgb888(effect.color,&r,&g,&b);
-				// LOG_info("rgb %i,%i,%i\n",r,g,b); 
-			
-				uint32_t* pixels = (uint32_t*)tmp->pixels;
-				int width = tmp->w;
-				int height = tmp->h;
-				for (int y = 0; y < height; ++y) {
-				    for (int x = 0; x < width; ++x) {
-				        uint32_t pixel = pixels[y * width + x];
-				        uint8_t _,a;
-				        SDL_GetRGBA(pixel, tmp->format, &_, &_, &_, &a);
-				        if (a) pixels[y * width + x] = SDL_MapRGBA(tmp->format, r,g,b, a);
-				    }
-				}
-				
-				// if (r==247 && g==243 & b==247) opacity = 64;
+		uint8_t r = 0, g = 0, b = 0;
+		if (is_grid && effect.color) rgb565_to_rgb888(effect.color,&r,&g,&b); // DMG-tinted grid, opaque pixels only
+		uint32_t clear = SDL_MapRGBA(tmp->format, 255,255,255, 0); // the PNGs' transparent pixel
+		uint32_t full = SDL_MapRGBA(tmp->format, r,g,b, 255);
+		uint32_t half = SDL_MapRGBA(tmp->format, r,g,b, 128);
+		uint8_t* base = (uint8_t*)tmp->pixels;
+		for (int y = 0; y < FX_H; ++y) {
+			uint32_t* row = (uint32_t*)(base + y * tmp->pitch);
+			if (y >= period) { memcpy(row, base + (y % period) * tmp->pitch, FX_W * 4); continue; } // repeat the cell's rows
+			for (int x = 0; x < FX_W; ++x) {
+				if (line_rows) row[x] = line_rows[y]=='#' ? full : (line_rows[y]=='+' ? half : clear);
+				else row[x] = (y < bar || (x % period) < bar) ? full : clear;
 			}
 		}
+		uint64_t fx_t1 = getMicroseconds();
 
 		if (vid.effect) SDL_DestroyTexture(vid.effect);
 		vid.effect = SDL_CreateTextureFromSurface(vid.renderer, tmp);
 		SDL_SetTextureAlphaMod(vid.effect, opacity);
 		SDL_FreeSurface(tmp);
 		effect.live_type = effect.type;
+		LOG_info("effect: built type=%i scale=%i period=%i opacity=%i fill=%uus upload=%uus\n", effect.type, effect.scale,
+			period, opacity, (unsigned)(fx_t1 - fx_t0), (unsigned)(getMicroseconds() - fx_t1));
 	}
 }
 void PLAT_setEffect(int next_type) {
