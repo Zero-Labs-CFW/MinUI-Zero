@@ -140,20 +140,26 @@ export TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
 # The +0.4% surplus of an unmatched 60.18Hz panel over a 59.94 core slowly PINNED the audio
 # ring full, and ring-full backpressure stalling the threaded pipeline was the PS1 sustained
 # judder (~14s onset). Brick Pro: fb0 timings read on-device (D 57.003MHz -> V 60.180 Hz).
-# Brick / Smart Pro: NOT yet measured on their panels — leave unset there rather than guess.
+# A model not listed here stays unset rather than guessed.
 if [ "$TRIMUI_MODEL" = "Trimui Brick Pro" ]; then
 	export MINARCH_PANEL_FPS=60.180
 elif [ "$TRIMUI_MODEL" = "Trimui Brick" ]; then
 	# Brick panel measured 2026-08-31 off its live fb0 scanout timings (D 51.002MHz -> V 60.235 Hz).
 	export MINARCH_PANEL_FPS=60.235
+elif [ "$TRIMUI_MODEL" = "Trimui Smart Pro" ]; then
+	# Smart Pro panel measured 2026-10-09 by its display interrupt rate ("dispaly" in /proc/interrupts), not fb0:
+	# fb0 reports 63.965 Hz (D 70.004MHz) but the SP scans out the GLES layer, so those timings are not the panel's.
+	# In-game, 39 four-minute windows: 60.258-60.269, median 60.265; at the menu 60.257-60.260. The same count on
+	# the Brick Pro reads 60.178 against its 60.180 timings. With it the servo arms and the ring drops from
+	# 95-172 ms (audio-paced at capacity) to ~110-124 ms, ~55 ms with the low-latency flag
+	# (.notes/2026-10-08-audio-latency/smartpro/).
+	export MINARCH_PANEL_FPS=60.265
 fi
 # Audio ring occupancy servo: a +-0.5% trim on top of the static rate match that refills the
 # ring after a stall drains it (nothing else does). Only acts where a static match is live, so
-# the Smart Pro (unset above) is untouched: it stays on the audio-paced fallback, now at the 8-frame
-# ring. Miyoo and Anbernic export it too since 2026-10-03. ZERO_AUDIO_SERVO=0 kills it for an A/B.
+# a model with no panel rate above stays on the audio-paced fallback at the 8-frame ring. Miyoo
+# and Anbernic export it too since 2026-10-03. ZERO_AUDIO_SERVO=0 kills it for an A/B.
 export ZERO_AUDIO_SERVO=1
-# Smart Pro stays UNSET on purpose: its fb0 reports 63.965 Hz but the SP scans the GLES layer,
-# not fb0, so that number is unverified for the actual panel. Measure vsync-derived before arming.
 # The Brick Pro reports "Trimui Brick Pro". An exact test for "Trimui Brick" left DEVICE empty and
 # platform.h is_brick then picked Smart Pro geometry: 1280x720 at @2x with 10 menu rows, which is
 # the squashed menu Dan photographed (2026-08-28). It gets its OWN device rather than being called
@@ -513,7 +519,7 @@ while [ -f $EXEC_PATH ]; do
 			# LOW-LATENCY AUDIO CANDIDATE (opt-in test, 2026-10-08): ~55 ms instead of ~115 on the Brick (latency matrix
 			# round 3, .notes/2026-10-08-audio-latency/test-plan.md). Off unless this file exists, until Dan's play checks
 			# and a drain A/B clear it; TrimUI only for now because only TrimUI was measured. Needs a measured panel rate:
-			# the servo that holds the target only runs on a static rate match, so on the Smart Pro (no MINARCH_PANEL_FPS)
+			# the servo that holds the target only runs on a static rate match, so on a model with no MINARCH_PANEL_FPS
 			# the ring stays audio-paced at capacity and the target would do nothing (Codex review 2026-10-09). PAL (50 Hz)
 			# content has no match either and keeps today's audio-paced ring with or without the flag.
 			if [ -f "$SHARED_USERDATA_PATH/low-latency-audio" ] && [ -n "$MINARCH_PANEL_FPS" ]; then
