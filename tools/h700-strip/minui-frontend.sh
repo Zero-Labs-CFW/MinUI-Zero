@@ -12,6 +12,16 @@ export SDCARD_PATH=/mnt/mmc
 export SYSTEM_PATH=/mnt/mmc/.system/h700
 export USERDATA_PATH=/mnt/mmc/.userdata/h700
 export LOGS_PATH=/mnt/mmc/.userdata/h700/logs
+# Keep the previous game's log for each system (Dan 2026-10-08): an emulator pak truncates $LOGS_PATH/<TAG>.txt at
+# every launch, so a crash's evidence was gone as soon as the next game of that system started. One .prev per
+# system: bounded, never grows. Takes the launch command's own words, so the shell parses its quoting (a pak named
+# with an apostrophe defeated the earlier sed, Codex review 2026-10-09); only an emulator pak's launch.sh counts.
+zero_rotate_prev_log() {
+	case "$1" in */Emus/*.pak/launch.sh) ;; *) return 0 ;; esac
+	_rpl_tag=$(basename "$(dirname "$1")" .pak)
+	[ -f "$LOGS_PATH/$_rpl_tag.txt" ] && mv -f "$LOGS_PATH/$_rpl_tag.txt" "$LOGS_PATH/$_rpl_tag.prev.txt"
+	return 0
+}
 export SHARED_USERDATA_PATH=/mnt/mmc/.userdata/shared
 export SAVES_PATH=/mnt/mmc/Saves
 export BIOS_PATH=/mnt/mmc/Bios
@@ -462,6 +472,7 @@ if [ -f "$AUTO_RESUME" ]; then
 		echo "boot-to-game: $_tag <- $_rel" >> "$LOG"
 		echo 9 > /tmp/resume_slot.txt      # AUTO_RESUME_SLOT, read by minarch
 		apply_volume
+		zero_rotate_prev_log "$_pak"
 		sh "$_pak" "$_rom" >> "$LOG" 2>&1
 		echo "boot-to-game exited rc=$?" >> "$LOG"
 		[ -f /tmp/poweroff ] && { echo "poweroff requested (boot-to-game)" >> "$LOG"; power_off; }
@@ -500,6 +511,7 @@ while : ; do
 		CMD=$(cat /tmp/next)
 		echo "launch: $CMD" >> "$LOG"
 		apply_volume   # a mute left behind by the menu process must not follow us into the game
+		eval "zero_rotate_prev_log $CMD"
 		sh -c "$CMD"
 		echo "game exited rc=$?" >> "$LOG"
 		apply_volume   # ...nor back into the menu if the game was killed while muted

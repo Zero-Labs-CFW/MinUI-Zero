@@ -18,6 +18,16 @@ export CORES_PATH="$SYSTEM_PATH/cores"
 export USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM"
 export SHARED_USERDATA_PATH="$SDCARD_PATH/.userdata/shared"
 export LOGS_PATH="$USERDATA_PATH/logs"
+# Keep the previous game's log for each system (Dan 2026-10-08): an emulator pak truncates $LOGS_PATH/<TAG>.txt at
+# every launch, so a crash's evidence was gone as soon as the next game of that system started. One .prev per
+# system: bounded, never grows. Takes the launch command's own words, so the shell parses its quoting (a pak named
+# with an apostrophe defeated the earlier sed, Codex review 2026-10-09); only an emulator pak's launch.sh counts.
+zero_rotate_prev_log() {
+	case "$1" in */Emus/*.pak/launch.sh) ;; *) return 0 ;; esac
+	_rpl_tag=$(basename "$(dirname "$1")" .pak)
+	[ -f "$LOGS_PATH/$_rpl_tag.txt" ] && mv -f "$LOGS_PATH/$_rpl_tag.txt" "$LOGS_PATH/$_rpl_tag.prev.txt"
+	return 0
+}
 export DATETIME_PATH="$SHARED_USERDATA_PATH/datetime.txt"
 
 # RTC sanity (the Onion/stock-MinUI trick, restore half): a fully dead battery resets the
@@ -544,14 +554,7 @@ while [ -f $EXEC_PATH ]; do
 				rfkill block wifi 2>/dev/null
 			fi ;;
 		esac
-		# Keep the previous game's log for this system (Dan 2026-10-08): an emulator pak truncates
-		# $LOGS_PATH/<TAG>.txt at every launch, so a crash's evidence was gone as soon as the next game of that
-		# system started (the Brick Pro reboot after DKC, 2026-10-07). One .prev per system: bounded, never grows.
-		case "$CMD" in *"/Emus/"*)
-			_pak=$(printf '%s' "$CMD" | sed -n "s|^'\([^']*\)/launch\.sh'.*|\1|p")
-			_tag=$(basename "$_pak" .pak)
-			[ -n "$_pak" ] && [ -f "$LOGS_PATH/$_tag.txt" ] && mv -f "$LOGS_PATH/$_tag.txt" "$LOGS_PATH/$_tag.prev.txt"
-		esac
+		eval "zero_rotate_prev_log $CMD" # previous game log (function above)
 		eval $CMD
 		unset ZERO_AUDIO_DEVICE ZERO_AUDIO_SAMPLES ZERO_AUDIO_RT ZERO_AUDIO_TARGET_MS ZERO_AUDIO_WARM_MS ZERO_AUDIO_PREFILL_MS
 		if [ "$GAME_WIFI_OFF" = 1 ]; then
