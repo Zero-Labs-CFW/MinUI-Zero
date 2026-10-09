@@ -526,13 +526,13 @@ while [ -f $EXEC_PATH ]; do
 			export ZERO_AUDIO_SAMPLES=1024
 			# ...and keep SDL's audio thread on time for that buffer: minarch moves it to SCHED_FIFO (api.c).
 			export ZERO_AUDIO_RT=1
-			# LOW-LATENCY AUDIO CANDIDATE (opt-in test, 2026-10-08): ~55 ms instead of ~115 on the Brick (latency matrix
-			# round 3, .notes/2026-10-08-audio-latency/test-plan.md). Off unless this file exists, until Dan's play checks
-			# and a drain A/B clear it; TrimUI only for now because only TrimUI was measured. Needs a measured panel rate:
-			# the servo that holds the target only runs on a static rate match, so on a model with no MINARCH_PANEL_FPS
-			# the ring stays audio-paced at capacity and the target would do nothing (Codex review 2026-10-09). PAL (50 Hz)
-			# content has no match either and keeps today's audio-paced ring with or without the flag.
-			if [ -f "$SHARED_USERDATA_PATH/low-latency-audio" ] && [ -n "$MINARCH_PANEL_FPS" ]; then
+			# LOW-LATENCY AUDIO (D74, 2026-10-09): ~55 ms instead of ~115-170 on the Brick, Brick Pro and Smart Pro
+			# (latency matrices, .notes/2026-10-08-audio-latency/): 256-sample periods, the ring held at 40 ms, and a jitter
+			# guard that starts at 80 ms after every launch, menu close or wake. Needs a measured panel rate: the servo that
+			# holds the target only runs on a static rate match, so a model with no MINARCH_PANEL_FPS keeps the audio-paced
+			# ring (Codex review 2026-10-09). PAL (50 Hz) content has no match either and keeps it too. Miyoo and Anbernic
+			# are not on this yet (D74 says why).
+			if [ -n "$MINARCH_PANEL_FPS" ]; then
 				export ZERO_AUDIO_SAMPLES=256 ZERO_AUDIO_TARGET_MS=40 ZERO_AUDIO_WARM_MS=80 ZERO_AUDIO_PREFILL_MS=100
 			fi
 			_dn=$(pgrep -f "bin/dev-net[.]sh" 2>/dev/null) # [.]: never matches a shell whose command line merely quotes it
