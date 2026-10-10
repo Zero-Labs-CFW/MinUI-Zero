@@ -270,8 +270,13 @@ int gov_sink_fits(int cur_khz, int next_khz, int p95_pure_us, int budget_us) {
 // equilibrium (frames ~80% busy at whatever clock it chose), so p95 near 13 ms at 408 MHz is normal there. Scaling
 // that by ceil/next (1416/1200) invented a slowdown a cap that never bound cannot cause, the gate read BUSY at every
 // rung above the floor, and a low-water climb to 1416 stayed for the session (ActRaiser, drain A/B 2026-10-09).
+// The run clock is only trusted while the work fits the margin AT that clock: past it, the sample (every third frame,
+// read after present) missed a burst at a higher clock, or the frame is genuinely heavy, so use the cap. THPS2 voted
+// SLACK on p95 20.8 ms over a 16.6 ms budget with run=408 (Codex review 2026-10-10); ActRaiser's p95 tops out near
+// 13.1 ms against a 14.1 ms margin, so its fix is unchanged.
 int gov_sink_fits_at(int cur_khz, int next_khz, int run_khz, int p95_pure_us, int budget_us) {
 	if (run_khz <= 0 || run_khz > cur_khz) run_khz = cur_khz; // unknown, or a stale read above the cap: assume the cap
+	if ((long long)p95_pure_us * 100 >= (long long)budget_us * GOV_SINK_MARGIN_PCT) run_khz = cur_khz; // over the margin
 	if (next_khz >= run_khz && next_khz < cur_khz) return 1; // the lower cap would not have bound in this window
 	return gov_sink_fits(run_khz, next_khz, p95_pure_us, budget_us);         // the cap would bind: scale from run
 }

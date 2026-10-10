@@ -7504,9 +7504,12 @@ static int zero_boot_timing = -1;
 						int next = gov_sink_target(&gov_state, &gov_profile);
 						if (n > 2 && gov_target_fps > 0 && next < gov_state.ceil_khz) {
 							double window_us = n * (1000000.0 / gov_target_fps);
-							// scale from the clock the work ran at (see gov_sink_fits_at): a cap at or above it never bound
+							// scale from the clock the work ran at (see gov_sink_fits_at): a cap at or above it never bound,
+							// unless the window is over the margin even at that clock (the sample missed a burst): then the cap
 							int run = (gov_run_khz > 0 && gov_run_khz < gov_state.ceil_khz) ? gov_run_khz : gov_state.ceil_khz;
-							double util_next = ((double)sum / window_us) * ((double)run / (double)next);
+							double util_run = (double)sum / window_us;
+							if (util_run > 0.85) run = gov_state.ceil_khz;
+							double util_next = util_run * ((double)run / (double)next);
 							frame_overrun = (next >= run || util_next <= 0.85) ? GOV_SIGNAL_SLACK : GOV_SIGNAL_BUSY;
 						}
 						else frame_overrun = GOV_SIGNAL_BUSY;

@@ -571,7 +571,11 @@ static void test_sink_gate_run_clock(void) {
 	CHECK(gov_sink_fits_at(1584000, 1368000, 1800000, 13636, 16667) == 0, "a run clock above the ceiling clamps to it");
 	// cap not binding: a lower cap that is still at/above the run clock changes nothing in that window
 	CHECK(gov_sink_fits_at(1416000, 1200000, 408000, 13000, 16667) == 1, "ActRaiser: 1416 -> 1200 over a 408 run fits");
-	CHECK(gov_sink_fits_at(1416000, 1008000, 1008000, 15000, 16667) == 1, "next == run: the cap does not bind");
+	CHECK(gov_sink_fits_at(1416000, 1008000, 1008000, 13000, 16667) == 1, "next == run: the cap does not bind");
+	// work over the margin at the sampled clock: the sample missed a burst, so the cap-scaled gate decides
+	CHECK(gov_sink_fits_at(1416000, 1200000, 408000, 20759, 16593) == 0, "THPS2: p95 20.8 ms over a 408 sample must not vote SLACK");
+	CHECK(gov_sink_fits_at(1416000, 1008000, 1008000, 15000, 16667) == 0, "15.0 ms is over the 14.2 ms margin even at run");
+	CHECK(gov_sink_fits_at(1416000, 1200000, 408000, 13148, 16601) == 1, "ActRaiser's worst SP p95 (13.1 ms) still fits");
 	// cap would bind: scale from the run clock (1008 -> 816 = x1.235)
 	CHECK(gov_sink_fits_at(1416000, 816000, 1008000, 10000, 16667) == 1, "10.0 ms @1008 -> 12.4 ms @816 fits");
 	CHECK(gov_sink_fits_at(1416000, 816000, 1008000, 12000, 16667) == 0, "12.0 ms @1008 -> 14.8 ms @816 does not");

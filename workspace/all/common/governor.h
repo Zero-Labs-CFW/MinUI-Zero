@@ -129,8 +129,9 @@ int gov_sink_fits(int cur_khz, int next_khz, int p95_pure_us, int budget_us);
 // window, 0 = unknown -> assume the ceiling, i.e. gov_sink_fits). Under schedutil the CPU often runs far below
 // the ceiling (gov-cap: ActRaiser at 408 under a 1416 ceiling), and scaling p95 by cur/next then predicts a
 // slowdown that cannot happen. A cap at or above run_khz would not have bound in that window, so it fits; a cap
-// below it scales p95 by run/next. With run_khz == cur_khz (a binding cap, or the MMP's userspace clock) this is
-// exactly gov_sink_fits.
+// below it scales p95 by run/next. Work over the margin even at run_khz means the sample missed a burst (or the
+// frame is heavy): the cap is used instead. With run_khz == cur_khz (a binding cap, or the MMP's userspace clock)
+// this is exactly gov_sink_fits.
 int gov_sink_fits_at(int cur_khz, int next_khz, int run_khz, int p95_pure_us, int budget_us);
 
 // Device entry point: read temp, run gov_step(), and write the ceiling via
