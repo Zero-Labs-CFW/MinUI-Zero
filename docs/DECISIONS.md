@@ -1488,3 +1488,35 @@ SDL_QueueAudio (SDL's own locked queue, no callback); upstream MinUI has our old
   late, which an xrun from lock waits would require, so this removes a risk rather than a measured cause. Device A/B
   of restart counts and underruns, and whether 512 x 2 now holds, pending.
 Touches: api.c (SND_* ring paths), snd_ring.h, snd_ring_test.c, wakeup_test.c, makefile (test-snd-ring).
+
+## D74: TrimUI games hold audio at 40 ms with a jitter guard (2026-10-09)
+
+Dan: "Let's just focus on the audio delay to be perfect." Measured total delay on TrimUI (ring + 2 SDL periods,
+probe-confirmed) was ~115 ms on the Brick and Brick Pro and 95-172 ms on the Smart Pro, which had no panel rate, so
+its ring sat audio-paced at capacity. References: RetroArch ~32-40 ms, MyMinUI ~50-55, NextUI ~150.
+
+- **Default on TrimUI models with a measured panel rate** (MinUI.pak /Emus/ branch): ZERO_AUDIO_SAMPLES=256,
+  ZERO_AUDIO_TARGET_MS=40 (the servo holds the mean ring level each callback finds, not a main-loop sample),
+  ZERO_AUDIO_WARM_MS=80 (jitter guard: 80 ms after every launch, resume and reprime, held 30 s, gliding 2 ms/s to
+  40; a callback-side trough under 10 ms bumps it 10 ms and holds again), ZERO_AUDIO_PREFILL_MS=100. Result: ~55 ms
+  on the Brick, Brick Pro and Smart Pro.
+- **Why a guard, not a smaller target:** 25 ms underran in steady state (the ring dips 20-46 ms below its mean in
+  some windows on both settings; not CPU-bound). 40 ms held in steady state, but DKC's intro ran 25-29 ms frames while
+  the governor stepped its launch clocks down, which emptied a 40-50 ms ring. 512-sample periods were worse than 256.
+  30 ms + guard underran once in DKC.
+- **Smart Pro panel rate** 60.265 Hz from its display interrupt rate (fb0 reports 63.965 Hz for the GLES layer it
+  does not scan out); the servo now arms there.
+- **Receipts** (.notes/2026-10-08-audio-latency/, .notes/2026-10-09-lowlat-drain-ab/): Brick 10 runs, 0 ring
+  underruns; Brick Pro 7 of 9 systems clean (DKC was the screen-effect stall, fixed in 5b498449; mGBA and snes9x2005
+  underrun on every setting); Smart Pro 7 of 9 clean, same two cores. ALSA xruns (alsa-lib snd_pcm_recover lines)
+  are the same 1-2 per run on both settings on all three TrimUIs. Clocks and CPU busy equal. Battery, 13 interleaved
+  unplugged blocks, candidate minus current: GBC -6.6% +/- 9.4%, ActRaiser -5.8% +/- 5.3%; no detectable cost, a
+  cost above ~10% ruled out. Dan's listening test on the Brick: "everything there sounds great".
+- **Not on Miyoo and Anbernic (earned divergence):** on the Plus, SNES ALSA xruns rose from 1-2 to 7-10 per run with
+  the candidate (GBC/GBA/NES/MD clean at ~60 ms); on the Miyoo, DKC underran 5 times and held 1200 MHz. Both keep the
+  default servo path. PS keeps its own ring everywhere (MINARCH_SND_RING_FRAMES), ~200 ms, the biggest delay left.
+  PAL (50 Hz) content has no rate match and stays audio-paced.
+- **Open:** on the default path the audio low-water climb raised the ceiling to 1416 MHz in every current-arm drain
+  block and on ActRaiser never sank back; the low-latency path's trough-based climb never fired.
+Touches: tg5040 MinUI.pak, api.c/api.h (latency target, callback stats, seam counter), audioservo.h + test,
+minarch.c (servo, jitter guard, low-water trough, latency log).
