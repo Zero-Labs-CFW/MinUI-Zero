@@ -522,7 +522,7 @@ static void test_ladder_descent_hits_only_real_opps(void) {
 // ActRaiser attract on the default audio path: the 20% low-water climb took the ceiling 600 -> 1416 and it stayed
 // there for 25 min in 3/3 blocks (Brick; same on SP + Brick Pro 2026-10-08), while gov-cap showed schedutil at 408
 // under it (at-ceil 1/121). Model: schedutil runs the lowest OPP (408 included, capped by the ceiling) that keeps the
-// frame under 80% busy; frame work scales with THAT clock, not the ceiling. ~5.3 ms of work at 1 GHz = ~13 ms at 408.
+// frame under 80% busy; frame work scales with THAT clock, not the ceiling. ~5.2 ms of work at 1 GHz = 12.7 ms at 408 (gov-gate, Brick 2026-10-09).
 static int sched_pick(int ceil_khz, int work_us_at_1ghz, int budget_us) {
 	for (int i = 0; i < 8; i++) {
 		if (A133P[i] > ceil_khz) break;
@@ -532,7 +532,7 @@ static int sched_pick(int ceil_khz, int work_us_at_1ghz, int budget_us) {
 }
 static int run_actraiser_trace(int use_run_clock, int ticks, int* first_floor_tick, int* first_leave_tick) {
 	GovProfile p = ladder_profile(600000, 1416000); // GOV_P_16BIT with the real ladder
-	const int budget = 16600, work1g = 5300;
+	const int budget = 16601, work1g = 5190; // measured on the Brick: p95 12.6-12.9 ms at 408, budget 16601 us
 	GovState st; gov_init(&st, &p);
 	st.ceil_khz = p.f_min; st.since_sink = 100; st.probe_khz = p.f_min; // settled at the floor for minutes
 	gov_audio_low(&st, &p);                                              // the ring dips under 20%: climb
@@ -552,7 +552,7 @@ static int run_actraiser_trace(int use_run_clock, int ticks, int* first_floor_ti
 static void test_low_water_then_sinks_under_schedutil(void) {
 	printf("[low-water] after the climb, a game schedutil runs at 408 sinks back to the floor once the hold ends\n");
 	int floor_t, leave_t;
-	// the bug, reproduced: scaling p95 (measured at 408) by ceil/next predicts 13.0*1416/1200 = 15.3 ms > 14.1: BUSY forever
+	// the bug, reproduced: scaling p95 (measured at 408) by ceil/next predicts 12.7*1416/1200 = 15.0 ms > 14.1: BUSY forever
 	int stuck = run_actraiser_trace(0, 3000, &floor_t, &leave_t);
 	CHECK(stuck == 1416000, "repro: the ceiling-scaled gate should hold 1416 (got %d)", stuck);
 	int end = run_actraiser_trace(1, 3000, &floor_t, &leave_t);
