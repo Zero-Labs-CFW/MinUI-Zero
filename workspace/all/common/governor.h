@@ -125,6 +125,13 @@ int gov_step(GovState* st, const GovProfile* p, int temp_c, int frame_overrun);
 // Callers feed PURE work p95 (audio-pacing wait excluded) or the gate over-holds.
 int gov_sink_target(const GovState* st, const GovProfile* p);
 int gov_sink_fits(int cur_khz, int next_khz, int p95_pure_us, int budget_us);
+// Same gate, told the clock the work actually RAN at (run_khz: the highest scaling_cur_freq seen over the
+// window, 0 = unknown -> assume the ceiling, i.e. gov_sink_fits). Under schedutil the CPU often runs far below
+// the ceiling (gov-cap: ActRaiser at 408 under a 1416 ceiling), and scaling p95 by cur/next then predicts a
+// slowdown that cannot happen. A cap at or above run_khz would not have bound in that window, so it fits; a cap
+// below it scales p95 by run/next. With run_khz == cur_khz (a binding cap, or the MMP's userspace clock) this is
+// exactly gov_sink_fits.
+int gov_sink_fits_at(int cur_khz, int next_khz, int run_khz, int p95_pure_us, int budget_us);
 
 // Device entry point: read temp, run gov_step(), and write the ceiling via
 // PLAT_setCPUMaxFreq(). Honors GOV_DISABLE=1 (no-op). Call once per GOV_TICK_FRAMES.

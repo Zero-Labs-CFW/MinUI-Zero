@@ -3722,6 +3722,11 @@ static uint32_t sec_start = 0;
 static unsigned run_window_epoch = 0;
 static int gov_frames = 0;
 static long gov_prev_wait_ms = 0;
+// Highest live CPU clock seen over the current governor window (kHz, 0 = none): the clock the window's work ran at,
+// for the sink gate (gov_sink_fits_at). Sampled every GOV_RUN_SAMPLE frames; TrimUI only (schedutil under the cap).
+// The MMP runs its ceiling as the clock and its cur_freq node is not trusted; the h700 does not use the work gate.
+static int gov_run_khz = 0;
+#define GOV_RUN_SAMPLE 3
 #define GOV_WORK_CAP (GOV_TICK_FRAMES + 2) // depth-2 can drain two boundaries in one MAIN pump
 static uint32_t gov_work[GOV_WORK_CAP];
 static unsigned getUsage(void);
@@ -3737,6 +3742,7 @@ static void RunLoop_resetWindow(void) {
 	use_ticks = last_use_ticks = (int)getUsage();
 	SND_Stats as; SND_getStats(&as);
 	gov_frames = 0;
+	gov_run_khz = 0;
 	gov_prev_wait_ms = as.wait_ms;
 	run_window_epoch++;
 #ifdef ZERO_FRONTEND_THREADING_V2
@@ -7402,6 +7408,13 @@ static int zero_boot_timing = -1;
 					gov_work[gov_frames] = (pace_us > 0 && (uint32_t)pace_us < raw_us) ? raw_us - (uint32_t)pace_us : raw_us;
 					gov_frames++;
 				}
+#if !defined(GOV_PLATFORM_MIYOOMINI) && !defined(GOV_PLATFORM_H700)
+				static unsigned gov_run_n = 0;
+				if (++gov_run_n % GOV_RUN_SAMPLE == 0) { // ~20 sysfs reads/s
+					int k = gov_read_cur_khz();
+					if (k > gov_run_khz) gov_run_khz = k;
+				}
+#endif
 				// AUDIO LOW-WATER, every frame (governor.c gov_audio_low): a ring under GOV_RING_LOW_PCT means the core
 				// is falling behind now; climb at once instead of waiting up to ~1 s for the generation signal. Not while
 				// the prefill gate holds the DAC (a refilling ring reads low by design) or in fast-forward. The vote
@@ -7491,8 +7504,10 @@ static int zero_boot_timing = -1;
 						int next = gov_sink_target(&gov_state, &gov_profile);
 						if (n > 2 && gov_target_fps > 0 && next < gov_state.ceil_khz) {
 							double window_us = n * (1000000.0 / gov_target_fps);
-							double util_next = ((double)sum / window_us) * ((double)gov_state.ceil_khz / (double)next);
-							frame_overrun = util_next <= 0.85 ? GOV_SIGNAL_SLACK : GOV_SIGNAL_BUSY;
+							// scale from the clock the work ran at (see gov_sink_fits_at): a cap at or above it never bound
+							int run = (gov_run_khz > 0 && gov_run_khz < gov_state.ceil_khz) ? gov_run_khz : gov_state.ceil_khz;
+							double util_next = ((double)sum / window_us) * ((double)run / (double)next);
+							frame_overrun = (next >= run || util_next <= 0.85) ? GOV_SIGNAL_SLACK : GOV_SIGNAL_BUSY;
 						}
 						else frame_overrun = GOV_SIGNAL_BUSY;
 					}
@@ -7516,15 +7531,15 @@ static int zero_boot_timing = -1;
 						(void)p95; (void)next; (void)budget_us;
 						frame_overrun = GOV_SIGNAL_SLACK;
 #else
-						frame_overrun = gov_sink_fits(gov_state.ceil_khz, next, p95, budget_us)
+						frame_overrun = gov_sink_fits_at(gov_state.ceil_khz, next, gov_run_khz, p95, budget_us)
 							? GOV_SIGNAL_SLACK : GOV_SIGNAL_BUSY;
 #endif
 						{ // ZERO_GOV_DEBUG=1: periodic gate telemetry (why does/doesn't it sink?)
 							static int zgd = -1, zgd_n = 0;
 							if (zgd < 0) { const char* e = getenv("ZERO_GOV_DEBUG"); zgd = (e && e[0] && e[0] != '0') ? 1 : 0; }
 							if (zgd && (++zgd_n % 10) == 0)
-								LOG_info("gov-gate: p95=%dus budget=%dus next=%d signal=%d ceil=%d gen=%.1f\n",
-									p95, budget_us, next, frame_overrun, gov_state.ceil_khz, gov_gen);
+								LOG_info("gov-gate: p95=%dus budget=%dus next=%d signal=%d ceil=%d run=%d gen=%.1f\n",
+									p95, budget_us, next, frame_overrun, gov_state.ceil_khz, gov_run_khz, gov_gen);
 						}
 					}
 					// auto-threading state machine (evaluated at tick cadence; cheap).
@@ -7616,6 +7631,7 @@ static int zero_boot_timing = -1;
 						if (gm & GOVMEM_DISARMED_SLIP) LOG_info("gov-memory: fast-sink canceled (slip before target)\n");
 						if (gm & GOVMEM_EXPIRED) LOG_info("gov-memory: fast-sink expired unconsumed\n");
 					}
+					gov_run_khz = 0;
 					int carry = gov_frames - GOV_TICK_FRAMES;
 					if (carry > 0)
 						memmove(gov_work, gov_work + GOV_TICK_FRAMES, (size_t)carry * sizeof(gov_work[0]));

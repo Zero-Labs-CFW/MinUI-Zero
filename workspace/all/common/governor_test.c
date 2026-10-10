@@ -518,6 +518,66 @@ static void test_ladder_descent_hits_only_real_opps(void) {
 	CHECK(real && c > 600000, "single-step climb lands on a real OPP above the floor");
 }
 
+// ---- low-water climb, then a schedutil-run workload must sink back (drain A/B 2026-10-09) ----
+// ActRaiser attract on the default audio path: the 20% low-water climb took the ceiling 600 -> 1416 and it stayed
+// there for 25 min in 3/3 blocks (Brick; same on SP + Brick Pro 2026-10-08), while gov-cap showed schedutil at 408
+// under it (at-ceil 1/121). Model: schedutil runs the lowest OPP (408 included, capped by the ceiling) that keeps the
+// frame under 80% busy; frame work scales with THAT clock, not the ceiling. ~5.3 ms of work at 1 GHz = ~13 ms at 408.
+static int sched_pick(int ceil_khz, int work_us_at_1ghz, int budget_us) {
+	for (int i = 0; i < 8; i++) {
+		if (A133P[i] > ceil_khz) break;
+		if ((long long)work_us_at_1ghz * 1000000 / A133P[i] <= (long long)budget_us * 80 / 100) return A133P[i];
+	}
+	return ceil_khz;
+}
+static int run_actraiser_trace(int use_run_clock, int ticks, int* first_floor_tick, int* first_leave_tick) {
+	GovProfile p = ladder_profile(600000, 1416000); // GOV_P_16BIT with the real ladder
+	const int budget = 16600, work1g = 5300;
+	GovState st; gov_init(&st, &p);
+	st.ceil_khz = p.f_min; st.since_sink = 100; st.probe_khz = p.f_min; // settled at the floor for minutes
+	gov_audio_low(&st, &p);                                              // the ring dips under 20%: climb
+	*first_floor_tick = -1; *first_leave_tick = -1;
+	for (int t = 0; t < ticks; t++) {
+		int run = sched_pick(st.ceil_khz, work1g, budget);
+		int p95 = (int)((long long)work1g * 1000000 / run);
+		int next = gov_sink_target(&st, &p);
+		int fits = use_run_clock ? gov_sink_fits_at(st.ceil_khz, next, run, p95, budget)
+		                         : gov_sink_fits(st.ceil_khz, next, p95, budget);
+		gov_step(&st, &p, 37, fits ? GOV_SIGNAL_SLACK : GOV_SIGNAL_BUSY); // holds 60 at every clock: never slips
+		if (*first_leave_tick < 0 && st.ceil_khz < p.f_max) *first_leave_tick = t;
+		if (*first_floor_tick < 0 && st.ceil_khz == p.f_min) *first_floor_tick = t;
+	}
+	return st.ceil_khz;
+}
+static void test_low_water_then_sinks_under_schedutil(void) {
+	printf("[low-water] after the climb, a game schedutil runs at 408 sinks back to the floor once the hold ends\n");
+	int floor_t, leave_t;
+	// the bug, reproduced: scaling p95 (measured at 408) by ceil/next predicts 13.0*1416/1200 = 15.3 ms > 14.1: BUSY forever
+	int stuck = run_actraiser_trace(0, 3000, &floor_t, &leave_t);
+	CHECK(stuck == 1416000, "repro: the ceiling-scaled gate should hold 1416 (got %d)", stuck);
+	int end = run_actraiser_trace(1, 3000, &floor_t, &leave_t);
+	CHECK(end == 600000, "run-clock gate must bring the ceiling back to the 600 floor after the climb (got %d)", end);
+	CHECK(leave_t >= 0 && leave_t < 10, "a non-binding 1416 cap should start sinking within a few ticks (left at tick %d)", leave_t);
+	CHECK(floor_t >= 118, "the low-water hold must keep the failed 600 ceiling off for ~60 s (reached at tick %d)", floor_t);
+	printf("  left 1416 at tick %d, back at 600 at tick %d (~%d s)\n", leave_t, floor_t, floor_t / 2);
+}
+
+static void test_sink_gate_run_clock(void) {
+	printf("[sink-gate] gate predicts from the clock the work ran at, not the ceiling\n");
+	// unknown run clock, or a binding cap: identical to gov_sink_fits (the D14 PS1 trap still holds)
+	CHECK(gov_sink_fits_at(1584000, 1368000, 0, 13636, 16667) == 0, "run unknown = ceiling-scaled gate");
+	CHECK(gov_sink_fits_at(1584000, 1368000, 1584000, 13636, 16667) == 0, "binding cap = ceiling-scaled gate");
+	CHECK(gov_sink_fits_at(600000, 408000, 600000, 7500, 16667) == 1, "Contra-shape still fits");
+	CHECK(gov_sink_fits_at(1584000, 1368000, 1800000, 13636, 16667) == 0, "a run clock above the ceiling clamps to it");
+	// cap not binding: a lower cap that is still at/above the run clock changes nothing in that window
+	CHECK(gov_sink_fits_at(1416000, 1200000, 408000, 13000, 16667) == 1, "ActRaiser: 1416 -> 1200 over a 408 run fits");
+	CHECK(gov_sink_fits_at(1416000, 1008000, 1008000, 15000, 16667) == 1, "next == run: the cap does not bind");
+	// cap would bind: scale from the run clock (1008 -> 816 = x1.235)
+	CHECK(gov_sink_fits_at(1416000, 816000, 1008000, 10000, 16667) == 1, "10.0 ms @1008 -> 12.4 ms @816 fits");
+	CHECK(gov_sink_fits_at(1416000, 816000, 1008000, 12000, 16667) == 0, "12.0 ms @1008 -> 14.8 ms @816 does not");
+	CHECK(gov_sink_fits_at(600000, 600000, 408000, 99999, 16667) == 1, "not-a-sink is always allowed");
+}
+
 int main(void) {
 	printf("== governor synthetic harness ==\n");
 	test_ladder_helpers();
@@ -535,6 +595,8 @@ int main(void) {
 	test_low_water_then_bigslip_bans();
 	test_low_water_defers_to_thermal();
 	test_low_water_hold_does_not_escalate();
+	test_low_water_then_sinks_under_schedutil();
+	test_sink_gate_run_clock();
 	test_scene_burst_resets_floor_memory();
 	test_hot_ceiling();
 	test_hot_caps_below_max();

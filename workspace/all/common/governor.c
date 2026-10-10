@@ -266,6 +266,16 @@ int gov_sink_fits(int cur_khz, int next_khz, int p95_pure_us, int budget_us) {
 	return predicted < (long long)budget_us * GOV_SINK_MARGIN_PCT / 100;
 }
 
+// The work was measured at run_khz, not at the ceiling: schedutil picks beneath the cap and sits at its own
+// equilibrium (frames ~80% busy at whatever clock it chose), so p95 near 13 ms at 408 MHz is normal there. Scaling
+// that by ceil/next (1416/1200) invented a slowdown a cap that never bound cannot cause, the gate read BUSY at every
+// rung above the floor, and a low-water climb to 1416 stayed for the session (ActRaiser, drain A/B 2026-10-09).
+int gov_sink_fits_at(int cur_khz, int next_khz, int run_khz, int p95_pure_us, int budget_us) {
+	if (run_khz <= 0 || run_khz > cur_khz) run_khz = cur_khz; // unknown, or a stale read above the cap: assume the cap
+	if (next_khz >= run_khz && next_khz < cur_khz) return 1; // the lower cap would not have bound in this window
+	return gov_sink_fits(run_khz, next_khz, p95_pure_us, budget_us);         // the cap would bind: scale from run
+}
+
 static int gov_disabled(void) {
 	// Safety hatch: GOV_DISABLE=1 leaves the static menu clock in charge.
 	static int disabled = -1;
