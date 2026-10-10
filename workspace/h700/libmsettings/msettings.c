@@ -7,6 +7,7 @@
 // tiny sysfs/mixer helpers.
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <alsa/asoundlib.h>
 
 #include "msettings.h"
@@ -118,7 +119,26 @@ static int vol_restore(void) { // -1 = no saved value
 // UI 3) to raw 16 (new UI 3). The old file is left alone, for a downgrade.
 #define BRIGHT_FILE    "/mnt/mmc/.userdata/h700/brightness2"
 #define BRIGHT_FILE_V1 "/mnt/mmc/.userdata/h700/brightness"
-static int cur_bright = -1; // 0-10 UI as last written by this process; -1 = not yet
+static int cur_bright = 0; // -7..10 UI as last written by this process (below 0 = night steps)
+static int have_bright = 0; // cur_bright is set (a night step is negative, so no -1 sentinel)
+// NIGHT STEPS (D69). On this panel neither the display engine's enhance_bright/contrast (TrimUI's way) nor a
+// backlight below raw 4 visibly changes anything (tried on the Plus, 2026-10-07). The display layer's global
+// alpha does: below 255 the DE blends the picture over its black background, with no CPU cost. Levels -1..-7
+// hold the backlight at level 0 and lower the alpha. platform.c owns the layer and re-commits its whole config
+// every frame, so it carries this value in that commit (GetNightAlpha); a separate ioctl would be undone by the
+// next frame. A night step is saved in its own file, so brightness2 (1..10) and older builds are untouched.
+#define NIGHT_FILE "/mnt/mmc/.userdata/h700/night"
+static const int night_alpha[7] = { 200, 160, 125, 95, 70, 50, 35 }; // -1..-7: a first guess, tuned by eye
+static int cur_alpha = 255;
+static int night_read(void) { // 1..7, or 0 = none
+	FILE* f = fopen(NIGHT_FILE, "r");
+	if (!f) return 0;
+	int n = 0;
+	if (fscanf(f, "%d", &n) != 1) n = 0;
+	fclose(f);
+	return n >= 1 && n <= 7 ? n : 0;
+}
+int GetNightAlpha(void) { return cur_alpha; } // 255 unless a night step is active
 static void bright_persist(int ui) {
 	FILE* f = fopen(BRIGHT_FILE, "w");
 	if (!f) return;
@@ -147,8 +167,9 @@ static int bright_restore(void) { // -1 = no saved value
 void InitSettings(void) {
 	// Saved brightness wins over the raw level muOS set at boot. cur_bright is primed first so this
 	// re-apply is not itself counted as a change and rewritten to the card at every process start.
-	int bright = bright_restore();
-	if (bright >= 0) { cur_bright = bright; SetBrightness(bright); }
+	int night = night_read();
+	int bright = night ? -night : bright_restore();
+	if (night || bright >= 0) { cur_bright = bright; have_bright = 1; SetBrightness(bright); }
 	vol_open();
 	// Saved level wins. Only when there is none do we adopt the codec's current level (first boot
 	// after a flash: the frontend's alsactl restore has set the baseline and nothing has opened a
@@ -169,12 +190,12 @@ void QuitSettings(void) {
 	if (vol_mixer) { snd_mixer_close(vol_mixer); vol_mixer = NULL; vol_elem = NULL; }
 }
 
-int GetBrightness(void) { // 0-10 UI
+int GetBrightness(void) { // -7..10 UI (below 0 = night steps)
 	// This process's own level first, once it has one (the saved level from InitSettings, or the last
 	// SetBrightness). muOS starts device/start.sh in the BACKGROUND (startup.sh:124), so its boot bright.sh
 	// write can land after InitSettings; a live read would then adopt muOS's level, and the next sleep/wake
 	// or MENU+volume step would save it over the user's. No level yet = read the panel itself, as before.
-	if (cur_bright >= 0) return cur_bright;
+	if (have_bright) return cur_bright;
 	int raw = -1;
 	dispdbg_cmd("getbl", NULL);
 	FILE* f = fopen(DISPDBG "info", "r");
@@ -205,16 +226,21 @@ void SetRawVolume(int value) { // 0-100 (SetVolume passes UI*5); MUTE_VOLUME_RAW
 	(void)snd_mixer_selem_set_playback_volume_all(vol_elem, raw);
 }
 
-void SetBrightness(int value) { // 0-10 UI
-	if (value < 0) value = 0;
+void SetBrightness(int value) { // -7..10 UI (below 0 = night steps)
+	if (value < -7) value = -7; // = BRIGHTNESS_MIN (platform.h)
 	if (value > 10) value = 10;
-	SetRawBrightness(bright_raw[value]);
+	SetRawBrightness(bright_raw[value < 0 ? 0 : value]);
+	cur_alpha = value < 0 ? night_alpha[-value - 1] : 255; // platform.c commits it with the next frame
 	// Persist only on a real change (a held MENU+volume ramp calls this repeatedly). Backlight-off paths
 	// use SetRawBrightness and never reach here, so a sleep never saves a dark level. Level 0 is never
 	// saved either: it is also the charging screen's dim (minui.c ChargingScreen), restored only on a clean
 	// exit, so a hard power cut there would bring it back on every boot. A user who picks 0 keeps it until
 	// the next boot, which restores their last level above 0.
-	if (value != cur_bright) { cur_bright = value; if (value) bright_persist(value); }
+	if (!have_bright || value != cur_bright) {
+		cur_bright = value; have_bright = 1;
+		if (value < 0) { FILE* f = fopen(NIGHT_FILE, "w"); if (f) { fprintf(f, "%d\n", -value); fclose(f); } }
+		else { unlink(NIGHT_FILE); if (value) bright_persist(value); }
+	}
 }
 void SetVolume(int value) { // 0-20 UI
 	if (value < 0) value = 0;

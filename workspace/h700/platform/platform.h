@@ -10,6 +10,10 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
+// Night steps: brightness -1..-7 sit below the backlight floor and dim the picture with the display layer's
+// alpha instead (libmsettings SetBrightness, platform.c disp_commit).
+#define BRIGHTNESS_MIN -7
+
 ///////////////////////////////
 
 #include "sdl.h"

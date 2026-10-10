@@ -46,6 +46,8 @@
 // Forward decl: zero_owns_os() is defined lower (with the governor code) but gates owned-OS-only
 // behaviour used earlier in the file (PLAT_isToppingUp, PLAT_powerOff).
 static int zero_owns_os(void);
+// Night steps: re-commit the shown page when the night alpha changed (defined with disp_commit).
+static void disp_night_refresh(void);
 // Debug HUD compositor: defined with the other HUD code lower down, called from PLAT_flip above it.
 static void dbg_compose(void);
 // Screen-effect selection. Declared here because PLAT_getScaler and PLAT_blitRenderer (above the
@@ -395,7 +397,7 @@ void PLAT_pollInput(void) {
 	int adj = pad.just_repeated & (BTN_PLUS | BTN_MINUS);
 	if (adj) {
 		int delta = (adj & BTN_PLUS) ? 1 : -1;
-		if (pad.is_pressed & BTN_MENU) SetBrightness(GetBrightness() + delta); // clamps 0-10
+		if (pad.is_pressed & BTN_MENU) { SetBrightness(GetBrightness() + delta); disp_night_refresh(); } // clamps -7..10
 		else SetVolume(GetVolume() + delta);                                   // clamps 0-20
 	}
 
@@ -647,8 +649,14 @@ static void disp_wait_latch(void) {
 	}
 }
 
+static int disp_shown = -1; // page of the last commit, -1 = none yet
 static int disp_commit(int page) {
 	vid.lraw.dwords[8] = (uint32_t)vid.ion_fds[page];
+	// NIGHT STEPS (D69): the layer's global alpha rides this commit. Every frame re-sends the whole config,
+	// so a separate DISP_LAYER_SET_CONFIG was reset to 255 by the next frame (Plus, 2026-10-07). Byte 2 of
+	// dword 1 is alpha_value (disp_pack). 255 unless a night step is active; no extra ioctl.
+	vid.lraw.dwords[1] = (vid.lraw.dwords[1] & 0xFF00FFFFu) | ((uint32_t)GetNightAlpha() << 16);
+	disp_shown = page;
 	// unsigned long args: the sunxi disp_ioctl copies FOUR LONGS from userspace. uint32_t
 	// worked for MyMinUI's 32-bit builds but truncated our 64-bit pointer (dmesg "para err").
 	unsigned long args[4];
@@ -662,6 +670,14 @@ static int disp_commit(int page) {
 	ioctl(vid.dispfd, DISP_SHADOW_PROTECT, &args);
 	disp_commit_irq = disp_irq_now();
 	return ret;
+}
+
+// A static screen (the menu, the charging screen) commits nothing until something redraws, so a brightness
+// step there re-commits the page already on screen with the new alpha. Cheap and only on a change.
+static void disp_night_refresh(void) {
+	if (!vid.use_disp || disp_shown < 0) return;
+	if (((vid.lraw.dwords[1] >> 16) & 0xFF) == (uint32_t)GetNightAlpha()) return;
+	disp_commit(disp_shown);
 }
 
 static void disp_layer_off(void) {
@@ -1328,13 +1344,14 @@ void PLAT_enableBacklight(int enable) {
 	// SetRawBrightness -> dispdbg setbl). Off = raw 0 (fully dark); on = restore the user's level.
 	// GetBrightness reads the panel LIVE, so it would read back 0 after we dim — cache the UI level
 	// across the off/on pair. Used by the sleep path (faux-sleep dim + deep-sleep resume).
-	static int saved_ui = -1;
+	static int saved_ui = 0, have_saved = 0; // no -1 sentinel: a night step is negative
 	if (enable) {
-		if (saved_ui >= 0) { SetBrightness(saved_ui); saved_ui = -1; }
+		if (have_saved) { SetBrightness(saved_ui); have_saved = 0; }
 		else SetBrightness(GetBrightness());
+		disp_night_refresh();
 	}
 	else {
-		if (saved_ui < 0) saved_ui = GetBrightness();
+		if (!have_saved) { saved_ui = GetBrightness(); have_saved = 1; }
 		SetRawBrightness(0);
 	}
 }
