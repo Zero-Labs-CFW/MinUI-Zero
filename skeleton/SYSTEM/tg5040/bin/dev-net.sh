@@ -10,6 +10,13 @@ SD=/mnt/SDCARD
 SHARED="$SD/.userdata/shared"
 LOG="$SHARED/ssh-ip.txt"
 
+# Keep the log bounded. Every boot appends ~12 lines and nothing trimmed it, and wifi.txt alone turns this script on,
+# so any WiFi card grew it forever (6618 lines, 296 KB on a Brick Pro after 579 boots, 2026-10-11). Past 400 lines,
+# keep the newest 200 (~16 boots). Staged then swapped, so a failed write never empties it.
+if [ -f "$LOG" ] && [ "$(wc -l < "$LOG")" -gt 400 ]; then
+  tail -n 200 "$LOG" > "$LOG.tmp" 2>/dev/null && mv -f "$LOG.tmp" "$LOG" || rm -f "$LOG.tmp"
+fi
+
 {
   echo "=== dev-net $(date 2>/dev/null) ==="
 

@@ -162,6 +162,12 @@ fi
 # next boot separates the three cases instead of costing another evening: line present + "devmode
 # ssh" present = the block ran; line present, no "devmode ssh" = a gate was false and it names
 # which; NEITHER line = the launcher that ran is not the file on the card.
+# Bounded like tg5040's ssh-ip.txt (2026-10-11): every devmode boot appends here and nothing trimmed it.
+_sb="$LOGS_PATH/ssh-boot.txt"
+if devmode && [ -f "$_sb" ] && [ "$(wc -l < "$_sb")" -gt 400 ]; then
+	tail -n 200 "$_sb" > "$_sb.tmp" 2>/dev/null && mv -f "$_sb.tmp" "$_sb" || rm -f "$_sb.tmp"
+fi
+unset _sb
 devmode && echo "reached ssh gate $(date 2>/dev/null) devmode=y wifi=$([ -f "$SDCARD_PATH/wifi.txt" ] && echo y || echo n)" >> "$LOGS_PATH/ssh-boot.txt"
 if devmode && [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	SSH_DIR="$USERDATA_PATH/SSH"
