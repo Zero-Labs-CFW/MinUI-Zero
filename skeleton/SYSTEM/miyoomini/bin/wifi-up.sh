@@ -14,6 +14,12 @@ _w=$(sed '/^#/d;/^[[:space:]]*$/d' "$SD/wifi.txt" | head -1)
 _ssid=${_w%%:*}; _psk=${_w#*:}
 [ -n "$_ssid" ] && [ "$_ssid" != "$_w" ] || exit 0
 mkdir -p "$LOGS"
+# Bounded like tg5040's ssh-ip.txt (2026-10-11): every WiFi boot and every Settings turn-on appends here, on any
+# user card with wifi.txt, and nothing trimmed it. Past 400 lines, keep the newest 200.
+WL="$LOGS/wifi.txt.log"
+if [ -f "$WL" ] && [ "$(wc -l < "$WL")" -gt 400 ]; then
+	tail -n 200 "$WL" > "$WL.tmp" 2>/dev/null && mv -f "$WL.tmp" "$WL" || rm -f "$WL.tmp"
+fi
 {
 echo "== wifi.txt bring-up $(date 2>/dev/null)"
 # stock config: wpa_supplicant.conf lives in the console's internal /appconfigs

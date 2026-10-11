@@ -38,6 +38,10 @@ SSH_DIR="$USERDATA_PATH/SSH"
 HK="$SSH_DIR/dropbear_ed25519_host_key"
 LOG="$LOGS_PATH/ssh-pak.txt"
 mkdir -p "$SSH_DIR" "$LOGS_PATH" 2>/dev/null
+# Bounded like tg5040's ssh-ip.txt (2026-10-11): every open of this tool appends here and nothing trimmed it.
+if [ -f "$LOG" ] && [ "$(wc -l < "$LOG")" -gt 400 ]; then
+	tail -n 200 "$LOG" > "$LOG.tmp" 2>/dev/null && mv -f "$LOG.tmp" "$LOG" || rm -f "$LOG.tmp"
+fi
 
 # KEY AUTH ON A READ-ONLY ROOTFS. dropbear reads authorized_keys from the account's home
 # (/home/root per /etc/passwd), but /home is a read-only squashfs and /home/root does not even
