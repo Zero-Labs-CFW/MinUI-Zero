@@ -75,20 +75,20 @@ void getDisplayName(const char* in_name, char* out_name) {
     while(tmp>out_name && isspace((unsigned char)*tmp)) tmp--;
     tmp[1] = '\0';
 }
-void getEmuName(const char* in_name, char* out_name) { // NOTE: both char arrays need to be MAX_PATH length!
+void getEmuName(const char* in_name, char* out_name) { // NOTE: out_name needs MAX_PATH length!
 	char* tmp;
-	strcpy(out_name, in_name);
+	snprintf(out_name, MAX_PATH, "%s", in_name); // (bounded: callers passed char[256] for MAX_PATH paths)
 	tmp = out_name;
 	
 	// printf("--------\n  in_name: %s\n",in_name); fflush(stdout);
 	
 	// extract just the Roms folder name if necessary
-	if (prefixMatch(ROMS_PATH, tmp)) {
+	if (prefixMatch(ROMS_PATH, tmp) && tmp[strlen(ROMS_PATH)]=='/') { // (ROMS_PATH itself stepped past the terminator)
 		tmp += strlen(ROMS_PATH) + 1;
 		char* tmp2 = strchr(tmp, '/');
 		if (tmp2) tmp2[0] = '\0';
 		// printf("    tmp1: %s\n", tmp);
-		strcpy(out_name, tmp);
+		memmove(out_name, tmp, strlen(tmp)+1); // (overlapping, so not strcpy)
 		tmp = out_name;
 	}
 
@@ -97,25 +97,25 @@ void getEmuName(const char* in_name, char* out_name) { // NOTE: both char arrays
 	if (tmp) {
 		tmp += 1;
 		// printf("    tmp2: %s\n", tmp);
-		strcpy(out_name, tmp);
+		memmove(out_name, tmp, strlen(tmp)+1);
 		tmp = strchr(out_name,')');
-		tmp[0] = '\0';
+		if (tmp) tmp[0] = '\0'; // ("Game Boy (GB" has no closing paren)
 	}
 	
 	// printf(" out_name: %s\n", out_name); fflush(stdout);
 }
-void getEmuPath(char* emu_name, char* pak_path) {
-	sprintf(pak_path, "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM, emu_name);
+void getEmuPath(char* emu_name, char* pak_path) { // NOTE: pak_path needs MAX_PATH length!
+	snprintf(pak_path, MAX_PATH, "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM, emu_name);
 	if (exists(pak_path)) return;
 #ifdef PLATFORM_ALIAS
 	// Community paks are published under the platform folder name the wider scene uses, which is
 	// not always ours (h700 == "rg35xxplus" to NextUI/MinUI pak authors). Honour that name too so
 	// third-party paks install drop-in — the compat rail for "lean core, opt-in features from the
 	// community that exists today" (Dan 2026-08-10). Our own name wins when both exist.
-	sprintf(pak_path, "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM_ALIAS, emu_name);
+	snprintf(pak_path, MAX_PATH, "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM_ALIAS, emu_name);
 	if (exists(pak_path)) return;
 #endif
-	sprintf(pak_path, "%s/Emus/%s.pak/launch.sh", PAKS_PATH, emu_name);
+	snprintf(pak_path, MAX_PATH, "%s/Emus/%s.pak/launch.sh", PAKS_PATH, emu_name);
 }
 
 void normalizeNewline(char* line) {

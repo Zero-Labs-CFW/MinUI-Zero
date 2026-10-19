@@ -4698,11 +4698,11 @@ static struct {
 	SDL_Surface* overlay;
 	char* items[MENU_ITEM_COUNT];
 	char* disc_paths[9]; // up to 9 paths, Arc the Lad Collection is 7 discs
-	char minui_dir[256];
-	char slot_path[256];
-	char base_path[256];
-	char bmp_path[256];
-	char txt_path[256];
+	char minui_dir[MAX_PATH]; // (these were 256: a long game path overran them)
+	char slot_path[MAX_PATH];
+	char base_path[MAX_PATH];
+	char bmp_path[MAX_PATH];
+	char txt_path[MAX_PATH];
 	char txn_path[MAX_PATH+8];
 	int disc;
 	int total_discs;
@@ -4730,18 +4730,18 @@ void Menu_init(void) {
 	SDLX_SetAlpha(menu.overlay, SDL_SRCALPHA, 0x80);
 	SDL_FillRect(menu.overlay, NULL, 0);
 	
-	char emu_name[256];
+	char emu_name[MAX_PATH];
 	getEmuName(game.path, emu_name);
-	sprintf(menu.minui_dir, SHARED_USERDATA_PATH "/.minui/%s", emu_name);
+	snprintf(menu.minui_dir, sizeof(menu.minui_dir), SHARED_USERDATA_PATH "/.minui/%s", emu_name);
 	mkdir(menu.minui_dir, 0755);
 
-	sprintf(menu.slot_path, "%s/%s.txt", menu.minui_dir, game.name);
+	snprintf(menu.slot_path, sizeof(menu.slot_path), "%s/%s.txt", menu.minui_dir, game.name);
 	
 	if (simple_mode) menu.items[ITEM_OPTS] = "Reset";
 	
 	if (game.m3u_path[0]) {
 		char* tmp;
-		strcpy(menu.base_path, game.m3u_path);
+		snprintf(menu.base_path, sizeof(menu.base_path), "%s", game.m3u_path);
 		tmp = strrchr(menu.base_path, '/') + 1;
 		tmp[0] = '\0';
 		
@@ -4754,10 +4754,8 @@ void Menu_init(void) {
 				trimTrailingNewlines(line);
 				if (strlen(line)==0) continue; // skip empty lines
 		
-				char disc_path[256];
-				strcpy(disc_path, menu.base_path);
-				tmp = disc_path + strlen(disc_path);
-				strcpy(tmp, line);
+				char disc_path[MAX_PATH];
+				if (snprintf(disc_path, sizeof(disc_path), "%s%s", menu.base_path, line) >= (int)sizeof(disc_path)) continue;
 				
 				// found a valid disc path
 				if (exists(disc_path)) {
@@ -5856,8 +5854,8 @@ static void Menu_updateState(void) {
 
 	state_slot = last_slot;
 
-	sprintf(menu.bmp_path, "%s/%s.%d.bmp", menu.minui_dir, game.name, menu.slot);
-	sprintf(menu.txt_path, "%s/%s.%d.txt", menu.minui_dir, game.name, menu.slot);
+	snprintf(menu.bmp_path, sizeof(menu.bmp_path), "%s/%s.%d.bmp", menu.minui_dir, game.name, menu.slot);
+	snprintf(menu.txt_path, sizeof(menu.txt_path), "%s/%s.%d.txt", menu.minui_dir, game.name, menu.slot);
 	snprintf(menu.txn_path, sizeof(menu.txn_path), "%s.txn", save_path);
 	
 	menu.save_exists = exists(save_path) && !exists(menu.txn_path);
@@ -5993,12 +5991,12 @@ static int Menu_loadState(void) {
 static char* getAlias(char* path, char* alias) {
 	// LOG_info("alias path: %s\n", path);
 	char* tmp;
-	char map_path[256];
-	strcpy(map_path, path);
+	char map_path[MAX_PATH];
+	snprintf(map_path, sizeof(map_path), "%s", path);
 	tmp = strrchr(map_path, '/');
 	if (tmp) {
 		tmp += 1;
-		strcpy(tmp, "map.txt");
+		snprintf(tmp, sizeof(map_path) - (tmp - map_path), "map.txt");
 		// LOG_info("map_path: %s\n", map_path);
 	}
 	char* file_name = strrchr(path,'/');

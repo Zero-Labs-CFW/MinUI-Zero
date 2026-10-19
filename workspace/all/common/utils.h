@@ -10,8 +10,8 @@ int containsString(char* haystack, char* needle);
 int hide(char* file_name);
 
 void getDisplayName(const char* in_name, char* out_name); // out_name needs 256 bytes
-void getEmuName(const char* in_name, char* out_name);
-void getEmuPath(char* emu_name, char* pak_path);
+void getEmuName(const char* in_name, char* out_name); // out_name needs MAX_PATH bytes
+void getEmuPath(char* emu_name, char* pak_path); // pak_path needs MAX_PATH bytes
 
 void normalizeNewline(char* line);
 void trimTrailingNewlines(char* line);
