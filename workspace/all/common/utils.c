@@ -36,9 +36,10 @@ int hide(char* file_name) {
 
 void getDisplayName(const char* in_name, char* out_name) {
 	char* tmp;
-	char work_name[256];
-	strcpy(work_name, in_name);
-	strcpy(out_name, in_name);
+	// in_name is a full path (up to MAX_PATH); out_name is 256 at every caller. Both used to be strcpy'd whole into
+	// 256-byte buffers, so a deep path with long names overran the stack (upstream has the same code)
+	char work_name[MAX_PATH];
+	snprintf(work_name, sizeof(work_name), "%s", in_name);
 	
 	if (suffixMatch("/" PLATFORM, work_name)) { // hide platform from Tools path...
 		tmp = strrchr(work_name, '/');
@@ -47,7 +48,7 @@ void getDisplayName(const char* in_name, char* out_name) {
 	
 	// extract just the filename if necessary
 	tmp = strrchr(work_name, '/');
-	if (tmp) strcpy(out_name, tmp+1);
+	snprintf(out_name, 256, "%s", tmp ? tmp+1 : work_name);
 	
 	// remove extension(s), eg. .p8.png
 	while ((tmp = strrchr(out_name, '.'))!=NULL) {

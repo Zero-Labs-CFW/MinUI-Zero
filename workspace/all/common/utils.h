@@ -9,7 +9,7 @@ int exactMatch(char* str1, char* str2);
 int containsString(char* haystack, char* needle);
 int hide(char* file_name);
 
-void getDisplayName(const char* in_name, char* out_name);
+void getDisplayName(const char* in_name, char* out_name); // out_name needs 256 bytes
 void getEmuName(const char* in_name, char* out_name);
 void getEmuPath(char* emu_name, char* pak_path);
 
