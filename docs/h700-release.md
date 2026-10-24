@@ -112,5 +112,5 @@ partition in use).
   Documented above, not automated.
 - **The assets live in `.notes/` (gitignored).** A clean checkout on another machine cannot build an
   image without copying them across.
-- **Deep sleep is off** (`PLAT_supportsDeepSleep()` returns 0). The choreography exists at
-  `skeleton/SYSTEM/h700/bin/suspend`; the gate is on-device validation of the faux-sleep wake path.
+- **Deep sleep is on only when Zero owns the OS** (`PLAT_supportsDeepSleep()` returns `zero_owns_os()`): the
+  choreography is `skeleton/SYSTEM/h700/bin/suspend`, validated on the Plus 2026-08-13. As a muOS guest it stays off.
