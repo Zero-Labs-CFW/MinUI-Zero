@@ -22,6 +22,15 @@ zero_rotate_prev_log() {
 	[ -f "$LOGS_PATH/$_rpl_tag.txt" ] && mv -f "$LOGS_PATH/$_rpl_tag.txt" "$LOGS_PATH/$_rpl_tag.prev.txt"
 	return 0
 }
+# The launch loop's /tmp/next line: its first word, read without running anything. Evaluating the line to split it
+# ran every command of a compound line twice (2026-10-17). minui.c writes 'pak' 'rom', quotes escaped as '\''.
+zero_rotate_prev_log_cmd() {
+	case "$1" in \'*"/launch.sh'"*) ;; *) return 0 ;; esac
+	_rpl_p=${1#\'}
+	_rpl_p=${_rpl_p%%"/launch.sh'"*}/launch.sh
+	case "$_rpl_p" in *"' '"*) return 0 ;; esac # past the first word
+	zero_rotate_prev_log "$(printf '%s' "$_rpl_p" | sed "s/'\\\\''/'/g")"
+}
 export SHARED_USERDATA_PATH=/mnt/mmc/.userdata/shared
 export SAVES_PATH=/mnt/mmc/Saves
 export BIOS_PATH=/mnt/mmc/Bios
@@ -448,7 +457,14 @@ power_off() {
 # Boot receipt, DEV CARDS ONLY (devmode): kernel seconds when the first launch starts, one ~40-byte line
 # per boot, the regression canary behind the README boot table (same line as MinUI.pak/launch.sh). Taken
 # before boot-to-game so a resumed game's play time never lands in it. Costs users nothing.
-devmode && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$LOGS_PATH/boot-time.txt"
+# Nothing trimmed it: past 400 lines, keep the newest 200.
+if devmode; then
+	BT="$LOGS_PATH/boot-time.txt"
+	echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$BT"
+	if [ "$(wc -l < "$BT")" -gt 400 ]; then
+		tail -n 200 "$BT" > "$BT.tmp" 2>/dev/null && mv -f "$BT.tmp" "$BT" || rm -f "$BT.tmp"
+	fi
+fi
 
 # BOOT STRAIGHT INTO THE GAME. MinUI already quicksaves on power-off and resumes on the next boot,
 # but the resume goes through the launcher: it starts, reads the marker, writes /tmp/next and exits,
@@ -511,7 +527,7 @@ while : ; do
 		CMD=$(cat /tmp/next)
 		echo "launch: $CMD" >> "$LOG"
 		apply_volume   # a mute left behind by the menu process must not follow us into the game
-		eval "zero_rotate_prev_log $CMD"
+		zero_rotate_prev_log_cmd "$CMD"
 		sh -c "$CMD"
 		echo "game exited rc=$?" >> "$LOG"
 		apply_volume   # ...nor back into the menu if the game was killed while muted

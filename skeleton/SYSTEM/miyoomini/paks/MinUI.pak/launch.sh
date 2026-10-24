@@ -111,6 +111,15 @@ zero_rotate_prev_log() {
 	[ -f "$LOGS_PATH/$_rpl_tag.txt" ] && mv -f "$LOGS_PATH/$_rpl_tag.txt" "$LOGS_PATH/$_rpl_tag.prev.txt"
 	return 0
 }
+# The launch loop's /tmp/next line: its first word, read without running anything. Evaluating the line to split it
+# ran every command of a compound line twice (2026-10-17). minui.c writes 'pak' 'rom', quotes escaped as '\''.
+zero_rotate_prev_log_cmd() {
+	case "$1" in \'*"/launch.sh'"*) ;; *) return 0 ;; esac
+	_rpl_p=${1#\'}
+	_rpl_p=${_rpl_p%%"/launch.sh'"*}/launch.sh
+	case "$_rpl_p" in *"' '"*) return 0 ;; esac # past the first word
+	zero_rotate_prev_log "$(printf '%s' "$_rpl_p" | sed "s/'\\\\''/'/g")"
+}
 export DATETIME_PATH="$SHARED_USERDATA_PATH/datetime.txt" # used by bin/shutdown
 
 mkdir -p "$USERDATA_PATH"
@@ -131,7 +140,14 @@ bt "launch.sh start"
 # Boot receipt, DEV CARDS ONLY (devmode.txt at the card root): kernel seconds at menu launch,
 # one ~40-byte line per boot. Measured the fleet for the README table (2026-08-31); stays as a
 # regression canary on dev cards and costs users nothing.
-devmode && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$LOGS_PATH/boot-time.txt"
+# Nothing trimmed it: past 400 lines, keep the newest 200.
+if devmode; then
+	BT="$LOGS_PATH/boot-time.txt"
+	echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$BT"
+	if [ "$(wc -l < "$BT")" -gt 400 ]; then
+		tail -n 200 "$BT" > "$BT.tmp" 2>/dev/null && mv -f "$BT.tmp" "$BT" || rm -f "$BT.tmp"
+	fi
+fi
 
 # WIFI OPT-IN — the same one visible wifi.txt at the card root as TrimUI and Anbernic.
 # PORTED 2026-08-31 after learning the hard way: the MMP's wifi previously came from an ad-hoc
@@ -567,7 +583,7 @@ while [ -f "$EXEC_PATH" ]; do
 		# The game needs its OWN ownership mode: in daemon mode minarch is only an OSS client and
 		# must NOT disable the codec on exit/crash (PLAT_resetAudio honours this).
 		export AUDIO_DAEMON MINARCH_PRELOAD
-		eval "zero_rotate_prev_log $CMD" # previous game log (function above)
+		zero_rotate_prev_log_cmd "$CMD" # previous game log (functions above)
 		eval $CMD
 		unset SDL_AUDIODRIVER MINARCH_PRELOAD
 		rm -f $NEXT_PATH

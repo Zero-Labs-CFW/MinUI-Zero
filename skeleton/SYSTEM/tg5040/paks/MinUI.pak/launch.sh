@@ -28,6 +28,15 @@ zero_rotate_prev_log() {
 	[ -f "$LOGS_PATH/$_rpl_tag.txt" ] && mv -f "$LOGS_PATH/$_rpl_tag.txt" "$LOGS_PATH/$_rpl_tag.prev.txt"
 	return 0
 }
+# The launch loop's /tmp/next line: its first word, read without running anything. Evaluating the line to split it
+# ran every command of a compound line twice (2026-10-17). minui.c writes 'pak' 'rom', quotes escaped as '\''.
+zero_rotate_prev_log_cmd() {
+	case "$1" in \'*"/launch.sh'"*) ;; *) return 0 ;; esac
+	_rpl_p=${1#\'}
+	_rpl_p=${_rpl_p%%"/launch.sh'"*}/launch.sh
+	case "$_rpl_p" in *"' '"*) return 0 ;; esac # past the first word
+	zero_rotate_prev_log "$(printf '%s' "$_rpl_p" | sed "s/'\\\\''/'/g")"
+}
 export DATETIME_PATH="$SHARED_USERDATA_PATH/datetime.txt"
 
 # RTC sanity (the Onion/stock-MinUI trick, restore half): a fully dead battery resets the
@@ -477,7 +486,14 @@ grep -q 'styled like Deep Sleep.pak' "$SDCARD_PATH/Tools/tg5040/WiFi.pak/launch.
 # Boot receipt, DEV CARDS ONLY (devmode.txt at the card root): kernel seconds at menu launch,
 # one ~40-byte line per boot. Measured the fleet for the README table (2026-08-31); stays as a
 # regression canary on dev cards and costs users nothing.
-devmode && echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$LOGS_PATH/boot-time.txt"
+# Nothing trimmed it: past 400 lines, keep the newest 200.
+if devmode; then
+	BT="$LOGS_PATH/boot-time.txt"
+	echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$BT"
+	if [ "$(wc -l < "$BT")" -gt 400 ]; then
+		tail -n 200 "$BT" > "$BT.tmp" 2>/dev/null && mv -f "$BT.tmp" "$BT" || rm -f "$BT.tmp"
+	fi
+fi
 EXEC_PATH="/tmp/minui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH" # tmpfs; a sync here would flush every filesystem for a file that never touches disk
@@ -554,7 +570,7 @@ while [ -f $EXEC_PATH ]; do
 				rfkill block wifi 2>/dev/null
 			fi ;;
 		esac
-		eval "zero_rotate_prev_log $CMD" # previous game log (function above)
+		zero_rotate_prev_log_cmd "$CMD" # previous game log (functions above)
 		eval $CMD
 		unset ZERO_AUDIO_DEVICE ZERO_AUDIO_SAMPLES ZERO_AUDIO_RT ZERO_AUDIO_TARGET_MS ZERO_AUDIO_WARM_MS ZERO_AUDIO_PREFILL_MS
 		if [ "$GAME_WIFI_OFF" = 1 ]; then
