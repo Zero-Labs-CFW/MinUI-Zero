@@ -6,7 +6,7 @@ MinUI Zero keeps what makes [MinUI](https://github.com/shauninman/MinUI) great (
 
 **Full speed. Zero tinkering.**
 
-Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**, **Anbernic RG35XX Plus / H**, and the **Miyoo Mini family**.
+Runs on the **TrimUI Brick**, **Brick Pro**, **Smart Pro**, **Anbernic H700 handhelds** (RG35XX, RG40XX, RG34XX, RG CubeXX, RG28XX and RG SP families), and the **Miyoo Mini family**.
 
 <p>
   <img src="docs/img/brickpro-menu.png" width="275" alt="Main menu" />
@@ -57,17 +57,17 @@ We don't build or tune these cores ourselves, but Zero's governor still runs the
 
 ## Download and install
 
-[The latest release](https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/latest) carries four files. A card serves its whole family, and no card crosses families.
+[The latest release](https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/latest) carries a TrimUI zip, a Miyoo zip and one image per Anbernic board. A card serves its whole family, and no card crosses families.
 
 | Device | Download | Install |
 |---|---|---|
 | TrimUI Brick / Brick Pro / Smart Pro | `MinUI-Zero-trimui-*.zip` | copy onto the card |
 | Miyoo Mini / Plus / Flip | `MinUI-Zero-miyoo-*.zip` | copy onto the card |
-| Anbernic RG35XX Plus / H | the matching `.img.xz` | flash the card |
+| Anbernic RG35XX Plus / 2024 / H / Pro / SP, RG40XX H / V, RG34XX / SP, RG SP, RG CubeXX, RG28XX | the `.img.xz` named for your board (the 2024 uses the Plus image) | flash the card |
 
 **TrimUI and Miyoo** ride along with the stock firmware, nothing is erased: unzip onto a blank FAT32 card, or drop `MinUI.zip` on the card root to update.
 
-**Anbernic** *is* the operating system: flash the `.img.xz` for your exact device with Raspberry Pi Imager, balenaEtcher, or `dd`. Flashing erases the card, and the Plus and H images are not interchangeable.
+**Anbernic** *is* the operating system: flash the `.img.xz` for your exact device with Raspberry Pi Imager, balenaEtcher, or `dd`. Flashing erases the card, and the images are not interchangeable between boards.
 
 ## Settings
 
@@ -127,7 +127,7 @@ Tools > Device Sync copies saves between two handhelds over a hotspot one of the
 ## Devices
 
 * **TrimUI (Brick, Brick Pro, Smart Pro)**: the primary platform, where Zero is tuned and measured.
-* **Anbernic RG35XX Plus / H**: Zero *is* the OS, so it boots straight to the launcher and idles with nothing else running. Newer and less proven: updates are a reflash, and six of fifteen systems are launch-tested.
+* **Anbernic H700 boards**: Zero *is* the OS, so it boots straight to the launcher and idles with nothing else running. Newer and less proven: updates are a reflash, and six of fifteen systems are launch-tested. The RG35XX Plus and H are verified on hardware; every other board is untested. Deep sleep is on for the Plus and H only, and the RG40XX H/V sticks and lights don't work yet.
 * **Miyoo Mini family**: same launcher and governor, cores rebuilt for ARMv7. The Plus is verified; the Mini and Flip are untested on hardware. The tuning gains don't transfer here (the CPU is a small share of this SoC's power), and deep sleep is impossible (the vendor kernel has no suspend).
 
 ## Disclaimer
