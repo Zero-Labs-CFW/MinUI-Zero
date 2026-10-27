@@ -806,6 +806,16 @@ SDL_Surface* PLAT_resizeVideo(int w, int h, int p) {
 	// derives its row pitch from it. Ignoring this was the shear-and-repeat glitch: minarch wrote
 	// 480-wide rows into a 640-wide surface. Recreate the surface at the requested size; the flip
 	// centers it on the panel.
+	// The DE path copies the whole surface into a fixed ION page (DISP_MAX_W x DISP_MAX_H), so a
+	// surface that does not fit is clamped in height here, like miyoomini does for its MMA page:
+	// minarch honours a shorter surface (the "platform clamped dst_h" path). This used to log
+	// "refusing" and then create and copy the oversized surface anyway, writing past the page. The
+	// 640x480 panels stay well inside it; the 2x-area scaler cap on a 720x720 panel does not.
+	if (vid.use_disp && p > 0 && (size_t)p * h > vid.ion_bytes) {
+		int fit = (int)(vid.ion_bytes / (size_t)p);
+		LOG_info("resizeVideo %dx%d exceeds ION page - clamping height to %d\n", w, h, fit);
+		h = fit;
+	}
 	if (w == vid.width && h == vid.height && p == vid.pitch) return vid.screen;
 	LOG_info("resizeVideo(%d,%d,%d)\n", w, h, p);
 	if (vid.screen) SDL_FreeSurface(vid.screen);
@@ -813,10 +823,8 @@ SDL_Surface* PLAT_resizeVideo(int w, int h, int p) {
 	vid.width = w; vid.height = h; vid.pitch = vid.screen->pitch;
 	if (vid.use_disp) {
 		// Accept any render surface that fits the ION buffer; the DE scaler downscales it to the
-		// panel (screen_win). Refuse only if it would overflow the buffer (should never happen).
-		if ((size_t)w * h * 2 > vid.ion_bytes)
-			LOG_info("resizeVideo %dx%d exceeds ION buffer - refusing\n", w, h);
-		else {
+		// panel (screen_win). The clamp above guarantees it fits.
+		{
 			// Reconfigure the shadow geometry ONLY — do NOT clear the ION pages. The old memsets
 			// blanked BOTH pages including the one the panel was scanning at that instant, so
 			// every menu open/close (game<->UI resize) flashed black + popped geometry mid-scan
