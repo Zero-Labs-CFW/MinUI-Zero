@@ -49,7 +49,7 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 
 **More systems:** Zero runs standard MinUI emulator paks, so you can add systems it doesn't ship. NextUI's [extras zip](https://github.com/LoveRetro/NextUI/releases/latest) has about 20 more (Atari, Lynx, Neo Geo Pocket, ColecoVision, MSX, Commodore and others).
 
-1. From the zip's `Emus/tg5040/`, copy only the paks for systems Zero doesn't already have into `Emus/tg5040/` on your card. Skip GG, MGBA, P8, PCE, SGB, SMS, SUPA and VB: they would replace Zero's tuned versions.
+1. Copy the zip's `Emus/tg5040/` folder onto your card. Zero keeps its own tuned versions of the systems it already ships, so only the new ones are added.
 2. Make a Roms folder whose name ends in the pak's tag, e.g. `Roms/Atari 2600 (A2600)/`. Some systems need a BIOS in `Bios/<TAG>/`.
 3. Exit a game or reboot, and the new system appears.
 
