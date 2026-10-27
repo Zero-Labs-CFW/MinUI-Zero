@@ -55,6 +55,8 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 
 We don't build or tune these cores ourselves, but Zero's governor still runs them at the lowest clock that holds full speed.
 
+The community has more, which we haven't tried on Zero yet: [Pakman](https://github.com/josegonzalez/pakman) (N64, NDS, Dreamcast and others, built for MinUI on the Brick) and [PakUI](https://github.com/tenlevels/PakUI) (a large set including Intellivision, which leans on PakUI's own tools).
+
 ## Download and install
 
 [The latest release](https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/latest) carries four files. A card serves its whole family, and no card crosses families.
