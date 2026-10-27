@@ -58,6 +58,34 @@ static int effect_type = EFFECT_NONE;
 
 ///////////////////////////////
 
+// BOARD GEOMETRY (platform.h). Runs before main in every process that links this file (launcher, minarch,
+// tools), so FIXED_WIDTH/HEIGHT are settled before anything sizes a surface. DEVICE is exported by
+// minui-frontend.sh from muOS's board/name with any "rg35xx-" prefix removed. ZERO_H700_GEOMETRY overrides it
+// for testing one board's layout on another (e.g. "720x720" or "640x480r270" on the Plus; the DE scaler
+// fits any size to the panel, so the result is visible, just letterboxed or sideways).
+int h700_fixed_w = 640, h700_fixed_h = 480, h700_row_count = 6, h700_padding = 10;
+int h700_rotate = 0; // 0, or 90 / 270: degrees clockwise the frame turns on its way to a portrait panel
+static void h700_rot_copy(const uint16_t* src, int spitch, int W, int H, int cx, int cy, int cw, int ch,
+                          void* dst, int dpitch, int bpp);
+__attribute__((constructor)) static void h700_geometry_init(void) {
+	const char* d = getenv("DEVICE");
+	const char* g = getenv("ZERO_H700_GEOMETRY");
+	if (!d) d = "plus";
+	if (strstr(d, "cube")) { h700_fixed_w = 720; h700_fixed_h = 720; h700_row_count = 8; h700_padding = 40; }
+	else if (strstr(d, "34xx") || !strcmp(d, "rgsp") || !strcmp(d, "rg-sp")) h700_fixed_w = 720;
+	else if (strstr(d, "28xx")) h700_rotate = 270; // panel portrait 480x640 (rg28xx.md); direction unmeasured on our chain
+	if (g && g[0]) {
+		int w = 0, h = 0, r = 0;
+		if (sscanf(g, "%dx%dr%d", &w, &h, &r) >= 2 && w >= 320 && h >= 240 && w <= 1024 && h <= 768) {
+			h700_fixed_w = w; h700_fixed_h = h;
+			h700_row_count = h >= 720 ? 8 : 6; h700_padding = h >= 720 ? 40 : 10;
+			h700_rotate = (r == 90 || r == 270) ? r : 0;
+		}
+	}
+	const char* rot = getenv("ZERO_H700_ROTATE"); // flip the 28XX direction without a rebuild if 270 is wrong
+	if (rot && h700_rotate) h700_rotate = atoi(rot) == 90 ? 90 : 270;
+}
+
 // RAW EVDEV INPUT. muOS's SDL2 delivered zero keyboard events to us (live-tested: every button
 // dead), so this platform reads the hardware nodes directly and overrides the weak PLAT_pollInput
 // in api.c. Minimal evdev ABI declared by hand — <linux/input.h> defines BTN_* macros that collide
@@ -553,9 +581,17 @@ static void disp_shape_rect(int cx, int cy, int cw, int ch) {
 	vid.lcfg.info.alpha_value = 255;
 	// minarch already padded this surface for the requested game aspect. Fit the
 	// canonical UI canvas, not the intermediate surface's pixel ratio a second time.
-	disp_screen_win(FIXED_WIDTH, FIXED_HEIGHT, &vid.lcfg.info.screen_win);
-	vid.lcfg.info.fb.size[0].width = vid.width;
-	vid.lcfg.info.fb.size[0].height = vid.height;
+	// ROTATED (RG28XX): the ION page holds the frame turned onto the portrait panel, vid.height wide and
+	// vid.width tall (h700_rot_copy), so the buffer, crop and window are all in that turned space.
+	if (h700_rotate) {
+		disp_screen_win(FIXED_HEIGHT, FIXED_WIDTH, &vid.lcfg.info.screen_win);
+		int rx = h700_rotate == 90 ? vid.height - cy - ch : cy;
+		int ry = h700_rotate == 90 ? cx : vid.width - cx - cw;
+		cx = rx; cy = ry; int t = cw; cw = ch; ch = t;
+	}
+	else disp_screen_win(FIXED_WIDTH, FIXED_HEIGHT, &vid.lcfg.info.screen_win);
+	vid.lcfg.info.fb.size[0].width = h700_rotate ? vid.height : vid.width;
+	vid.lcfg.info.fb.size[0].height = h700_rotate ? vid.width : vid.height;
 	vid.lcfg.info.fb.format = DISP_FORMAT_RGB_565;
 	vid.lcfg.info.fb.color_space = DISP_BT601;
 	vid.lcfg.info.fb.crop.x = (int64_t)cx << 32;
@@ -754,6 +790,14 @@ static void fb_blit565(int page) {
 	int src_stride = vid.screen->pitch / 2;
 	uint32_t* dst = (uint32_t*)(vid.fbmmap + (size_t)page * vid.page_bytes);
 	int dst_stride = vid.finfo.line_length / 4;
+	// RG28XX: the surface turns onto the portrait panel (h700_rot_copy), centered like the unrotated case
+	if (h700_rotate && vid.vinfo.bits_per_pixel == 32 &&
+	    vid.screen->h <= (int)vid.vinfo.xres && vid.screen->w <= (int)vid.vinfo.yres) {
+		int ox = ((int)vid.vinfo.xres - vid.screen->h) / 2, oy = ((int)vid.vinfo.yres - vid.screen->w) / 2;
+		h700_rot_copy(src, src_stride, vid.screen->w, vid.screen->h, 0, 0, vid.screen->w, vid.screen->h,
+		              dst + (size_t)oy * dst_stride + ox, vid.finfo.line_length, 4);
+		return;
+	}
 	int w = vid.vinfo.xres < (unsigned)vid.screen->w ? vid.vinfo.xres : vid.screen->w;
 	int h = vid.vinfo.yres < (unsigned)vid.screen->h ? vid.vinfo.yres : vid.screen->h;
 	// center a smaller-than-panel surface (scaled game); borders were cleared at resize
@@ -968,6 +1012,26 @@ void PLAT_blitRenderer(GFX_Renderer* renderer) {
 		renderer->dst_w, renderer->dst_h, renderer->dst_p);
 }
 
+// Copy the (cx,cy,cw,ch) rect of the W x H render surface into a page laid out rotated: H wide, W tall.
+// 270 = clockwise 270 (source (x,y) -> (y, W-1-x)); 90 = (x,y) -> (H-1-y, x). Destination rows are
+// written front to back, the sequential shape the write-combined ION mapping needs; the strided reads
+// come from the cached SDL surface. Generic over the pixel writer so the fbdev path can widen to XRGB.
+static void h700_rot_copy(const uint16_t* src, int spitch, int W, int H, int cx, int cy, int cw, int ch,
+                          void* dst, int dpitch, int bpp) {
+	for (int i = 0; i < cw; i++) {
+		int sx = h700_rotate == 90 ? cx + i : cx + cw - 1 - i;            // source column feeding this dest row
+		int dy = h700_rotate == 90 ? cx + i : W - 1 - (cx + cw - 1 - i);  // its dest row
+		uint8_t* drow = (uint8_t*)dst + (size_t)dy * dpitch;
+		for (int j = 0; j < ch; j++) {
+			int sy = h700_rotate == 90 ? cy + ch - 1 - j : cy + j;
+			int dx = h700_rotate == 90 ? H - 1 - sy : sy;
+			uint16_t px = src[(size_t)sy * spitch + sx];
+			if (bpp == 2) ((uint16_t*)drow)[dx] = px;
+			else ((uint32_t*)drow)[dx] = 0xFF000000u | ((px & 0xF800) << 8) | ((px & 0x07E0) << 5) | ((px & 0x001F) << 3);
+		}
+	}
+}
+
 void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	int fullframe = vid.blit != NULL; // renderer path = the game redraws its whole rect every frame
 	// MENU CLOSED (UI frame -> game frame). Every page currently holds full-surface menu chrome,
@@ -1027,12 +1091,17 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 				vid.scrub_pages--;
 				memset(vid.ionmmap[vid.page], 0, (size_t)vid.height * vid.width * FIXED_BPP);
 			}
-			uint8_t* srcp = (uint8_t*)vid.screen->pixels + cy * vid.screen->pitch + cx * FIXED_BPP;
-			int rowbytes = vid.width * FIXED_BPP;
-			uint8_t* dstp = (uint8_t*)vid.ionmmap[vid.page] + cy * rowbytes + cx * FIXED_BPP;
-			int copybytes = cw * FIXED_BPP;
-			for (int y = 0; y < ch; y++)
-				memcpy(dstp + y * rowbytes, srcp + y * vid.screen->pitch, copybytes);
+			if (h700_rotate)
+				h700_rot_copy((uint16_t*)vid.screen->pixels, vid.screen->pitch / 2, vid.width, vid.height,
+				              cx, cy, cw, ch, vid.ionmmap[vid.page], vid.height * FIXED_BPP, FIXED_BPP);
+			else {
+				uint8_t* srcp = (uint8_t*)vid.screen->pixels + cy * vid.screen->pitch + cx * FIXED_BPP;
+				int rowbytes = vid.width * FIXED_BPP;
+				uint8_t* dstp = (uint8_t*)vid.ionmmap[vid.page] + cy * rowbytes + cx * FIXED_BPP;
+				int copybytes = cw * FIXED_BPP;
+				for (int y = 0; y < ch; y++)
+					memcpy(dstp + y * rowbytes, srcp + y * vid.screen->pitch, copybytes);
+			}
 		}
 		// UI needs no reshape: the window is fixed full-surface (see PLAT_blitRenderer).
 		disp_commit(vid.page);

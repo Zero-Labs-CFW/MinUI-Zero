@@ -144,9 +144,14 @@ extern int h700_has_l3, h700_has_r3;
 
 // @2x UI assets, matching the miyoomini — the SAME 640x480 panel geometry. At 1 the whole
 // launcher rendered half-size ("the resolution is off, everything is tiny", Dan 2026-08-05).
+// SCREEN SIZE IS PER BOARD, read at process start (h700_geometry_init, platform.c), as upstream MinUI's
+// rg35xxplus platform did for the same family: 640x480 (Plus, H, Pro, SP, 40XX, 2024), 720x480 (RG34XX,
+// RG34XX SP, RG SP), 720x720 (RG CubeXX). The RG28XX panel is physically portrait; it runs as 640x480 and
+// the present rotates the frame (h700_rotate). Nothing uses these in #if or array sizes, so runtime is safe.
+extern int h700_fixed_w, h700_fixed_h, h700_row_count, h700_padding;
 #define FIXED_SCALE		2
-#define FIXED_WIDTH		640
-#define FIXED_HEIGHT	480
+#define FIXED_WIDTH		h700_fixed_w
+#define FIXED_HEIGHT	h700_fixed_h
 #define FIXED_BPP		2
 #define FIXED_DEPTH		(FIXED_BPP * 8)
 #define FIXED_PITCH		(FIXED_WIDTH * FIXED_BPP)
@@ -168,8 +173,8 @@ extern int h700_has_l3, h700_has_r3;
 // smaller, which is what it should look like here (Dan, on-device 2026-08-14).
 #define DBG_OVERLAY_SCALE 2
 
-#define MAIN_ROW_COUNT 6
-#define PADDING 10
+#define MAIN_ROW_COUNT h700_row_count // 6, or 8 on the 720x720 Cube (upstream's values)
+#define PADDING h700_padding            // 10, or 40 on the Cube
 
 ///////////////////////////////
 
