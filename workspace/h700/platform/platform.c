@@ -1465,6 +1465,14 @@ int PLAT_supportsDeepSleep(void) {
 	//
 	// Opt-out is the shared one the tg5040 already uses (DEEP_SLEEP_OFF_PATH, honored in
 	// PWR_waitForWake), so the Deep Sleep tool works here identically.
+	//
+	// Boards: only where suspend and wake were proven on hardware, the Plus (validated above; the
+	// RG35XX 2024 runs the Plus image and reports "plus") and the H (2026-09-25 checklist). On any
+	// other board a suspend that does not come back looks like a dead device after two minutes
+	// idle, so they keep the light sleep until a tester proves theirs. The frontend always exports
+	// DEVICE (default "plus").
+	const char* d = getenv("DEVICE");
+	if (!d || (strcmp(d, "plus") && strcmp(d, "h"))) return 0;
 	return zero_owns_os(); // owned OS only: never suspend the host while running as a muOS guest
 }
 
