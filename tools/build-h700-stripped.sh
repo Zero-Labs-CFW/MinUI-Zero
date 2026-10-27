@@ -217,11 +217,29 @@ else
 echo "== extracting + stripping muOS rootfs (this takes a few minutes) =="
 cp "$REPO/tools/h700-strip/minui-frontend.sh" "$ASSETS/minui-frontend.sh"
 cp "$REPO/tools/h700-strip/expand-roms.sh" "$ASSETS/expand-roms.sh"
-# First-boot "Installing MinUI Zero..." frame for expand-roms.sh (raw fb page, panel-sized). Best
-# effort: no PIL on the host means no splash, never a failed build.
+# First-boot "Installing MinUI Zero..." frame for expand-roms.sh (raw fb page, panel-sized).
 rm -f "$ASSETS/installing.raw"
-python3 "$REPO/tools/h700-strip/make-splash.py" "$REPO/workspace/tg5040/install/installing.png" "$ASSETS/installing.raw" 640 480 \
-	|| echo "WARN: installing splash not rendered (python3 PIL missing); first boot shows the boot logo only"
+# The panel's fb page per board (the same families as h700_geometry_init in platform.c): 720x480 RG34XX/RG SP,
+# 720x720 Cube, and the RG28XX's portrait 480x640 with the art turned the way frames are.
+case "$DEVICE" in
+	*cube*) SPLASH_GEOM="720 720" ;;
+	*34xx*|rgsp|rg-sp) SPLASH_GEOM="720 480" ;;
+	*28xx*) SPLASH_GEOM="480 640 270" ;;
+	*) SPLASH_GEOM="640 480" ;;
+esac
+# PIL lives in whichever Homebrew python has it: python3 moved to 3.15 without it on 2026-10-27 and every build
+# that day silently shipped no splash (v1.9.1 had one). A release must have it; a dev build only warns.
+PY_PIL=""
+for _py in python3 python3.14 python3.13 python3.12; do
+	command -v "$_py" >/dev/null 2>&1 && "$_py" -c "import PIL" 2>/dev/null && { PY_PIL="$_py"; break; }
+done
+if [ -n "$PY_PIL" ]; then
+	"$PY_PIL" "$REPO/tools/h700-strip/make-splash.py" "$REPO/workspace/tg5040/install/installing.png" "$ASSETS/installing.raw" $SPLASH_GEOM
+elif [ "$MODE" = release ]; then
+	echo "ERROR: no python with PIL for the first-boot splash (pip install pillow)"; exit 1
+else
+	echo "WARN: installing splash not rendered (no python with PIL); first boot shows the boot logo only"
+fi
 docker run --rm --platform linux/amd64 -v "$ASSETS:/a" -e P5_KB=$((P5_SECTORS / 2)) -e DEVICE="$DEVICE" -e MODE="$MODE" tg5040-toolchain /bin/bash -c '
 set -e
 R=/work/root
