@@ -54,3 +54,6 @@ FAKESD
 workspace/core
 workspace/core2
 workspace/h700/tools/layerclean
+
+# personal agent notes (device IPs, workflow), never committed
+CLAUDE.local.md
