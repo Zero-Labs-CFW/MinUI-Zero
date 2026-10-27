@@ -47,15 +47,13 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 
 **Also aboard, dormant:** Game Boy, mGBA, Super Game Boy, Game Gear, Master System, TurboGrafx-16, Virtual Boy, PICO-8. Create the matching Roms folder (e.g. "Virtual Boy (VB)") and the system appears, tuned core already installed.
 
-**More systems:** Zero runs standard MinUI emulator paks, so you can add systems it doesn't ship. The "extras" zips from [NextUI](https://github.com/LoveRetro/NextUI/releases/latest) (about 20 more systems: Atari, Lynx, Neo Geo Pocket, ColecoVision, MSX, Commodore and others) and [MinUI](https://github.com/shauninman/MinUI/releases/latest) both work.
+**More systems:** Zero runs standard MinUI emulator paks, so you can add systems it doesn't ship. NextUI's [extras zip](https://github.com/LoveRetro/NextUI/releases/latest) has about 20 more (Atari, Lynx, Neo Geo Pocket, ColecoVision, MSX, Commodore and others).
 
 1. From the zip's `Emus/tg5040/`, copy only the paks for systems Zero doesn't already have into `Emus/tg5040/` on your card. Skip GG, MGBA, P8, PCE, SGB, SMS, SUPA and VB: they would replace Zero's tuned versions.
 2. Make a Roms folder whose name ends in the pak's tag, e.g. `Roms/Atari 2600 (A2600)/`. Some systems need a BIOS in `Bios/<TAG>/`.
 3. Exit a game or reboot, and the new system appears.
 
 We don't build or tune these cores ourselves, but Zero's governor still runs them at the lowest clock that holds full speed.
-
-The community has more, which we haven't tried on Zero yet: [Pakman](https://github.com/josegonzalez/pakman) (N64, NDS, Dreamcast and others, built for MinUI on the Brick) and [PakUI](https://github.com/tenlevels/PakUI) (a large set including Intellivision, which leans on PakUI's own tools).
 
 ## Download and install
 
