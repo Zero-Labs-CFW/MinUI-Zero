@@ -74,13 +74,14 @@ struct raw_input_event { // struct input_event, aarch64 layout
 	uint16_t code;
 	int32_t  value;  // 1=down, 0=up, 2=autorepeat
 };
-#define EVDEV_COUNT 3
-static int ev_fds[EVDEV_COUNT] = { -1, -1, -1 };
-static const char* ev_paths[EVDEV_COUNT] = {
-	"/dev/input/event0", // axp2202-pek: power button
-	"/dev/input/event1", // muOS-Keys (gpio-keys-polled)
-	"/dev/input/event2", // dierct-keys-polled (sic)
-};
+// Nodes are found by what they report, not by number: on the Plus event0 is axp2202-pek (POWER), event1
+// muOS-Keys (the pad) and event2 dierct-keys-polled (sic), but other boards' kernels may number them
+// differently or add nodes. evdev_scan (PLAT_initInput) keeps every eventN that advertises a key we map
+// or the d-pad hat, and skips the rest (jack switches, sensors).
+#define EVDEV_SCAN 16
+#define EVDEV_COUNT 8
+static int ev_fds[EVDEV_COUNT] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+static char ev_paths[EVDEV_COUNT][24];
 
 // Stick axis layout, detected from the axes the kernel advertises (see ev_stick). Default = the layout
 // measured 2026-08-14 (left X/Y on ABS_Z/ABS_RX); stick_axis_init switches to the muOS layout.
@@ -108,6 +109,34 @@ static void stick_click_init(void) {
 	if (h700_has_l3 || h700_has_r3) LOG_info("input: stick clicks L3=%d R3=%d\n", h700_has_l3, h700_has_r3);
 }
 
+// Keep a node if it advertises POWER, a volume key or a pad button (KEY 114-116, 304-316, the codes
+// ev_translate maps) or the d-pad hat (ABS_HAT0X). EVIOCGNAME is logged so each board's log names its nodes.
+static void evdev_scan(void) {
+	int n = 0;
+	for (int i = 0; i < EVDEV_SCAN && n < EVDEV_COUNT; i++) {
+		char path[24];
+		snprintf(path, sizeof(path), "/dev/input/event%d", i);
+		int fd = open(path, O_RDONLY | O_NONBLOCK);
+		if (fd < 0) continue;
+		unsigned char keys[96]; // KEY_MAX 0x2ff + 1 bits
+		unsigned long abs = 0;
+		memset(keys, 0, sizeof(keys));
+		ioctl(fd, _IOC(_IOC_READ, 'E', 0x20 + 1, sizeof(keys)), keys); // EVIOCGBIT(EV_KEY)
+		ioctl(fd, _IOC(_IOC_READ, 'E', 0x20 + 3, sizeof(abs)), &abs);   // EVIOCGBIT(EV_ABS)
+		int want = (abs & (1UL << 16)) != 0;
+		for (int c = 114; c <= 116 && !want; c++) want = keys[c / 8] & (1 << (c % 8));
+		for (int c = 304; c <= 316 && !want; c++) want = keys[c / 8] & (1 << (c % 8));
+		char name[64] = "";
+		ioctl(fd, _IOC(_IOC_READ, 'E', 0x06, sizeof(name) - 1), name); // EVIOCGNAME
+		LOG_info("evdev: %s \"%s\" %s\n", path, name, want ? "-> used" : "skipped");
+		if (!want) { close(fd); continue; }
+		ev_fds[n] = fd;
+		snprintf(ev_paths[n], sizeof(ev_paths[n]), "%s", path);
+		n++;
+	}
+	if (!n) LOG_info("evdev: no input node reports a mapped key, input is dead\n");
+}
+
 #define POWER_GRACE_MARK "/tmp/zero_power_grace" // the first input process of this boot has started
 static int power_grace = 0; // this process is that first one: its first 3 s ignore POWER (PLAT_pollInput)
 
@@ -128,10 +157,7 @@ void PLAT_initInput(void) {
 	LOG_info("input: sdl joystick %s (+%llums)\n",
 		(want_js && want_js[0] && want_js[0] != '0') ? "opened" : "skipped",
 		(unsigned long long)((getMicroseconds() - t0) / 1000));
-	for (int i = 0; i < EVDEV_COUNT; i++) {
-		ev_fds[i] = open(ev_paths[i], O_RDONLY | O_NONBLOCK);
-		LOG_info("evdev: %s -> fd %d\n", ev_paths[i], ev_fds[i]);
-	}
+	evdev_scan();
 	stick_axis_init();
 	stick_click_init();
 	// POWER boot grace is for the FIRST input process of a boot only (see PLAT_pollInput). /tmp is tmpfs, so
