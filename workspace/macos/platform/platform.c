@@ -221,6 +221,14 @@ void PLAT_blitRenderer(GFX_Renderer* renderer) {
 void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	
 	if (!vid.blit) {
+		// ZERO_MACOS_SHOT=<file.bmp>: save the Nth UI frame (ZERO_MACOS_SHOT_FRAME, default 10) and exit,
+		// so layouts at other -DFIXED_WIDTH/HEIGHT sizes can be checked without a window session
+		static int shot_frames = 0;
+		const char* shot = getenv("ZERO_MACOS_SHOT");
+		if (shot && ++shot_frames >= (getenv("ZERO_MACOS_SHOT_FRAME") ? atoi(getenv("ZERO_MACOS_SHOT_FRAME")) : 10)) {
+			SDL_SaveBMP(vid.screen, shot);
+			exit(0);
+		}
 		resizeVideo(device_width,device_height,FIXED_PITCH); // !!!???
 		SDL_UpdateTexture(vid.texture,NULL,vid.screen->pixels,vid.screen->pitch);
 		if (rotate) {

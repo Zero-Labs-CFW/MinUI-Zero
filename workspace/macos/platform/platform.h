@@ -103,9 +103,15 @@
 
 ///////////////////////////////
 
+// -DFIXED_WIDTH=720 -DFIXED_HEIGHT=720 (and MAIN_ROW_COUNT / PADDING) previews another panel's layout,
+// e.g. the H700 Cube or RG34XX, without the hardware
 #define FIXED_SCALE 	2
+#ifndef FIXED_WIDTH
 #define FIXED_WIDTH		640
+#endif
+#ifndef FIXED_HEIGHT
 #define FIXED_HEIGHT	480
+#endif
 #define FIXED_BPP		2
 #define FIXED_DEPTH		(FIXED_BPP * 8)
 #define FIXED_PITCH		(FIXED_WIDTH * FIXED_BPP)
@@ -119,12 +125,18 @@
 
 ///////////////////////////////
 
+#ifndef MAIN_ROW_COUNT
 #define MAIN_ROW_COUNT 6
+#endif
+#ifndef PADDING
 #define PADDING 10
+#endif
 
 ///////////////////////////////
 
+#ifndef SDCARD_PATH
 #define SDCARD_PATH "/Users/shauninman/Projects/Personal/MinUI/workspace/macos/FAKESD"
+#endif
 #define MUTE_VOLUME_RAW 63 // 0 unintuitively is 100% volume
 
 ///////////////////////////////
