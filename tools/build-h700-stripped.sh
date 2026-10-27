@@ -113,6 +113,18 @@ PYEOF
 		echo "ERROR: $DEVICE needs an LPDDR3-primary boot0 at $ASSETS/parts-$DEVICE/boot0.img"
 		echo "       (copy parts-rg35xx-pro/boot0.img, the muOS 2601.1 RG35XX-PRO boot0; the fallback is the Plus LPDDR4 one)"
 		exit 1
+	else
+		# No override: the Plus boot0 stays. Allowed ONLY where Anbernic's own stock boot0 is byte-identical to
+		# the Plus's (Knulli's dumps, .notes/2026-09-25-h700-boards/one-image-research.md: rg28xx, rg35xx-h, -plus,
+		# -sp, rg40xx-h/v share one; the 2024 runs the Plus chain). The RG34XX, RG34XX SP, RG CubeXX and any board
+		# not yet checked (RG SP) carry their own DRAM parameters, so a missing file is an error, not a fallback.
+		case "$DEVICE" in
+			rg35xx-h|rg35xx-2024|rg35xx-sp|rg28xx-h) ;;
+			*)
+				echo "ERROR: $DEVICE has no boot0 at $ASSETS/parts-$DEVICE/boot0.img, and its DRAM parameters are not"
+				echo "       known to match the Plus's. Add that board's own boot0 (from its stock or muOS image)."
+				exit 1 ;;
+		esac
 	fi
 	# FAIL CLOSED on the kernel: every board names its kernel explicitly in parts-<device>/, never via the
 	# silent part() fallback. RG35XX H and Pro: their OWN muOS kernel + ramdisk + boot_package, all from ONE
