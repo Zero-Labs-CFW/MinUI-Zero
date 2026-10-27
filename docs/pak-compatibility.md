@@ -33,7 +33,8 @@ system installs under its own tag (e.g. `SUPA2.pak` with a `(SUPA2)` Roms folder
 | Anbernic RG35XX Plus/H (+ H700 family) | `h700` | `rg35xxplus` | **yes** (`PLATFORM_ALIAS`) |
 
 NextUI's H700 port (pvaibhav/NextUI, branch `h700`) also publishes under `h700`, so its paks land in our
-`Emus/h700` and `Tools/h700` folders and are found first. That does not make them compatible: see gap 5.
+`Emus/h700` and `Tools/h700` folders. For a tag Zero ships, Zero's pak still wins; for any other tag
+`Emus/h700` is searched before `Emus/rg35xxplus`. That does not make them compatible: see gap 5.
 
 A new port declares `#define PLATFORM_ALIAS "<scene name>"` in its `platform.h` **only when the
 scene publishes under a different name**; internal identifiers are never renamed for branding
