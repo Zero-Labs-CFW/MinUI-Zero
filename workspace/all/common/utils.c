@@ -105,6 +105,11 @@ void getEmuName(const char* in_name, char* out_name) { // NOTE: out_name needs M
 	// printf(" out_name: %s\n", out_name); fflush(stdout);
 }
 void getEmuPath(char* emu_name, char* pak_path) { // NOTE: pak_path needs MAX_PATH length!
+	// Shipped paks win: copying a whole community Emus folder (NextUI's extras carry SUPA, GG, PCE...)
+	// must add systems, not silently swap our tuned cores and governor brackets for untuned ones.
+	// Upstream MinUI lets the card override; a different core for a shipped system goes under its own tag.
+	snprintf(pak_path, MAX_PATH, "%s/Emus/%s.pak/launch.sh", PAKS_PATH, emu_name);
+	if (exists(pak_path)) return;
 	snprintf(pak_path, MAX_PATH, "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM, emu_name);
 	if (exists(pak_path)) return;
 #ifdef PLATFORM_ALIAS

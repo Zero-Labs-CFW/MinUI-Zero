@@ -15,9 +15,14 @@ parenthesised tag on the rom's parent folder (`Roms/Game Boy Color (GBC)/` → `
 Resolution order (`getEmuPath`, `workspace/all/common/utils.c`; `hasEmu` + Tools scan,
 `workspace/all/minui/minui.c`):
 
-1. `<card>/Emus/<PLATFORM>/<TAG>.pak/launch.sh` — our platform name
-2. `<card>/Emus/<PLATFORM_ALIAS>/<TAG>.pak/launch.sh` — the scene's name, when they differ
-3. `<card>/.system/<PLATFORM>/paks/Emus/<TAG>.pak/launch.sh` — shipped paks
+1. `<card>/.system/<PLATFORM>/paks/Emus/<TAG>.pak/launch.sh` — shipped paks
+2. `<card>/Emus/<PLATFORM>/<TAG>.pak/launch.sh` — our platform name
+3. `<card>/Emus/<PLATFORM_ALIAS>/<TAG>.pak/launch.sh` — the scene's name, when they differ
+
+Shipped paks win (upstream MinUI lets the card override them). Community packs such as NextUI's
+extras carry their own SUPA, GG, PCE and so on; copying such a folder whole must add systems, not
+swap a tuned core and its governor bracket for an untuned one. A different core for a shipped
+system installs under its own tag (e.g. `SUPA2.pak` with a `(SUPA2)` Roms folder).
 
 ### Platform folder names
 
