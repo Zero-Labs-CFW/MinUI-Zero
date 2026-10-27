@@ -126,11 +126,12 @@ PYEOF
 		exit 1
 	else
 		# No override: the Plus boot0 stays. Allowed ONLY where Anbernic's own stock boot0 is byte-identical to
-		# the Plus's (Knulli's dumps, .notes/2026-09-25-h700-boards/one-image-research.md: rg28xx, rg35xx-h, -plus,
-		# -sp, rg40xx-h/v share one; the 2024 runs the Plus chain). The RG34XX, RG34XX SP, RG CubeXX and any board
-		# not yet checked (RG SP) carry their own DRAM parameters, so a missing file is an error, not a fallback.
+		# the Plus's (Knulli's dumps, .notes/2026-09-25-h700-boards/one-image-research.md: rg35xx-h, -plus, -sp
+		# share one; the 2024 runs the Plus chain). The RG28XX is NOT on this list: the boot0 Knulli actually
+		# writes there is a different code build (the "identical" match came from files Knulli never uses,
+		# 2026-10-27), so it ships its own like the RG34XX, RG34XX SP, RG SP and RG CubeXX.
 		case "$DEVICE" in
-			rg35xx-h|rg35xx-2024|rg35xx-sp|rg28xx-h) ;;
+			rg35xx-h|rg35xx-2024|rg35xx-sp) ;;
 			*)
 				echo "ERROR: $DEVICE has no boot0 at $ASSETS/parts-$DEVICE/boot0.img, and its DRAM parameters are not"
 				echo "       known to match the Plus's. Add that board's own boot0 (from its stock or muOS image)."
@@ -141,10 +142,12 @@ PYEOF
 	# silent part() fallback. RG35XX H and Pro: their OWN muOS kernel + ramdisk + boot_package, all from ONE
 	# muOS commit (3f2fa25); the H boots our rootfs with both sticks working (H-verified 2026-09-25). The old
 	# own-kernel hang (2026-09-23) was a mixed pairing (April a502a1d package + August edited kernel),
-	# never pair across commits. Every OTHER board still uses the Plus kernel (copy parts/p4-kernel.img.gz
-	# in), which drives every panel (all use fog_fj035fhd05_v1) but lacks the per-board extras: sticks
-	# (Pro, 40XX), the SP lid (hallkey), 40XX LED power (mcu_pwr), 40XX rumble (pwm3); platform.c and the
-	# frontend reproduce the last three. A board moves to its own kernel only after a device test.
+	# never pair across commits. The RG34XX, RG34XX SP, RG SP, RG CubeXX and RG28XX take their own kernels from
+	# that same commit too (2026-10-27, .notes/2026-10-27-h700-release/assets-new/SOURCES.md): the three 720x480
+	# panel drivers exist only in those kernels, and the Cube's sticks need its own. The SP and 40XX still use
+	# the Plus kernel (copy parts/p4-kernel.img.gz in), which drives their fog_fj035fhd05_v1 panels but lacks
+	# the per-board extras: 40XX sticks, the SP lid (hallkey), 40XX LED power (mcu_pwr), 40XX rumble (pwm3);
+	# platform.c and the frontend reproduce the last three.
 	[ -f "$ASSETS/parts-$DEVICE/p4-kernel.img.gz" ] || {
 		echo "ERROR: $DEVICE needs its own kernel at $ASSETS/parts-$DEVICE/p4-kernel.img.gz"
 		echo "       (extract p4 from that board muOS image; the fallback would ship the Plus kernel)"
@@ -771,8 +774,8 @@ rm -f "$IMG"
 # cut, 2026-09-28). No fallback to the unpatched part: a chain that skipped the patches must not ship.
 [ -n "$BUILT_RAW" ] && [ -f "$BUILT_RAW" ] || { echo "ERROR: no patched boot chain for $DEVICE (bootchain.py did not run)"; exit 1; }
 cp "$BUILT_RAW" "$IMG"
-# PER-DEVICE PARTS: parts-<device>/<file> overrides the shared part. Every board currently carries the
-# PLUS kernel as its p4 (see the fail-closed kernel note above for why, and what it costs).
+# PER-DEVICE PARTS: parts-<device>/<file> overrides the shared part. Which boards carry their own kernel and
+# which the Plus one is in the fail-closed kernel note above; assets.sha256 pins each.
 part() { if [ -f "$ASSETS/parts-$DEVICE/$1" ]; then echo "$ASSETS/parts-$DEVICE/$1"; else echo "$ASSETS/parts/$1"; fi; }
 # `gunzip -c X | dd ...` reports DD exit status, and /bin/sh has no pipefail, so a truncated or
 # corrupt part produced a short write, a zero exit, and a fully assembled image that cannot boot.

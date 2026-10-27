@@ -93,6 +93,9 @@ export SDL_VIDEODRIVER=dummy
 case "$DEVICE" in
 	sp)               export MINARCH_PANEL_FPS=60.004 ;;
 	rg40xx-h|rg40xx-v) export MINARCH_PANEL_FPS=59.981 ;;
+	rg34xx-h|rg34xx-sp|rgsp) export MINARCH_PANEL_FPS=60.0037 ;;  # 54 MHz / (1679 x 536), not measured
+	rgcubexx-h)       export MINARCH_PANEL_FPS=59.9775 ;;  # 48 MHz / (1060 x 755), not measured
+	rg28xx-h)         export MINARCH_PANEL_FPS=59.9940 ;;  # 24 MHz / (584 x 685), not measured
 	*)                export MINARCH_PANEL_FPS=59.9777 ;;   # plus, h, pro (same timings)
 esac
 # Occupancy servo (DRC on ring fill, as RetroArch/NextUI do): required on every platform since the

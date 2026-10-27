@@ -1493,8 +1493,11 @@ static int lid_open_chardev(void) {
 	return -1;
 }
 void PLAT_initLid(void) {
+	// RG35XX SP, RG34XX SP and RG SP: all three trees put the hall sensor on PE7. Only the 35XX SP is known to
+	// read open = 1; a board that reads it the other way is caught by bin/suspend's escape hatch (POWER 3
+	// times with the lid reading shut turns the lid off until reboot).
 	const char* d = getenv("DEVICE");
-	if (!d || strcmp(d, "sp")) return;
+	if (!d || (strcmp(d, "sp") && strcmp(d, "rg34xx-sp") && strcmp(d, "rgsp"))) return;
 	if (exists(LID_OFF)) { LOG_info("lid: off until reboot (turned off earlier this boot)\n"); return; }
 	if (!exists(LID_GPIO)) {
 		putInt("/sys/class/gpio/export", 135);
@@ -1706,6 +1709,11 @@ char* PLAT_getModel(void) {
 		if (!strcmp(d, "sp"))       return "Anbernic RG35XX SP";
 		if (!strcmp(d, "rg40xx-h")) return "Anbernic RG40XX H";
 		if (!strcmp(d, "rg40xx-v")) return "Anbernic RG40XX V";
+		if (!strcmp(d, "rg34xx-h")) return "Anbernic RG34XX";
+		if (!strcmp(d, "rg34xx-sp")) return "Anbernic RG34XX SP";
+		if (!strcmp(d, "rgsp"))     return "Anbernic RG SP";
+		if (!strcmp(d, "rgcubexx-h")) return "Anbernic RG CubeXX";
+		if (!strcmp(d, "rg28xx-h")) return "Anbernic RG28XX";
 	}
 	return "Anbernic RG35XX";
 }
