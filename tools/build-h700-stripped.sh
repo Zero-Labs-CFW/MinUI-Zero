@@ -11,7 +11,8 @@
 # CLEAN-CLONE INPUTS (gitignored, under .notes/2026-08-05-h700-image/ of the checkout being built; the
 # v1.8.0 release clone lacked them one at a time, 2026-09-22): muos-p5.img (8 GB muOS dump, a REAL file or a
 # hard link, never a symlink out of the docker mount), parts/ (p2-p4 + raw-36mb chain), parts-<device>/ and
-# device-<device>/ overlays. A release build also needs H700_VERSION=vX.Y.Z until the tag exists.
+# device-<device>/ overlays, each pinned by hash in tools/h700-image/assets.sha256 (check-assets.py). A release
+# build also needs H700_VERSION=vX.Y.Z until the tag exists.
 # Pipeline (all offline, no device): debugfs rdump the muOS rootfs -> strip the bloat list ->
 # swap FRONTEND->minui in startup.sh + drop our launcher -> mke2fs -d a lean p5 -> assemble with
 # the verbatim boot chain + our FAT ROMS payload.
@@ -65,6 +66,16 @@ DEVICE="${H700_DEVICE:-rg35xx-plus}"
 DEVICE_DIR="$ASSETS/device-$DEVICE"
 RAW36="$ASSETS/parts/raw-36mb.img.gz"          # the Plus chain, our proven baseline
 BUILT_RAW=""                                    # the chain bootchain.py patched for this board (every board has one)
+# PINNED INPUTS: every gitignored file this board's image is built from must match tools/h700-image/assets.sha256,
+# so a clone with a missing or stale part fails here instead of building a plausible image for the wrong hardware
+# (2026-10-27: the main checkout still held the August RG35XX H kernel and boot package, the mixed pairing that hung).
+# H700_UNPINNED=1 skips it for bring-up of a board not yet pinned, dev builds only.
+if [ "${H700_UNPINNED:-0}" = 1 ]; then
+	[ "$MODE" = dev ] || { echo "ERROR: H700_UNPINNED is for dev builds only"; exit 1; }
+	echo "WARN: H700_UNPINNED=1, building $DEVICE from unchecked inputs"
+else
+	python3 "$REPO/tools/h700-image/check-assets.py" "$ASSETS" "$DEVICE" ${H700_P5:+--no-rootfs} || exit 1
+fi
 if [ "$DEVICE" = "rg35xx-plus" ]; then
 	# The Plus keeps the donor chain's own boot package ("-"), but still goes through bootchain.py so its device
 	# tree gets the same patches as every other board: the POWER-hold hardware cut (poll-interval is already 5 ms).

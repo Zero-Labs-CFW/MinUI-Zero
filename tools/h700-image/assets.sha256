@@ -1,0 +1,46 @@
+# Pinned H700 image inputs, checked by check-assets.py at the start of every build-h700-stripped.sh run.
+# Source: the v1.9.0 release clone's asset folder (2026-10-27). board  path-under-ASSETS  sha256
+# A 'device-<board>/' entry is one hash over that whole overlay tree.
+rg35xx-plus muos-p5.img 4bc228f1e2313bc9a68e499919074ea21d9ec9665ba18be355c01c810147b270
+rg35xx-plus parts/raw-36mb.img.gz d163ec7cb96d1961f7cda6eb0c8c71b2e749167cc917cb0d2ecd52a5b25be44b
+rg35xx-plus parts/p2-boot.img.gz 595ef2d7fc041fb603ed1232c2df9ed8070363ca1a3d05f6f18aa4cc730f28e3
+rg35xx-plus parts/p3-env.img.gz 9a389ce538677a147963d30f41e764c5fc54b85687c5ddf6c69dc7c982197763
+rg35xx-plus parts/p4-kernel.img.gz b3988d7d3bfdc5eea1d18db472ccfa395705800f1adda62ae61f96ec2d4a6a0e
+rg35xx-h muos-p5.img 4bc228f1e2313bc9a68e499919074ea21d9ec9665ba18be355c01c810147b270
+rg35xx-h parts/raw-36mb.img.gz d163ec7cb96d1961f7cda6eb0c8c71b2e749167cc917cb0d2ecd52a5b25be44b
+rg35xx-h parts/p2-boot.img.gz 595ef2d7fc041fb603ed1232c2df9ed8070363ca1a3d05f6f18aa4cc730f28e3
+rg35xx-h parts/p3-env.img.gz 9a389ce538677a147963d30f41e764c5fc54b85687c5ddf6c69dc7c982197763
+rg35xx-h parts-rg35xx-h/p4-kernel.img.gz d52dc0936392a5d359bab84a65cce962c89e1a60f36510170cea7a130390445f
+rg35xx-h device-rg35xx-h/package/boot_package.fex ed3466417f14c9f4f43f3f7b1c540c91455a2b793a0277edfeea033d31f4fb8a
+rg35xx-h device-rg35xx-h/ b42837455d850a437785ba2066478a306420a983661907e0b51af151a98dddbb
+rg35xx-pro muos-p5.img 4bc228f1e2313bc9a68e499919074ea21d9ec9665ba18be355c01c810147b270
+rg35xx-pro parts/raw-36mb.img.gz d163ec7cb96d1961f7cda6eb0c8c71b2e749167cc917cb0d2ecd52a5b25be44b
+rg35xx-pro parts/p2-boot.img.gz 595ef2d7fc041fb603ed1232c2df9ed8070363ca1a3d05f6f18aa4cc730f28e3
+rg35xx-pro parts/p3-env.img.gz 9a389ce538677a147963d30f41e764c5fc54b85687c5ddf6c69dc7c982197763
+rg35xx-pro parts-rg35xx-pro/p4-kernel.img.gz 8612a48fdf1d60c22940f795e33f40b1ba62588a1b4b0fca1b208e4479318643
+rg35xx-pro device-rg35xx-pro/package/boot_package.fex d6fb7a174928cd1134130282c907599f6892feda81f87b441251893fc87cc408
+rg35xx-pro parts-rg35xx-pro/boot0.img 4908c12972866c6f3a2565183a1b5c097dd2990177d3109f9cb35321891b45df
+rg35xx-pro device-rg35xx-pro/ 7cafb0e55d35854ed89f20a39a8a268875bf19442684e30e0341a02c39c96784
+rg35xx-sp muos-p5.img 4bc228f1e2313bc9a68e499919074ea21d9ec9665ba18be355c01c810147b270
+rg35xx-sp parts/raw-36mb.img.gz d163ec7cb96d1961f7cda6eb0c8c71b2e749167cc917cb0d2ecd52a5b25be44b
+rg35xx-sp parts/p2-boot.img.gz 595ef2d7fc041fb603ed1232c2df9ed8070363ca1a3d05f6f18aa4cc730f28e3
+rg35xx-sp parts/p3-env.img.gz 9a389ce538677a147963d30f41e764c5fc54b85687c5ddf6c69dc7c982197763
+rg35xx-sp parts-rg35xx-sp/p4-kernel.img.gz b3988d7d3bfdc5eea1d18db472ccfa395705800f1adda62ae61f96ec2d4a6a0e
+rg35xx-sp device-rg35xx-sp/package/boot_package.fex 70a6fba457af83abf68f140fce7a68d05cc6edb87cf71e68765f0bee4e1c3ac0
+rg35xx-sp device-rg35xx-sp/ c9cc26c618d2b46620b21133ab171b69029357a5909a404f58e61fb91c3e3622
+rg40xx-h muos-p5.img 4bc228f1e2313bc9a68e499919074ea21d9ec9665ba18be355c01c810147b270
+rg40xx-h parts/raw-36mb.img.gz d163ec7cb96d1961f7cda6eb0c8c71b2e749167cc917cb0d2ecd52a5b25be44b
+rg40xx-h parts/p2-boot.img.gz 595ef2d7fc041fb603ed1232c2df9ed8070363ca1a3d05f6f18aa4cc730f28e3
+rg40xx-h parts/p3-env.img.gz 9a389ce538677a147963d30f41e764c5fc54b85687c5ddf6c69dc7c982197763
+rg40xx-h parts-rg40xx-h/p4-kernel.img.gz b3988d7d3bfdc5eea1d18db472ccfa395705800f1adda62ae61f96ec2d4a6a0e
+rg40xx-h device-rg40xx-h/package/boot_package.fex 18f5eefd14ef6bcdc798301bf9d3820f0738adc75497ba9abc3e2e086c4d093e
+rg40xx-h parts-rg40xx-h/boot0.img 4908c12972866c6f3a2565183a1b5c097dd2990177d3109f9cb35321891b45df
+rg40xx-h device-rg40xx-h/ af9d33546dd8173627e55b9da81e2b3d4a28d3d5389d06f251c92a9d316959d4
+rg40xx-v muos-p5.img 4bc228f1e2313bc9a68e499919074ea21d9ec9665ba18be355c01c810147b270
+rg40xx-v parts/raw-36mb.img.gz d163ec7cb96d1961f7cda6eb0c8c71b2e749167cc917cb0d2ecd52a5b25be44b
+rg40xx-v parts/p2-boot.img.gz 595ef2d7fc041fb603ed1232c2df9ed8070363ca1a3d05f6f18aa4cc730f28e3
+rg40xx-v parts/p3-env.img.gz 9a389ce538677a147963d30f41e764c5fc54b85687c5ddf6c69dc7c982197763
+rg40xx-v parts-rg40xx-v/p4-kernel.img.gz b3988d7d3bfdc5eea1d18db472ccfa395705800f1adda62ae61f96ec2d4a6a0e
+rg40xx-v device-rg40xx-v/package/boot_package.fex 416ae1e0801b4cbf625fb70995bd034e30f178297407198d4a00123f22184171
+rg40xx-v parts-rg40xx-v/boot0.img 4908c12972866c6f3a2565183a1b5c097dd2990177d3109f9cb35321891b45df
+rg40xx-v device-rg40xx-v/ 94baa8c91bbcbdc1ee42b51b096d8bac8b5e63de27463964086ce8162e27f9d9
