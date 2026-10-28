@@ -789,12 +789,17 @@ static void fb_blit565(int page) {
 	int src_stride = vid.screen->pitch / 2;
 	uint32_t* dst = (uint32_t*)(vid.fbmmap + (size_t)page * vid.page_bytes);
 	int dst_stride = vid.finfo.line_length / 4;
-	// RG28XX: the surface turns onto the portrait panel (h700_rot_copy), centered like the unrotated case
-	if (h700_rotate && vid.vinfo.bits_per_pixel == 32 &&
-	    vid.screen->h <= (int)vid.vinfo.xres && vid.screen->w <= (int)vid.vinfo.yres) {
-		int ox = ((int)vid.vinfo.xres - vid.screen->h) / 2, oy = ((int)vid.vinfo.yres - vid.screen->w) / 2;
-		h700_rot_copy(src, src_stride, vid.screen->w, vid.screen->h, 0, 0, vid.screen->w, vid.screen->h,
-		              dst + (size_t)oy * dst_stride + ox, vid.finfo.line_length, 4);
+	// RG28XX: the surface turns onto the portrait panel (h700_rot_copy), centered like the unrotated case. A
+	// surface larger than the panel (GBA Fullscreen is 720x480) keeps its center, as the unrotated path clips.
+	if (h700_rotate && vid.vinfo.bits_per_pixel == 32) {
+		int W = vid.screen->w, H = vid.screen->h;
+		int cw = W < (int)vid.vinfo.yres ? W : (int)vid.vinfo.yres, ch = H < (int)vid.vinfo.xres ? H : (int)vid.vinfo.xres;
+		int cx = (W - cw) / 2, cy = (H - ch) / 2;
+		int ox = ((int)vid.vinfo.xres - ch) / 2, oy = ((int)vid.vinfo.yres - cw) / 2;
+		// h700_rot_copy places the rect where it sits in the whole turned frame; shift that spot onto (ox, oy)
+		int r0 = h700_rotate == 90 ? cx : W - cx - cw, c0 = h700_rotate == 90 ? H - cy - ch : cy;
+		h700_rot_copy(src, src_stride, W, H, cx, cy, cw, ch,
+		              (uint8_t*)dst + ((ptrdiff_t)(oy - r0) * dst_stride + (ox - c0)) * 4, vid.finfo.line_length, 4);
 		return;
 	}
 	int w = vid.vinfo.xres < (unsigned)vid.screen->w ? vid.vinfo.xres : vid.screen->w;
