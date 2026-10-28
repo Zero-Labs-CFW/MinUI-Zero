@@ -3946,6 +3946,7 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 		// pre-existing Brick/SP case unchanged; only the pathological combos shrink.
 		while (scale > 1 && (long)src_w*scale*src_h*scale > 2L*DEVICE_WIDTH*DEVICE_HEIGHT) scale--;
 		
+	rescale:;
 		int scaled_w = src_w * scale;
 		int scaled_h = src_h * scale;
 		
@@ -4008,6 +4009,12 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 			}
 			dst_p = dst_w * FIXED_BPP;
 		}
+#ifdef PLAT_RENDER_MAX_BYTES
+		// The integer scalers write src_h*scale rows whatever surface the platform hands back, so a buffer
+		// over the platform's render page cannot be clamped afterwards: drop the scale until the whole padded
+		// buffer fits (RG CubeXX GBA asked for 5x into 1200x1200, twice the H700 page).
+		if (scale > 1 && (long)dst_p*dst_h > PLAT_RENDER_MAX_BYTES) { scale--; goto rescale; }
+#endif
 	}
 	
 	// TODO: need to sanity check scale and demands on the buffer

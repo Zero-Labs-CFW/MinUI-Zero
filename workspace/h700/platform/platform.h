@@ -155,6 +155,8 @@ extern int h700_fixed_w, h700_fixed_h, h700_row_count, h700_padding;
 #define FIXED_BPP		2
 #define FIXED_DEPTH		(FIXED_BPP * 8)
 #define FIXED_PITCH		(FIXED_WIDTH * FIXED_BPP)
+// One DE render page (platform.c disp_init): minarch keeps every scaled game buffer inside it.
+#define PLAT_RENDER_MAX_BYTES	(1024 * 768 * FIXED_BPP)
 #define FIXED_SIZE		(FIXED_PITCH * FIXED_HEIGHT)
 
 #define H700_PANEL_HZ	59.9777	// measured 2026-08-04, 3x600-pan probe runs

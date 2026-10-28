@@ -671,9 +671,8 @@ static int disp_open(void) {
 	// and the DE hardware scaler then downscales the whole thing to the panel via screen_win. A
 	// panel-sized buffer overflowed on those cores (segfault, sweep 2026-08-06). 1024x768 RGB565
 	// = 1.5MB/page covers every core we ship.
-	#define DISP_MAX_W 1024
-	#define DISP_MAX_H 768
-	vid.ion_bytes = (size_t)DISP_MAX_W * DISP_MAX_H * 2;
+	// minarch caps its scale to PLAT_RENDER_MAX_BYTES (platform.h), so the two cannot drift.
+	vid.ion_bytes = PLAT_RENDER_MAX_BYTES;
 	for (int i = 0; i < DISP_PAGES; i++) {
 		struct ion_allocation_data_v1 alloc = { .len = vid.ion_bytes, .align = 4096, .heap_id_mask = ION_HEAP_DMA_MASK, .flags = 0 };
 		if (ioctl(vid.ionfd, ION_IOC_ALLOC_A64, &alloc) < 0) { LOG_info("disp: ION alloc %d failed (%s)\n", i, strerror(errno)); return -1; }
@@ -876,7 +875,7 @@ SDL_Surface* PLAT_resizeVideo(int w, int h, int p) {
 	// derives its row pitch from it. Ignoring this was the shear-and-repeat glitch: minarch wrote
 	// 480-wide rows into a 640-wide surface. Recreate the surface at the requested size; the flip
 	// centers it on the panel.
-	// The DE path copies the whole surface into a fixed ION page (DISP_MAX_W x DISP_MAX_H), so a
+	// The DE path copies the whole surface into a fixed ION page (PLAT_RENDER_MAX_BYTES), so a
 	// surface that does not fit is clamped in height here, like miyoomini does for its MMA page:
 	// minarch honours a shorter surface (the "platform clamped dst_h" path). This used to log
 	// "refusing" and then create and copy the oversized surface anyway, writing past the page. The
