@@ -12,7 +12,7 @@ Checks, each against bytes rebuilt from the pinned assets rather than a remember
                ceiling, no baked ssh key on a release, and the /opt/muos/device overlay is this board's
 Replaces the per-release scratch verify-images.py / verify-rootfs.py copies in .notes.
 """
-import gzip, hashlib, os, struct, subprocess, sys, tempfile
+import filecmp, gzip, os, shutil, struct, subprocess, sys, tempfile, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -36,18 +36,33 @@ def part(assets, device, name):
     return own if os.path.isfile(own) else os.path.join(assets, 'parts', name)
 
 
-def gpt(f):
-    f.seek(SECTOR)
-    h = f.read(92)
+def gpt_table(f, hdr_lba):
+    """One GPT copy: (header ok, entry array bytes) or None. The header and array CRCs must hold, as the
+    kernel requires before it trusts either copy."""
+    f.seek(hdr_lba * SECTOR)
+    h = f.read(SECTOR)
     if h[:8] != b'EFI PART':
         return None
-    lba, n, sz = struct.unpack('<QII', h[72:88])
+    hsize, hcrc = struct.unpack('<II', h[12:20])
+    lba, n, sz, acrc = struct.unpack('<QIII', h[72:92])
+    ok = zlib.crc32(h[:16] + b'\0\0\0\0' + h[20:hsize]) == hcrc
     f.seek(lba * SECTOR)
-    out = {}
-    for _ in range(n):
-        e = f.read(sz)
+    arr = f.read(n * sz)
+    return ok and zlib.crc32(arr) == acrc, arr, n, sz, struct.unpack('<Q', h[32:40])[0]
+
+
+def gpt(f):
+    p = gpt_table(f, 1)
+    if not p:
+        return None
+    ok, arr, n, sz, backup = p
+    b = gpt_table(f, backup)
+    out = {'(valid primary + backup GPT)': ok and bool(b) and b[0] and b[1] == arr}
+    for i in range(n):
+        e = arr[i * sz:(i + 1) * sz]
         first, last = struct.unpack('<QQ', e[32:48])
-        if first:
+        # a zero type GUID marks the entry unused, so the kernel would not create the partition at all
+        if first and e[:16] != b'\0' * 16:
             out[e[56:128].decode('utf-16-le').rstrip('\0')] = (first, last)
     return out
 
@@ -75,6 +90,38 @@ def debugfs(img, off, path):
     return r.stdout
 
 
+def rdump(img, off, path, out):
+    """Copy a rootfs directory out of the image into OUT; returns the copy or None."""
+    d, base = os.path.split(os.path.abspath(img))
+    subprocess.run(['docker', 'run', '--rm', '--platform', 'linux/amd64', '-v', d + ':/img:ro', '-v', out + ':/out',
+                    'tg5040-toolchain', 'debugfs', '-R', 'rdump %s /out' % path, '/img/%s?offset=%d' % (base, off)],
+                   capture_output=True)
+    got = os.path.join(out, os.path.basename(path))
+    return got if os.path.isdir(got) else None
+
+
+def tree_diff(a, b):
+    """Paths that differ between two trees: missing on either side, or different bytes or symlink target."""
+    out = []
+    for root, dirs, files in os.walk(a):
+        rel = os.path.relpath(root, a)
+        other = os.path.join(b, rel)
+        theirs = set(os.listdir(other)) if os.path.isdir(other) else set()
+        for n in dirs + files:
+            p, q = os.path.join(root, n), os.path.join(other, n)
+            r = os.path.normpath(os.path.join(rel, n))
+            if n not in theirs:
+                out.append('missing ' + r)
+            elif os.path.islink(p) or os.path.islink(q):
+                if not (os.path.islink(p) and os.path.islink(q) and os.readlink(p) == os.readlink(q)):
+                    out.append('link ' + r)
+            elif os.path.isfile(p) and not filecmp.cmp(p, q, shallow=False):
+                out.append('differs ' + r)
+        for n in theirs - set(dirs + files):
+            out.append('extra ' + os.path.normpath(os.path.join(rel, n)))
+    return out
+
+
 def main():
     args, opts, it = [], {}, iter(sys.argv[1:])
     for a in it:
@@ -96,7 +143,9 @@ def main():
 
     with open(img, 'rb') as f:
         parts = gpt(f)
-        check('GPT with rootfs + roms', bool(parts) and 'rootfs' in parts and len(parts) >= 6,
+        valid = bool(parts) and parts.pop('(valid primary + backup GPT)')
+        check('GPT CRCs + backup copy', valid)
+        check('GPT with rootfs + roms', bool(parts) and 'rootfs' in parts and 'roms' in parts and len(parts) >= 6,
               ' '.join(sorted(parts)) if parts else 'no GPT')
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,8 +172,9 @@ def main():
                   f.read(len(data)) == data)
 
     roms = parts.get('roms') if parts else None
-    mtype = '/opt/homebrew/bin/mtype'
-    if roms and os.path.exists(mtype):
+    mtype = shutil.which('mtype') or next((p for p in ('/opt/homebrew/bin/mtype', '/usr/local/bin/mtype')
+                                           if os.path.exists(p)), None)
+    if roms and mtype:
         spec = '%s@@%d' % (img, roms[0] * SECTOR)
         ver = subprocess.run([mtype, '-i', spec, '::/.system/version.txt'], capture_output=True, text=True).stdout
         check('version.txt', bool(ver) and (not opts.get('--version') or '(%s)' % opts['--version'] in ver),
@@ -134,9 +184,14 @@ def main():
             check('no devmode.txt on the card', dm != 0)
     else:
         print('  (payload checks skipped: no roms partition or no mtools)')
+        # a release is only verified if every check ran: a skipped one must not read as PASS
+        if opts.get('--release'):
+            check('payload checks ran (mtools)', False)
 
     if opts.get('--no-docker') or not parts or 'rootfs' not in parts:
         print('  (rootfs checks skipped)')
+        if opts.get('--release'):
+            check('rootfs checks ran (docker)', False)
     else:
         off = parts['rootfs'][0] * SECTOR
         cat = lambda p: debugfs(img, off, p)
@@ -153,10 +208,17 @@ def main():
         check('GPU ceiling 648 MHz', 'MinUI Zero GPU ceiling 648 MHz' in mod)
         if opts.get('--release'):
             check('no baked ssh key', not cat('/root/.ssh/authorized_keys').strip())
+        # The frontend reads its board (rotation, panel size, lid, rate) from config/board/name, so check
+        # it on every board, and on a board with its own overlay compare the whole tree, not one file.
+        name = cat('/opt/muos/device/config/board/name').decode(errors='replace').strip()
+        check('board/name is ' + device, name == device, name or 'missing')
         if device != 'rg35xx-plus':
-            want_pkg = open(os.path.join(assets, 'device-' + device, 'package', 'boot_package.fex'), 'rb').read()
-            have_pkg = cat('/opt/muos/device/package/boot_package.fex')
-            check('rootfs device overlay is ' + device, hashlib.sha256(have_pkg).digest() == hashlib.sha256(want_pkg).digest())
+            want = os.path.join(assets, 'device-' + device)
+            # beside the image: docker on macOS mounts only shared paths, and the image folder is one
+            with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(img))) as tmp:
+                have = rdump(img, off, '/opt/muos/device', tmp)
+                diff = tree_diff(want, have) if have else ['rdump failed']
+            check('rootfs device overlay is ' + device, not diff, ', '.join(diff[:5]))
 
     print('== %s: %s' % (device, 'PASS' if not fails else 'FAIL (%s)' % ', '.join(fails)))
     sys.exit(1 if fails else 0)
