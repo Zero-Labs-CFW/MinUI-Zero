@@ -70,6 +70,11 @@ BUILT_RAW=""                                    # the chain bootchain.py patched
 # so a clone with a missing or stale part fails here instead of building a plausible image for the wrong hardware
 # (2026-10-27: the main checkout still held the August RG35XX H kernel and boot package, the mixed pairing that hung).
 # H700_UNPINNED=1 skips it for bring-up of a board not yet pinned, dev builds only.
+# H700_P5 swaps in a rootfs built elsewhere, so none of the board overlay, splash or release rootfs work below
+# runs on it: a release must come from the pinned, stripped rootfs.
+if [ -n "$H700_P5" ] && [ "$MODE" = release ]; then
+	echo "ERROR: H700_P5 is for dev builds only"; exit 1
+fi
 if [ "${H700_UNPINNED:-0}" = 1 ]; then
 	[ "$MODE" = dev ] || { echo "ERROR: H700_UNPINNED is for dev builds only"; exit 1; }
 	echo "WARN: H700_UNPINNED=1, building $DEVICE from unchecked inputs"
@@ -380,7 +385,8 @@ echo "  kernel modules: $_msz -> $(du -sh "$R/lib/modules" 2>/dev/null | cut -f1
 # /opt/muos/device, and every muOS boot script reads its identity and hardware paths from there via
 # GET_VAR, board/name, board/stick, board/rtc_wake, screen geometry, the alsa baseline. Shipping it
 # unchanged on another handheld means the OS honestly believes it is a Plus. Replace it wholesale.
-if [ -n "$DEVICE" ] && [ "$DEVICE" != "rg35xx-plus" ] && [ -d "/a/device-$DEVICE" ]; then
+if [ -n "$DEVICE" ] && [ "$DEVICE" != "rg35xx-plus" ]; then
+	[ -d "/a/device-$DEVICE" ] || { echo "ERROR: no device-$DEVICE overlay; the image would boot as a Plus"; exit 1; }
 	rm -rf "$R/opt/muos/device"
 	mkdir -p "$R/opt/muos/device"
 	cp -R "/a/device-$DEVICE/." "$R/opt/muos/device/"
