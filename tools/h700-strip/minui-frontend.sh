@@ -12,25 +12,8 @@ export SDCARD_PATH=/mnt/mmc
 export SYSTEM_PATH=/mnt/mmc/.system/h700
 export USERDATA_PATH=/mnt/mmc/.userdata/h700
 export LOGS_PATH=/mnt/mmc/.userdata/h700/logs
-# Keep the previous game's log for each system (Dan 2026-10-08): an emulator pak truncates $LOGS_PATH/<TAG>.txt at
-# every launch, so a crash's evidence was gone as soon as the next game of that system started. One .prev per
-# system: bounded, never grows. Takes the launch command's own words, so the shell parses its quoting (a pak named
-# with an apostrophe defeated the earlier sed, Codex review 2026-10-09); only an emulator pak's launch.sh counts.
-zero_rotate_prev_log() {
-	case "$1" in */Emus/*.pak/launch.sh) ;; *) return 0 ;; esac
-	_rpl_tag=$(basename "$(dirname "$1")" .pak)
-	[ -f "$LOGS_PATH/$_rpl_tag.txt" ] && mv -f "$LOGS_PATH/$_rpl_tag.txt" "$LOGS_PATH/$_rpl_tag.prev.txt"
-	return 0
-}
-# The launch loop's /tmp/next line: its first word, read without running anything. Evaluating the line to split it
-# ran every command of a compound line twice (2026-10-17). minui.c writes 'pak' 'rom', quotes escaped as '\''.
-zero_rotate_prev_log_cmd() {
-	case "$1" in \'*"/launch.sh'"*) ;; *) return 0 ;; esac
-	_rpl_p=${1#\'}
-	_rpl_p=${_rpl_p%%"/launch.sh'"*}/launch.sh
-	case "$_rpl_p" in *"' '"*) return 0 ;; esac # past the first word
-	zero_rotate_prev_log "$(printf '%s' "$_rpl_p" | sed "s/'\\\\''/'/g")"
-}
+# zero_rotate_prev_log, zero_rotate_prev_log_cmd and zero_boot_receipt: one copy for every platform
+[ -f "$SDCARD_PATH/.system/res/zero-log.sh" ] && . "$SDCARD_PATH/.system/res/zero-log.sh"
 export SHARED_USERDATA_PATH=/mnt/mmc/.userdata/shared
 export SAVES_PATH=/mnt/mmc/Saves
 export BIOS_PATH=/mnt/mmc/Bios
@@ -466,14 +449,7 @@ power_off() {
 # Boot receipt, DEV CARDS ONLY (devmode): kernel seconds when the first launch starts, one ~40-byte line
 # per boot, the regression canary behind the README boot table (same line as MinUI.pak/launch.sh). Taken
 # before boot-to-game so a resumed game's play time never lands in it. Costs users nothing.
-# Nothing trimmed it: past 400 lines, keep the newest 200.
-if devmode; then
-	BT="$LOGS_PATH/boot-time.txt"
-	echo "$(cut -d" " -f1 /proc/uptime) menu-ready $(date +%Y-%m-%d 2>/dev/null)" >> "$BT"
-	if [ "$(wc -l < "$BT")" -gt 400 ]; then
-		tail -n 200 "$BT" > "$BT.tmp" 2>/dev/null && mv -f "$BT.tmp" "$BT" || rm -f "$BT.tmp"
-	fi
-fi
+devmode && zero_boot_receipt
 
 # BOOT STRAIGHT INTO THE GAME. MinUI already quicksaves on power-off and resumes on the next boot,
 # but the resume goes through the launcher: it starts, reads the marker, writes /tmp/next and exits,
