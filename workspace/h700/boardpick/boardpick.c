@@ -1,4 +1,4 @@
-// boardpick — first-boot model picker for the one H700 image (tools/h700-strip/boardpick.sh drives it).
+// boardpick: first-boot model picker for the one H700 image (tools/h700-strip/boardpick.sh drives it).
 // The card boots one screen type at a time; this asks which handheld it is among the models that share it.
 //   boardpick <timeout_s> <id> <label> [<id> <label> ...]
 // Hold START 2 s on a model: prints its id, exit 0. Hold SELECT 2 s, or no input before the countdown ends:

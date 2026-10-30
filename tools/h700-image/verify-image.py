@@ -18,6 +18,8 @@ Replaces the per-release scratch verify-images.py / verify-rootfs.py copies in .
 import filecmp, gzip, io, os, shutil, struct, subprocess, sys, tarfile, tempfile, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from oneimage import bootimg_len   # one definition of the p4 trim, shared with the one-image stager
 REPO = os.path.dirname(os.path.dirname(HERE))
 RAW36 = 36 << 20
 BOOT0_OFFS = (8192, 262144)
@@ -217,9 +219,7 @@ def main():
             with gzip.open(part(assets, device, name)) as g:
                 data = g.read()
             if name.startswith('p4'):   # the build writes only the Android boot image's own length
-                k, _, r_ = struct.unpack('<III', data[8:20])
-                pg = struct.unpack('<I', data[36:40])[0]
-                data = data[:pg * (1 + (k + pg - 1) // pg + (r_ + pg - 1) // pg)]
+                data = data[:bootimg_len(data)]
             f.seek(seek * SECTOR)
             check(name.split('.')[0] + ' matches ' + os.path.relpath(part(assets, device, name), assets),
                   f.read(len(data)) == data)

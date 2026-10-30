@@ -66,11 +66,17 @@ check_layout() {
 	return 0
 }
 
-restart() { # the muOS way, which unmounts the card cleanly; plain reboot as the fallback
+# restart: the muOS way, which unmounts the card cleanly; plain reboot as the fallback. Only called after a
+# complete install, so it never returns: a reboot that has not happened in 30 s must not fall through into the
+# caller's failure branch (that would roll back a good install). Exit 0 instead and let the menu start; the next
+# boot comes up on what was installed.
+restart() {
 	sync
 	/opt/muos/script/system/halt.sh reboot 2>/dev/null
 	reboot -f
 	sleep 30
+	log "no reboot after 30 s; carrying on to the menu, the next boot uses the new files"
+	exit 0
 }
 
 # write <file> <device> <sector>: write, flush, drop the cache, read back and compare

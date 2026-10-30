@@ -81,8 +81,10 @@ if [ "${H700_UNPINNED:-0}" = 1 ]; then
 	echo "WARN: H700_UNPINNED=1, building $DEVICE from unchecked inputs"
 else
 	if [ "$DEVICE" = all ]; then
-		for _b in $H700_ALL_BOARDS; do
-			python3 "$REPO/tools/h700-image/check-assets.py" "$ASSETS" "$_b" ${H700_P5:+--no-rootfs} || exit 1
+		_nr=${H700_P5:+--no-rootfs}
+		for _b in $H700_ALL_BOARDS; do   # the shared rootfs (8 GB) is hashed once, with the first board
+			python3 "$REPO/tools/h700-image/check-assets.py" "$ASSETS" "$_b" $_nr || exit 1
+			_nr=--no-rootfs
 		done
 	else
 		python3 "$REPO/tools/h700-image/check-assets.py" "$ASSETS" "$DEVICE" ${H700_P5:+--no-rootfs} || exit 1
