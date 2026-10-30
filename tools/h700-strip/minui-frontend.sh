@@ -482,18 +482,25 @@ fi
 # Do it here instead. The contract is the launcher's own (minui.c autoResume): the marker holds a
 # card-relative rom path, it is consumed exactly once (unlink before launching, so a crash cannot
 # put us in a resume loop), and slot 9 in RESUME_SLOT_PATH tells minarch to load the auto-save.
-# The pak is resolved the way the launcher resolves it: the (TAG) in the rom folder name.
+# Same block as MinUI.pak/launch.sh (f6e7d824): keep the two in step.
 #
 # Every failure falls through to the normal launcher path, which is the safe default.
 AUTO_RESUME="$SHARED_USERDATA_PATH/.minui/auto_resume.txt"
 if [ -f "$AUTO_RESUME" ]; then
 	_rel=$(head -1 "$AUTO_RESUME" 2>/dev/null)
-	rm -f "$AUTO_RESUME"; sync            # consume it FIRST: never resume-loop on a bad entry
 	_rom="$SDCARD_PATH$_rel"
-	# tag = the (XXX) at the end of the rom's folder name, e.g. "Nintendo (FC)" -> FC
-	_tag=$(dirname "$_rel" | sed -n 's/.*(\([A-Za-z0-9]*\))$/\1/p')
+	# The tag as getEmuName (utils.c) reads it: the first folder under Roms, the part inside its last
+	# "(...)", else the whole name (bare "Roms/GB/"). Never the rom's own subfolder: a game in
+	# "Roms/Game Boy Advance (GBA)/Hacks (GB)/" belongs to GBA.
+	_top=${_rel#/Roms/}
+	[ "$_top" != "$_rel" ] && _top=${_top%%/*} || _top=""
+	_tag=$(echo "$_top" | sed 's/.*(//; s/).*//')
 	_pak="$SYSTEM_PATH/paks/Emus/$_tag.pak/launch.sh"
+	# Only a shipped pak takes this shortcut, and only then is the marker consumed here. Anything else
+	# (a community pak on the card) keeps the marker for the launcher's autoResume, which resolves it
+	# through getEmuPath and consumes it there.
 	if [ -n "$_rel" ] && [ -f "$_rom" ] && [ -n "$_tag" ] && [ -f "$_pak" ]; then
+		rm -f "$AUTO_RESUME"; sync            # consume it FIRST: never resume-loop on a bad entry
 		echo "boot-to-game: $_tag <- $_rel" >> "$LOG"
 		echo 9 > /tmp/resume_slot.txt      # AUTO_RESUME_SLOT, read by minarch
 		apply_volume
@@ -502,7 +509,7 @@ if [ -f "$AUTO_RESUME" ]; then
 		echo "boot-to-game exited rc=$?" >> "$LOG"
 		[ -f /tmp/poweroff ] && { echo "poweroff requested (boot-to-game)" >> "$LOG"; power_off; }
 	else
-		echo "boot-to-game: skipped (rel=$_rel tag=$_tag)" >> "$LOG"
+		echo "boot-to-game: left for the launcher (rel=$_rel tag=$_tag)" >> "$LOG"
 	fi
 fi
 
