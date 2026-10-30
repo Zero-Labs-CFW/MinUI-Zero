@@ -832,6 +832,7 @@ rm -f "$IMG"
 # cut, 2026-09-28). No fallback to the unpatched part: a chain that skipped the patches must not ship.
 [ -n "$BUILT_RAW" ] && [ -f "$BUILT_RAW" ] || { echo "ERROR: no patched boot chain for $DEVICE (bootchain.py did not run)"; exit 1; }
 cp "$BUILT_RAW" "$IMG"
+rm -f "$BUILT_RAW"   # rebuilt from the pinned assets every time: scratch once copied
 # PER-DEVICE PARTS: parts-<device>/<file> overrides the shared part. Which boards carry their own kernel and
 # which the Plus one is in the fail-closed kernel note above; assets.sha256 pins each.
 # The one image ships the Plus parts (there is no parts-all, and a stray one must never be picked up unpinned).
