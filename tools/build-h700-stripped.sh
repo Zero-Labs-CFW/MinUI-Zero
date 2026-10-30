@@ -62,7 +62,8 @@ fi
 #   rg35xx-h     substitutes that board's boot_package (u-boot + device tree) into the chain and
 #                overlays its /opt/muos/device, which is what makes its analog sticks exist at all:
 #                the H tree enables a GPADC + analog mux and adds keyL3/keyR3, none of it in the Plus.
-DEVICE="${H700_DEVICE:-rg35xx-plus}"
+DEVICE="${H700_DEVICE:-rg35xx-plus}"   # or "all": the one image with a first-boot model picker
+H700_ALL_BOARDS="rg35xx-plus rg35xx-h rg35xx-pro rg35xx-sp rg40xx-h rg40xx-v rgcubexx-h rg28xx-h rg34xx-h rg34xx-sp rgsp"
 DEVICE_DIR="$ASSETS/device-$DEVICE"
 RAW36="$ASSETS/parts/raw-36mb.img.gz"          # the Plus chain, our proven baseline
 BUILT_RAW=""                                    # the chain bootchain.py patched for this board (every board has one)
@@ -79,9 +80,38 @@ if [ "${H700_UNPINNED:-0}" = 1 ]; then
 	[ "$MODE" = dev ] || { echo "ERROR: H700_UNPINNED is for dev builds only"; exit 1; }
 	echo "WARN: H700_UNPINNED=1, building $DEVICE from unchecked inputs"
 else
-	python3 "$REPO/tools/h700-image/check-assets.py" "$ASSETS" "$DEVICE" ${H700_P5:+--no-rootfs} || exit 1
+	if [ "$DEVICE" = all ]; then
+		for _b in $H700_ALL_BOARDS; do
+			python3 "$REPO/tools/h700-image/check-assets.py" "$ASSETS" "$_b" ${H700_P5:+--no-rootfs} || exit 1
+		done
+	else
+		python3 "$REPO/tools/h700-image/check-assets.py" "$ASSETS" "$DEVICE" ${H700_P5:+--no-rootfs} || exit 1
+	fi
 fi
-if [ "$DEVICE" = "rg35xx-plus" ]; then
+if [ "$DEVICE" = all ]; then
+	# ONE IMAGE (Dan 2026-10-30): every board's boot files ride in the rootfs (oneimage.py -> /opt/minui-zero/boards)
+	# and tools/h700-strip/boardpick.sh installs the right ones at first boot, after the user confirms the model.
+	# The card ships the Plus chain and kernel (the first screen type tried) under the UNIVERSAL boot0: the
+	# LPDDR3-primary, strap-selecting RG35XX Pro boot0, the one build that brings up RAM on LPDDR4 (proven on the
+	# RG35XX H) and LPDDR3 units alike, so every board reaches Linux and the picker. Each board's own boot0 is
+	# written only when its model is chosen (.notes/2026-10-30-h700-one-image/plan.md).
+	mkdir -p "$OUT_DIR"
+	gunzip -c "$RAW36" > "$OUT_DIR/base-raw36.img"
+	python3 "$REPO/tools/h700-image/bootchain.py" "$OUT_DIR/base-raw36.img" - "$OUT_DIR/raw36-all.img" || exit 1
+	BUILT_RAW="$OUT_DIR/raw36-all.img"
+	rm -rf "$ASSETS/boards-stage"
+	python3 "$REPO/tools/h700-image/oneimage.py" "$ASSETS" "$OUT_DIR/base-raw36.img" "$ASSETS/boards-stage" || exit 1
+	rm -f "$OUT_DIR/base-raw36.img"
+	python3 - "$ASSETS/parts-rg35xx-pro/boot0.img" "$BUILT_RAW" <<'PYEOF' || exit 1
+import struct, sys
+b = open(sys.argv[1], 'rb').read()
+assert b[4:12] == b'eGON.BT0' and len(b) == 65536 and struct.unpack('<I', b[0x3c:0x40])[0] == 7, 'universal boot0: not the LPDDR3-primary Pro boot0'
+with open(sys.argv[2], 'r+b') as f:
+    for off in (8192, 262144):
+        f.seek(off); f.write(b)
+print('  boot0: universal (RG35XX Pro, LPDDR3 primary, strap-selecting) at 8192 + 262144')
+PYEOF
+elif [ "$DEVICE" = "rg35xx-plus" ]; then
 	# The Plus keeps the donor chain's own boot package ("-"), but still goes through bootchain.py so its device
 	# tree gets the same patches as every other board: the POWER-hold hardware cut (poll-interval is already 5 ms).
 	mkdir -p "$OUT_DIR"
@@ -225,6 +255,10 @@ else
 echo "== extracting + stripping muOS rootfs (this takes a few minutes) =="
 cp "$REPO/tools/h700-strip/minui-frontend.sh" "$ASSETS/minui-frontend.sh"
 cp "$REPO/tools/h700-strip/expand-roms.sh" "$ASSETS/expand-roms.sh"
+if [ "$DEVICE" = all ]; then
+	cp "$REPO/tools/h700-strip/boardpick.sh" "$ASSETS/boardpick.sh"
+	cp "$REPO/workspace/h700/boardpick/build/h700/boardpick.elf" "$ASSETS/boardpick.elf" || { echo "ERROR: no boardpick.elf, run make h700-build"; exit 1; }
+fi
 # First-boot "Installing MinUI Zero..." frame for expand-roms.sh (raw fb page, panel-sized).
 rm -f "$ASSETS/installing.raw"
 # The panel's fb page per board (the same families as h700_geometry_init in platform.c): 720x480 RG34XX/RG SP,
@@ -385,7 +419,7 @@ echo "  kernel modules: $_msz -> $(du -sh "$R/lib/modules" 2>/dev/null | cut -f1
 # /opt/muos/device, and every muOS boot script reads its identity and hardware paths from there via
 # GET_VAR, board/name, board/stick, board/rtc_wake, screen geometry, the alsa baseline. Shipping it
 # unchanged on another handheld means the OS honestly believes it is a Plus. Replace it wholesale.
-if [ -n "$DEVICE" ] && [ "$DEVICE" != "rg35xx-plus" ]; then
+if [ -n "$DEVICE" ] && [ "$DEVICE" != "rg35xx-plus" ] && [ "$DEVICE" != all ]; then
 	[ -d "/a/device-$DEVICE" ] || { echo "ERROR: no device-$DEVICE overlay; the image would boot as a Plus"; exit 1; }
 	rm -rf "$R/opt/muos/device"
 	mkdir -p "$R/opt/muos/device"
@@ -492,6 +526,15 @@ printf "0" > "$R/opt/muos/config/settings/network/boot"
 mkdir -p "$R/opt/minui-zero"
 cp /a/minui-frontend.sh "$R/opt/minui-zero/minui-frontend.sh"
 cp /a/expand-roms.sh "$R/opt/minui-zero/expand-roms.sh"
+# ONE IMAGE: every board boot set plus the picker. The Plus device files are those of the donor rootfs.
+if [ "$DEVICE" = all ]; then
+	cp -R /a/boards-stage "$R/opt/minui-zero/boards"
+	tar -czf "$R/opt/minui-zero/boards/rg35xx-plus/device.tar.gz" -C "$R/opt/muos/device" .
+	cp /a/boardpick.sh "$R/opt/minui-zero/boardpick.sh"
+	cp /a/boardpick.elf "$R/opt/minui-zero/boardpick.elf"
+	chmod +x "$R/opt/minui-zero/boardpick.sh" "$R/opt/minui-zero/boardpick.elf"
+	echo "  one image: boards staged ($(ls "$R/opt/minui-zero/boards" | tr "\n" " ")), picker installed"
+fi
 chmod +x "$R/opt/minui-zero/expand-roms.sh"
 [ -f /a/installing.raw ] && cp /a/installing.raw "$R/opt/minui-zero/installing.raw"
 chmod +x "$R/opt/minui-zero/minui-frontend.sh"
@@ -731,7 +774,8 @@ printf 'MinUI Zero (%s)\n%s\n' "$VERSION" "$(cd "$REPO" && git rev-parse --short
 # silently correct on a Plus and WRONG on an H, which is the one where it decides whether the
 # analog sticks exist (found on the first allowlist boot, 2026-08-27). The image is already built
 # per device, so the answer belongs in the payload rather than in a guess.
-printf '%s\n' "${DEVICE#rg35xx-}" > "$STAGE/.system/h700/board"
+if [ "$DEVICE" = all ]; then _board=plus; else _board=${DEVICE#rg35xx-}; fi   # the one image starts as a Plus
+printf '%s\n' "$_board" > "$STAGE/.system/h700/board"
 [ -n "$H700_TEST_ROM" ] && [ -f "$H700_TEST_ROM" ] && cp "$H700_TEST_ROM" "$STAGE/Roms/1) Game Boy Color (GBC)/"
 # example wifi.txt at the card root (commented out; user adds their own "SSID:password")
 printf '# WiFi: one network per line as SSID:password (# comments ignored). Example:\n# MyNetwork:mypassword\n' > "$STAGE/wifi.txt.example"

@@ -90,6 +90,12 @@ LOG="$LOGS_PATH/minui-zero.log"
 mkdir -p "$LOGS_PATH" 2>/dev/null
 : > "$LOG" 2>/dev/null
 rm -f "$SDCARD_PATH/minui-zero.log" 2>/dev/null # the old card-root copy on cards upgraded from before the move (code review, 2026-10-05)
+# ONE IMAGE: until a model is chosen, ask which handheld this is (boardpick.sh; it reboots into the chosen
+# board's boot files, or into the next screen type when nobody answers). A failed write asks again, twice;
+# then the menu starts on what is installed rather than leaving the device stuck on a picker.
+if [ -x /opt/minui-zero/boardpick.sh ] && [ ! -f /opt/minui-zero/boards/chosen ]; then
+	for _try in 1 2 3; do sh /opt/minui-zero/boardpick.sh >> "$LOG" 2>&1 && break; done
+fi
 # Hard cap: past 256KB keep the newest 1000 lines, so no source (a WiFi reconnect loop out of range all day,
 # a chatty menu session that never reboots) can grow it. Rewritten IN PLACE (cat >, not mv) so a writer
 # holding the log open, minui.elf or a background connect, keeps appending to the same file. Called before

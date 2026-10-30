@@ -3,6 +3,9 @@
 
   verify-image.py IMG DEVICE [--assets DIR] [--version vX.Y.Z] [--release] [--no-docker]
 
+DEVICE "all" is the one image: the Plus chain and kernel under the universal (RG35XX Pro) boot0, and every
+board's boot files staged in /opt/minui-zero/boards equal to what oneimage.py builds from the pinned assets.
+
 Checks, each against bytes rebuilt from the pinned assets rather than a remembered md5:
   boot chain   the first 36 MiB (boot0 x2, u-boot, the board's patched device tree) equal what bootchain.py
                and the boot0 override produce for DEVICE; LPDDR3 boards carry dram type 7
@@ -12,7 +15,7 @@ Checks, each against bytes rebuilt from the pinned assets rather than a remember
                ceiling, no baked ssh key on a release, and the /opt/muos/device overlay is this board's
 Replaces the per-release scratch verify-images.py / verify-rootfs.py copies in .notes.
 """
-import filecmp, gzip, os, shutil, struct, subprocess, sys, tempfile, zlib
+import filecmp, gzip, io, os, shutil, struct, subprocess, sys, tarfile, tempfile, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -21,6 +24,8 @@ BOOT0_OFFS = (8192, 262144)
 SECTOR = 512
 P2, P3, P4 = 90112, 155648, 188416       # build-h700-stripped.sh dd seeks
 LPDDR3 = ('rg35xx-pro', 'rg40xx-h', 'rg40xx-v')
+ALL = ('rg35xx-plus', 'rg35xx-h', 'rg35xx-pro', 'rg35xx-sp', 'rg40xx-h', 'rg40xx-v', 'rgcubexx-h', 'rg28xx-h',
+       'rg34xx-h', 'rg34xx-sp', 'rgsp')
 
 fails = []
 
@@ -71,11 +76,11 @@ def expected_chain(assets, device, tmp):
     base = os.path.join(tmp, 'base.img')
     with gzip.open(os.path.join(assets, 'parts', 'raw-36mb.img.gz')) as g, open(base, 'wb') as o:
         o.write(g.read())
-    pkg = '-' if device == 'rg35xx-plus' else os.path.join(assets, 'device-' + device, 'package', 'boot_package.fex')
+    pkg = '-' if device in ('rg35xx-plus', 'all') else os.path.join(assets, 'device-' + device, 'package', 'boot_package.fex')
     out = os.path.join(tmp, 'chain.img')
     subprocess.run([sys.executable, os.path.join(HERE, 'bootchain.py'), base, pkg, out], check=True, capture_output=True)
     chain = bytearray(open(out, 'rb').read())
-    b0 = os.path.join(assets, 'parts-' + device, 'boot0.img')
+    b0 = os.path.join(assets, 'parts-' + ('rg35xx-pro' if device == 'all' else device), 'boot0.img')
     if device != 'rg35xx-plus' and os.path.isfile(b0):
         b = open(b0, 'rb').read()
         for off in BOOT0_OFFS:
@@ -98,6 +103,39 @@ def rdump(img, off, path, out):
                    capture_output=True)
     got = os.path.join(out, os.path.basename(path))
     return got if os.path.isdir(got) else None
+
+
+def boards_diff(assets, have, tmp):
+    """The one image's staged boards (HAVE, rdumped) against oneimage.py run on the pinned assets. Compressed files
+    are compared by content: gzip and tar headers carry build-time stamps."""
+    base = os.path.join(tmp, 'base.img')
+    with gzip.open(os.path.join(assets, 'parts', 'raw-36mb.img.gz')) as g, open(base, 'wb') as o:
+        o.write(g.read())
+    want = os.path.join(tmp, 'boards')
+    subprocess.run([sys.executable, os.path.join(HERE, 'oneimage.py'), assets, base, want], check=True, capture_output=True)
+    out = []
+    for b in ALL:
+        for n in ('package.fex', 'boot0.img', 'kernel'):
+            a, h = os.path.join(want, b, n), os.path.join(have, b, n)
+            if not os.path.isfile(h) or not filecmp.cmp(a, h, shallow=False):
+                out.append('%s/%s' % (b, n))
+        k = open(os.path.join(want, b, 'kernel')).read().strip()
+        hk = os.path.join(have, 'kernels', k)
+        if not os.path.isfile(hk) or gzip.open(hk).read() != gzip.open(os.path.join(want, 'kernels', k)).read():
+            out.append('%s kernel %s' % (b, k))
+        td = os.path.join(have, b, 'device.tar.gz')
+        if not os.path.isfile(td):
+            out.append(b + '/device.tar.gz missing')
+            continue
+        x = os.path.join(tmp, 'dev-' + b)
+        with tarfile.open(td) as t:
+            t.extractall(x)
+        if b == 'rg35xx-plus':   # the donor rootfs's own tree: it must name the Plus
+            if open(os.path.join(x, 'config', 'board', 'name')).read().strip() != 'rg35xx-plus':
+                out.append('rg35xx-plus device files do not name the Plus')
+        else:
+            out += ['%s device %s' % (b, d) for d in tree_diff(os.path.join(assets, 'device-' + b), x)]
+    return out
 
 
 def tree_diff(a, b):
@@ -137,9 +175,11 @@ def main():
     assets = opts.get('--assets', os.environ.get('H700_ASSETS', os.path.join(REPO, '.notes', '2026-08-05-h700-image')))
     print('== %s (%s)' % (os.path.basename(img), device))
 
-    r = subprocess.run([sys.executable, os.path.join(HERE, 'check-assets.py'), assets, device, '--no-rootfs'],
-                       capture_output=True, text=True)
-    check('assets match the manifest', r.returncode == 0, (r.stdout + r.stderr).strip().splitlines()[-1] if r.returncode else '')
+    for d in (ALL if device == 'all' else (device,)):
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'check-assets.py'), assets, d, '--no-rootfs'],
+                           capture_output=True, text=True)
+        check('assets match the manifest' + (' (%s)' % d if device == 'all' else ''), r.returncode == 0,
+              (r.stdout + r.stderr).strip().splitlines()[-1] if r.returncode else '')
 
     with open(img, 'rb') as f:
         parts = gpt(f)
@@ -157,7 +197,7 @@ def main():
         b0 = have[BOOT0_OFFS[0]:BOOT0_OFFS[0] + 65536]
         check('boot0 copies identical', b0 == have[BOOT0_OFFS[1]:BOOT0_OFFS[1] + 65536])
         dram = struct.unpack('<I', b0[0x3c:0x40])[0]
-        if device in LPDDR3:
+        if device in LPDDR3 or device == 'all':
             check('boot0 LPDDR3 primary', dram == 7, 'dram type %d' % dram)
 
         for name, seek in (('p2-boot.img.gz', P2), ('p3-env.img.gz', P3), ('p4-kernel.img.gz', P4)):
@@ -211,8 +251,17 @@ def main():
         # The frontend reads its board (rotation, panel size, lid, rate) from config/board/name, so check
         # it on every board, and on a board with its own overlay compare the whole tree, not one file.
         name = cat('/opt/muos/device/config/board/name').decode(errors='replace').strip()
-        check('board/name is ' + device, name == device, name or 'missing')
-        if device != 'rg35xx-plus':
+        first = 'rg35xx-plus' if device == 'all' else device   # the one image boots as a Plus until a model is chosen
+        check('board/name is ' + first, name == first, name or 'missing')
+        if device == 'all':
+            check('frontend runs the model picker', 'boardpick.sh' in fe)
+            check('picker installed', bool(cat('/opt/minui-zero/boardpick.sh')) and bool(cat('/opt/minui-zero/boardpick.elf')))
+            check('no model chosen yet', not cat('/opt/minui-zero/boards/chosen'))
+            with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(img))) as tmp:
+                have = rdump(img, off, '/opt/minui-zero/boards', tmp)
+                diff = boards_diff(assets, have, tmp) if have else ['rdump failed']
+            check('all %d boards staged' % len(ALL), not diff, ', '.join(diff[:5]))
+        elif device != 'rg35xx-plus':
             want = os.path.join(assets, 'device-' + device)
             # beside the image: docker on macOS mounts only shared paths, and the image folder is one
             with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(img))) as tmp:

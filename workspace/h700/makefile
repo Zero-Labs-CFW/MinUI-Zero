@@ -8,7 +8,9 @@
 .PHONY: all early clean
 
 all:
+	cd ./boardpick && make
 
 early:
 
 clean:
+	cd ./boardpick && make clean
