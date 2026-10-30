@@ -138,7 +138,8 @@ static void stick_click_init(void) {
 }
 
 // Keep a node if it advertises POWER, a volume key or a pad button (KEY 114-116, 304-316, the codes
-// ev_translate maps) or the d-pad hat (ABS_HAT0X). EVIOCGNAME is logged so each board's log names its nodes.
+// ev_translate maps), the d-pad hat (ABS_HAT0X) or a stick axis (ABS 0-5). EVIOCGNAME is logged so each
+// board's log names its nodes.
 static void evdev_scan(void) {
 	int n = 0;
 	for (int i = 0; i < EVDEV_SCAN && n < EVDEV_COUNT; i++) {
@@ -151,7 +152,9 @@ static void evdev_scan(void) {
 		memset(keys, 0, sizeof(keys));
 		ioctl(fd, _IOC(_IOC_READ, 'E', 0x20 + 1, sizeof(keys)), keys); // EVIOCGBIT(EV_KEY)
 		ioctl(fd, _IOC(_IOC_READ, 'E', 0x20 + 3, sizeof(abs)), &abs);   // EVIOCGBIT(EV_ABS)
-		int want = (abs & (1UL << 16)) != 0;
+		// ABS_X..ABS_RZ (0-5) too: a board whose sticks sit on their own node (adc-joystick, no keys, no
+		// hat) must keep it, or stick_axis_init never sees the axes and the sticks are dead.
+		int want = (abs & ((1UL << 16) | 0x3f)) != 0;
 		for (int c = 114; c <= 116 && !want; c++) want = keys[c / 8] & (1 << (c % 8));
 		for (int c = 304; c <= 316 && !want; c++) want = keys[c / 8] & (1 << (c % 8));
 		char name[64] = "";
@@ -882,7 +885,7 @@ SDL_Surface* PLAT_resizeVideo(int w, int h, int p) {
 	// centers it on the panel.
 	// The DE path copies the whole surface into a fixed ION page (PLAT_RENDER_MAX_BYTES), so a
 	// surface that does not fit is clamped in height here, like miyoomini does for its MMA page:
-	// minarch honours a shorter surface (the "platform clamped dst_h" path). This used to log
+	// minarch honors a shorter surface (the "platform clamped dst_h" path). This used to log
 	// "refusing" and then create and copy the oversized surface anyway, writing past the page. The
 	// 640x480 panels stay well inside it; the 2x-area scaler cap on a 720x720 panel does not.
 	if (vid.use_disp && p > 0 && (size_t)p * h > vid.ion_bytes) {
