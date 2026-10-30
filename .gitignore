@@ -57,3 +57,6 @@ workspace/h700/tools/layerclean
 
 # personal agent notes (device IPs, workflow), never committed
 CLAUDE.local.md
+
+# generated from workspace/h700/boards.txt by workspace/h700/gen-boards.sh
+workspace/h700/platform/boards.h

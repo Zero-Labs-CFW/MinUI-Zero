@@ -21,6 +21,9 @@ for _l in "$REPO"/skeleton/SYSTEM/h700/lib/*; do [ -f "$_l" ] && cp "$_l" "$LIB/
 for _b in "$REPO"/skeleton/SYSTEM/h700/bin/*; do [ -f "$_b" ] && { cp "$_b" "$BIN/"; chmod +x "$BIN/$(basename "$_b")"; }; done
 [ -f "$REPO/skeleton/SYSTEM/tg5040/bin/dropbearmulti" ] && cp "$REPO/skeleton/SYSTEM/tg5040/bin/dropbearmulti" "$BIN/dropbearmulti" && chmod +x "$BIN/dropbearmulti"
 cp -R "$REPO/skeleton/SYSTEM/h700/paks" "$STAGE/.system/h700/paks"
+cp "$REPO/workspace/h700/boards.txt" "$STAGE/.system/h700/boards.txt"   # the board table the device scripts read
+# .system/res: the shared root (zero-log.sh, the sprite sheets, the font), as the image ships it
+mkdir -p "$STAGE/.system/res" && cp "$REPO"/skeleton/SYSTEM/res/* "$STAGE/.system/res/"
 [ -f "$REPO/skeleton/SYSTEM/h700/system.cfg" ] && cp "$REPO/skeleton/SYSTEM/h700/system.cfg" "$STAGE/.system/h700/system.cfg"
 cp -R "$REPO"/skeleton/EXTRAS/Tools/h700/* "$STAGE/Tools/h700/"
 [ -f "$REPO/workspace/all/minput/build/h700/minput.elf" ] && cp "$REPO/workspace/all/minput/build/h700/minput.elf" "$STAGE/Tools/h700/Input.pak/" 2>/dev/null || true

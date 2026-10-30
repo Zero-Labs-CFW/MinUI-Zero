@@ -14,12 +14,28 @@ tools/h700-strip/boardpick.sh installs these on the device. Board inputs and rul
 """
 import gzip, hashlib, os, struct, subprocess, sys, tarfile
 
-BOARDS = ['rg35xx-plus', 'rg35xx-h', 'rg35xx-pro', 'rg35xx-sp', 'rg40xx-h', 'rg40xx-v', 'rgcubexx-h', 'rg28xx-h',
-          'rg34xx-h', 'rg34xx-sp', 'rgsp']
-OWN_BOOT0_OPTIONAL = {'rg35xx-plus', 'rg35xx-h', 'rg35xx-sp'}   # Anbernic's stock boot0 equals the Plus's
-LPDDR3 = {'rg35xx-pro', 'rg40xx-h', 'rg40xx-v'}
 PKG_OFF, PKG_LEN = 16793600, 1310720
 HERE = os.path.dirname(os.path.abspath(__file__))
+BOARDS_TXT = os.path.join(os.path.dirname(os.path.dirname(HERE)), 'workspace', 'h700', 'boards.txt')
+
+
+def read_boards(path=BOARDS_TXT):
+    """The board table (workspace/h700/boards.txt), the one list of H700 boards: {id: set of flags}, in table order."""
+    out = {}
+    for line in open(path):
+        f = line.split()
+        if not f or f[0].startswith('#'):
+            continue
+        assert len(f) >= 11, 'boards.txt: short row: ' + line.strip()
+        out[f[0]] = set() if f[8] == '-' else set(f[8].split(','))
+    assert out, 'boards.txt: no boards'
+    return out
+
+
+_TABLE = read_boards()
+BOARDS = list(_TABLE)
+OWN_BOOT0_OPTIONAL = {b for b, fl in _TABLE.items() if 'plusboot0' in fl}   # Anbernic's stock boot0 equals the Plus's
+LPDDR3 = {b for b, fl in _TABLE.items() if 'lpddr3' in fl}
 
 
 def boot0_ok(b, need_lpddr3):

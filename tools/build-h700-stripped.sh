@@ -63,7 +63,12 @@ fi
 #                overlays its /opt/muos/device, which is what makes its analog sticks exist at all:
 #                the H tree enables a GPADC + analog mux and adds keyL3/keyR3, none of it in the Plus.
 DEVICE="${H700_DEVICE:-rg35xx-plus}"   # or "all": the one image with a first-boot model picker
-H700_ALL_BOARDS="rg35xx-plus rg35xx-h rg35xx-pro rg35xx-sp rg40xx-h rg40xx-v rgcubexx-h rg28xx-h rg34xx-h rg34xx-sp rgsp"
+# Every board fact below (the list, LPDDR3, an optional own boot0, splash geometry) comes from the board table, the
+# one list the device scripts and platform.c read too; bin/board is its reader.
+BOARDS_TXT="$REPO/workspace/h700/boards.txt"; export BOARDS_TXT
+board() { sh "$REPO/skeleton/SYSTEM/h700/bin/board" "$@"; }
+H700_ALL_BOARDS=$(board ids | tr '\n' ' ')
+[ -n "$H700_ALL_BOARDS" ] || { echo "ERROR: no boards in $BOARDS_TXT"; exit 1; }
 DEVICE_DIR="$ASSETS/device-$DEVICE"
 RAW36="$ASSETS/parts/raw-36mb.img.gz"          # the Plus chain, our proven baseline
 BUILT_RAW=""                                    # the chain bootchain.py patched for this board (every board has one)
@@ -141,7 +146,7 @@ else
 	# unit, was never proven. FAIL CLOSED for these three boards: a checkout without the file would otherwise ship
 	# the Plus LPDDR4 primary without a word.
 	NEED_LPDDR3=0
-	case "$DEVICE" in rg35xx-pro|rg40xx-h|rg40xx-v) NEED_LPDDR3=1 ;; esac
+	if board has lpddr3 "$DEVICE"; then NEED_LPDDR3=1; fi   # boards.txt flag lpddr3
 	if [ -f "$ASSETS/parts-$DEVICE/boot0.img" ]; then
 		python3 - "$ASSETS/parts-$DEVICE/boot0.img" "$BUILT_RAW" "$NEED_LPDDR3" <<'PYEOF' || exit 1
 import struct, sys
@@ -167,13 +172,11 @@ PYEOF
 		# share one; the 2024 runs the Plus chain). The RG28XX is NOT on this list: the boot0 Knulli actually
 		# writes there is a different code build (the "identical" match came from files Knulli never uses,
 		# 2026-10-27), so it ships its own like the RG34XX, RG34XX SP, RG SP and RG CubeXX.
-		case "$DEVICE" in
-			rg35xx-h|rg35xx-2024|rg35xx-sp) ;;
-			*)
-				echo "ERROR: $DEVICE has no boot0 at $ASSETS/parts-$DEVICE/boot0.img, and its DRAM parameters are not"
-				echo "       known to match the Plus's. Add that board's own boot0 (from its stock or muOS image)."
-				exit 1 ;;
-		esac
+		if ! board has plusboot0 "$DEVICE"; then   # boards.txt flag plusboot0
+			echo "ERROR: $DEVICE has no boot0 at $ASSETS/parts-$DEVICE/boot0.img, and its DRAM parameters are not"
+			echo "       known to match the Plus's. Add that board's own boot0 (from its stock or muOS image)."
+			exit 1
+		fi
 	fi
 	# FAIL CLOSED on the kernel: every board names its kernel explicitly in parts-<device>/, never via the
 	# silent part() fallback. RG35XX H and Pro: their OWN muOS kernel + ramdisk + boot_package, all from ONE
@@ -271,14 +274,12 @@ if [ "$DEVICE" = all ]; then
 fi
 # First-boot "Installing MinUI Zero..." frame for expand-roms.sh (raw fb page, panel-sized).
 rm -f "$ASSETS/installing.raw"
-# The panel's fb page per board (the same families as h700_geometry_init in platform.c): 720x480 RG34XX/RG SP,
-# 720x720 Cube, and the RG28XX's portrait 480x640 with the art turned the way frames are.
-case "$DEVICE" in
-	*cube*) SPLASH_GEOM="720 720" ;;
-	*34xx*|rgsp|rg-sp) SPLASH_GEOM="720 480" ;;
-	*28xx*) SPLASH_GEOM="480 640 270" ;;
-	*) SPLASH_GEOM="640 480" ;;
-esac
+# The panel's fb page per board, from the w h rot columns of boards.txt (what platform.c renders): a turned board
+# (the RG28XX) gets the portrait page with the art turned the way frames are. The one image starts as a Plus.
+_sb=$DEVICE; [ "$_sb" != all ] || _sb=rg35xx-plus
+_sw=$(board w "$_sb" || true); _sh=$(board h "$_sb" || true); _sr=$(board rot "$_sb" || true)
+[ -n "$_sw" ] && [ -n "$_sh" ] || { echo "ERROR: $_sb is not in $BOARDS_TXT"; exit 1; }
+if [ "${_sr:-0}" = 0 ]; then SPLASH_GEOM="$_sw $_sh"; else SPLASH_GEOM="$_sh $_sw $_sr"; fi
 # PIL lives in whichever Homebrew python has it: python3 moved to 3.15 without it on 2026-10-27 and every build
 # that day silently shipped no splash (v1.9.1 had one). A release must have it; a dev build only warns.
 PY_PIL=""
@@ -708,6 +709,7 @@ done
 cp "$REPO"/workspace/tg5040/cores/output/*.so           "$STAGE/.system/h700/cores/"
 cp "$REPO"/skeleton/SYSTEM/res/*                        "$STAGE/.system/res/"
 cp -R "$REPO"/skeleton/SYSTEM/h700/paks                 "$STAGE/.system/h700/paks"
+cp "$REPO/workspace/h700/boards.txt"                    "$STAGE/.system/h700/boards.txt"   # the board table the device scripts read
 # system.cfg: frontend defaults + the LOCKS that hide options whose PLAT_ hooks are still stubs on
 # this platform (effects, sharpness, tearing, debug HUD). Without it the in-game Options > Frontend
 # menu offered choices that silently did nothing (Dan 2026-08-11). minarch reads SYSTEM_PATH/system.cfg.

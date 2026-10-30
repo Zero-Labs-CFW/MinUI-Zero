@@ -69,18 +69,9 @@ export PATH="$SYSTEM_PATH/bin:$PATH"
 # the dummy driver is correct and keeps SDL from initialising a GL context we never use.
 export SDL_VIDEODRIVER=dummy
 # DEVICE properties, so they live here rather than being repeated by all 15 emu paks (2026-08-26).
-# Panel refresh per board, same table as tools/h700-strip/minui-frontend.sh (keep them in sync): the Plus
-# MEASURED 59.9777 Hz (panelprobe 2026-08-04), SP and 40XX from their device-tree timings (2026-09-25).
-# The Pro boots the muOS 3f2fa25 Pro package now, whose panel timings equal the Plus/H, so it takes
-# 59.9777 too (was 59.935 from its earlier tree, 2026-09-27).
-case "$DEVICE" in
-	sp)               export MINARCH_PANEL_FPS=60.004 ;;
-	rg40xx-h|rg40xx-v) export MINARCH_PANEL_FPS=59.981 ;;
-	rg34xx-h|rg34xx-sp|rgsp) export MINARCH_PANEL_FPS=60.0037 ;;  # 54 MHz / (1679 x 536), not measured
-	rgcubexx-h)       export MINARCH_PANEL_FPS=59.9775 ;;  # 48 MHz / (1060 x 755), not measured
-	rg28xx-h)         export MINARCH_PANEL_FPS=59.9940 ;;  # 24 MHz / (584 x 685), not measured
-	*)                export MINARCH_PANEL_FPS=59.9777 ;;   # plus, h, pro (same timings)
-esac
+# Panel refresh per board: the hz column of boards.txt (rates and their provenance live there).
+_hz=$(sh "$SYSTEM_PATH/bin/board" hz 2>/dev/null)
+export MINARCH_PANEL_FPS=${_hz:-59.9777}   # an unknown board paces as the Plus
 # Occupancy servo (DRC on ring fill, as RetroArch/NextUI do): required on every platform since the
 # ring was resized and the loop became video-clocked (2026-10-03). Without it a few ppm of
 # match error walks the ring to empty (underruns) or full (blocking = lag). =0 kills it for an A/B.
@@ -130,10 +121,10 @@ _pin() { # <gpio> <low|high>
 		echo "pin $1 $2: devmem write NOT confirmed (cfg $_pc, dat $_pd)" >> "$LOG"; return 1
 	fi
 }
-case "$DEVICE" in
-	rg40xx-h|rg40xx-v) _pin 133 low; _pin 263 low ;;
-	sp)                _pin 210 high ;;
-esac
+# the board's pins column in boards.txt (RG40XX H/V: 133 and 263 low; RG35XX SP: 210 high)
+for _p in $(sh "$SYSTEM_PATH/bin/board" pins 2>/dev/null | tr , ' '); do
+	[ "$_p" = - ] || _pin "${_p%%:*}" "${_p#*:}"
+done
 
 # --- clock: the board has no battery-backed RTC, so a cold boot starts in 1970 ----------------
 if [ "$(date +%Y)" -lt 2025 ] && [ -f "$DATETIME_PATH" ]; then

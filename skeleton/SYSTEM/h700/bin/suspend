@@ -73,7 +73,7 @@ suspend_mem() { # sets rc (0 = suspended and resumed) and T1 (the wake time)
 # a bad value there would abort this set -e script.
 _devmem() { if command -v devmem >/dev/null 2>&1; then devmem "$@"; else busybox devmem "$@"; fi; }
 lid_shut() {
-	case "${DEVICE:-}" in sp|rg34xx-sp|rgsp) ;; *) return 1 ;; esac   # the PE7 lid boards (platform.c PLAT_initLid)
+	sh "$(dirname "$0")/board" has lid 2>/dev/null || return 1   # the PE7 lid boards: boards.txt flag lid
 	[ -f /tmp/lid_armed ] && [ ! -f /tmp/lid_off ] || return 1
 	grep -q sun50iw9p1-pinctrl /proc/device-tree/soc@03000000/pinctrl@0300b000/compatible 2>/dev/null || return 1
 	_v=$(_devmem 0x0300b0a0 32 2>/dev/null) || return 1

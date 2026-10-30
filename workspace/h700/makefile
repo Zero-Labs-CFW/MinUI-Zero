@@ -5,12 +5,16 @@
 # exist so the shared workspace/makefile sequence runs unchanged. Real work arrives with
 # the boot-image milestone (see platform/../README-BRINGUP.md "Order of work").
 
-.PHONY: all early clean
+.PHONY: all early boards clean
 
-all:
+all: boards
 	cd ./boardpick && make
 
-early:
+# platform/boards.h: the board table as C, before anything compiles platform.c (workspace/makefile runs early first)
+early: boards
+
+boards:
+	sh ./gen-boards.sh ./boards.txt ./platform/boards.h
 
 clean:
 	cd ./boardpick && make clean

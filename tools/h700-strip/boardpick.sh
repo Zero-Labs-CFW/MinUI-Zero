@@ -23,34 +23,16 @@ log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 [ -f "$CHOSEN" ] && exit 0
 [ -d "$B" ] || exit 0  # a single-board image: nothing to pick
 
-# Screen types in try order: id list, then "id label" pairs for the picker. The first id of each type is the
-# board whose boot files stand in for the type while it is tried. Plus first: the image ships its boot files.
-TYPES="
-rg35xx-plus rg35xx-h rg35xx-pro
-rg35xx-sp
-rg40xx-h rg40xx-v
-rgcubexx-h
-rg28xx-h
-rg34xx-h
-rg34xx-sp rgsp
-"
-label() {
-	case "$1" in
-		rg35xx-plus) echo "RG35XX Plus / 2024" ;;
-		rg35xx-h) echo "RG35XX H" ;;
-		rg35xx-pro) echo "RG35XX Pro" ;;
-		rg35xx-sp) echo "RG35XX SP" ;;
-		rg40xx-h) echo "RG40XX H" ;;
-		rg40xx-v) echo "RG40XX V" ;;
-		rgcubexx-h) echo "RG CubeXX" ;;
-		rg28xx-h) echo "RG28XX" ;;
-		rg34xx-h) echo "RG34XX" ;;
-		rg34xx-sp) echo "RG34XX SP" ;;
-		rgsp) echo "RG SP" ;;
-	esac
-}
-NTYPES=$(echo "$TYPES" | grep -c .)
-type_line() { echo "$TYPES" | grep . | sed -n "$(($1 + 1))p"; }
+# Screen types in try order, from the board table (boards.txt, its type column): type_line <n> lists that type's
+# board ids in table order. The first id of each type is the board whose boot files stand in for the type while
+# it is tried. Type 0 starts with the Plus: the image ships its boot files.
+BOARDS_TXT=/mnt/mmc/.system/h700/boards.txt
+BOARD=/mnt/mmc/.system/h700/bin/board
+export BOARDS_TXT
+label() { sh "$BOARD" label "$1"; }
+NTYPES=$(awk '$1 !~ /^#/ && NF >= 11 && $2 + 1 > n { n = $2 + 1 } END { print n + 0 }' "$BOARDS_TXT" 2>/dev/null)
+type_line() { awk -v t="$1" '$1 !~ /^#/ && NF >= 11 && $2 == t { printf "%s%s", s, $1; s = " " }' "$BOARDS_TXT"; }
+[ "${NTYPES:-0}" -gt 0 ] || { log "no board table at $BOARDS_TXT, not picking a model"; exit 0; }
 
 # The card. Prove mmcblk0 is the card we booted from before writing anything, as expand-roms.sh does (these
 # boards have a second slot): the running root must be mmcblk0p5, compared by device number. Then check the

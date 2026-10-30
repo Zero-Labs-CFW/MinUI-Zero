@@ -19,15 +19,13 @@ import filecmp, gzip, io, os, shutil, struct, subprocess, sys, tarfile, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from oneimage import bootimg_len   # one definition of the p4 trim, shared with the one-image stager
+from oneimage import bootimg_len, BOARDS, LPDDR3   # the p4 trim and the board table, shared with the stager
 REPO = os.path.dirname(os.path.dirname(HERE))
 RAW36 = 36 << 20
 BOOT0_OFFS = (8192, 262144)
 SECTOR = 512
 P2, P3, P4 = 90112, 155648, 188416       # build-h700-stripped.sh dd seeks
-LPDDR3 = ('rg35xx-pro', 'rg40xx-h', 'rg40xx-v')
-ALL = ('rg35xx-plus', 'rg35xx-h', 'rg35xx-pro', 'rg35xx-sp', 'rg40xx-h', 'rg40xx-v', 'rgcubexx-h', 'rg28xx-h',
-       'rg34xx-h', 'rg34xx-sp', 'rgsp')
+ALL = tuple(BOARDS)   # workspace/h700/boards.txt
 
 fails = []
 
@@ -232,6 +230,12 @@ def main():
         ver = subprocess.run([mtype, '-i', spec, '::/.system/version.txt'], capture_output=True, text=True).stdout
         check('version.txt', bool(ver) and (not opts.get('--version') or '(%s)' % opts['--version'] in ver),
               ver.splitlines()[0] if ver else 'missing')
+        # what the device scripts read: the board table, its reader, and the shared launch-loop log helpers
+        for src, dst in (('workspace/h700/boards.txt', '.system/h700/boards.txt'),
+                         ('skeleton/SYSTEM/h700/bin/board', '.system/h700/bin/board'),
+                         ('skeleton/SYSTEM/res/zero-log.sh', '.system/res/zero-log.sh')):
+            got = subprocess.run([mtype, '-i', spec, '::/' + dst], capture_output=True).stdout
+            check(dst + ' current', got == open(os.path.join(REPO, src), 'rb').read(), '' if got else 'missing')
         if opts.get('--release'):
             dm = subprocess.run([mtype, '-i', spec, '::/devmode.txt'], capture_output=True).returncode
             check('no devmode.txt on the card', dm != 0)

@@ -41,6 +41,7 @@
 #include "utils.h"
 
 #include "scaler.h"
+#include "boards.h" // generated from workspace/h700/boards.txt (workspace/h700/gen-boards.sh)
 
 // Forward decl: zero_owns_os() is defined lower (with the governor code) but gates owned-OS-only
 // behaviour used earlier in the file (PLAT_isToppingUp, PLAT_powerOff).
@@ -67,13 +68,18 @@ int h700_fixed_w = 640, h700_fixed_h = 480, h700_row_count = 6, h700_padding = 1
 int h700_rotate = 0; // 0, or 90 / 270: degrees clockwise the frame turns on its way to a portrait panel
 static void h700_rot_copy(const uint16_t* src, int spitch, int W, int H, int cx, int cy, int cw, int ch,
                           void* dst, int dpitch, int bpp);
-__attribute__((constructor)) static void h700_geometry_init(void) {
+// The board this process runs on: the boards.txt row for DEVICE (exported by the frontend), NULL when DEVICE is
+// unset or names no board. Every board fact platform.c needs comes from here, not from its own copy of the list.
+static const H700Board* h700_board(void) {
 	const char* d = getenv("DEVICE");
+	if (d) for (size_t i = 0; i < sizeof(h700_boards) / sizeof(h700_boards[0]); i++)
+		if (!strcmp(d, h700_boards[i].dev)) return &h700_boards[i];
+	return NULL;
+}
+__attribute__((constructor)) static void h700_geometry_init(void) {
+	const H700Board* b = h700_board(); // unknown or unset: the 640x480 defaults above (the Plus)
 	const char* g = getenv("ZERO_H700_GEOMETRY");
-	if (!d) d = "plus";
-	if (strstr(d, "cube")) { h700_fixed_w = 720; h700_fixed_h = 720; h700_row_count = 8; h700_padding = 40; }
-	else if (strstr(d, "34xx") || !strcmp(d, "rgsp") || !strcmp(d, "rg-sp")) h700_fixed_w = 720;
-	else if (strstr(d, "28xx")) h700_rotate = 270; // panel portrait 480x640 (rg28xx.md); direction unmeasured on our chain
+	if (b) { h700_fixed_w = b->w; h700_fixed_h = b->h; h700_rotate = b->rot; h700_row_count = b->rows; h700_padding = b->pad; }
 	if (g && g[0]) {
 		int w = 0, h = 0, r = 0;
 		if (sscanf(g, "%dx%dr%d", &w, &h, &r) >= 2 && w >= 320 && h >= 240 && w <= 1024 && h <= 768) {
@@ -1397,13 +1403,13 @@ void PLAT_setCPUMaxFreq(int khz) {
 static int rumble_pwm3(void) {
 	static int use = -1;
 	if (use < 0) {
-		const char* d = getenv("DEVICE");
-		use = (d && strstr(d, "40xx")) ? 1 : 0;
+		const H700Board* b = h700_board();
+		use = b && b->pwm3; // boards.txt flag pwm3
 		if (use) {
 			if (!exists(PWM3)) putInt("/sys/class/pwm/pwmchip0/export", 3);
 			putInt(PWM3 "/period", 500000);
 			putInt(PWM3 "/duty_cycle", 475000);
-			LOG_info("rumble: %s -> pwm3 (%s)\n", d, exists(PWM3) ? "ready" : "export failed");
+			LOG_info("rumble: %s -> pwm3 (%s)\n", b->dev, exists(PWM3) ? "ready" : "export failed");
 		}
 	}
 	return use;
@@ -1518,8 +1524,8 @@ void PLAT_initLid(void) {
 	// RG35XX SP, RG34XX SP and RG SP: all three trees put the hall sensor on PE7. Only the 35XX SP is known to
 	// read open = 1; a board that reads it the other way is caught by bin/suspend's escape hatch (POWER 3
 	// times with the lid reading shut turns the lid off until reboot).
-	const char* d = getenv("DEVICE");
-	if (!d || (strcmp(d, "sp") && strcmp(d, "rg34xx-sp") && strcmp(d, "rgsp"))) return;
+	const H700Board* b = h700_board();
+	if (!b || !b->lid) return; // boards.txt flag lid
 	if (exists(LID_OFF)) { LOG_info("lid: off until reboot (turned off earlier this boot)\n"); return; }
 	if (!exists(LID_GPIO)) {
 		putInt("/sys/class/gpio/export", 135);
@@ -1591,8 +1597,8 @@ int PLAT_supportsDeepSleep(void) {
 	// other board a suspend that does not come back looks like a dead device after two minutes
 	// idle, so they keep the light sleep until a tester proves theirs. The frontend always exports
 	// DEVICE (default "plus").
-	const char* d = getenv("DEVICE");
-	if (!d || (strcmp(d, "plus") && strcmp(d, "h"))) return 0;
+	const H700Board* b = h700_board();
+	if (!b || !b->sleep) return 0; // boards.txt flag sleep
 	return zero_owns_os(); // owned OS only: never suspend the host while running as a muOS guest
 }
 
@@ -1723,21 +1729,11 @@ char* PLAT_getModel(void) {
 	// The board id the frontend exports (tools/h700-strip/minui-frontend.sh: muOS board/name minus "rg35xx-"; the
 	// image build writes the same ids to .system/h700/board). Only the About screen shows this string (minui.c);
 	// Device Sync names boards from DEVICE itself. The RG35XX 2024 boots the Plus image, so it reads as the Plus.
-	const char* d = getenv("DEVICE");
-	if (d) {
-		if (!strcmp(d, "plus"))     return "Anbernic RG35XX Plus";
-		if (!strcmp(d, "h"))        return "Anbernic RG35XX H";
-		if (!strcmp(d, "pro"))      return "Anbernic RG35XX Pro";
-		if (!strcmp(d, "sp"))       return "Anbernic RG35XX SP";
-		if (!strcmp(d, "rg40xx-h")) return "Anbernic RG40XX H";
-		if (!strcmp(d, "rg40xx-v")) return "Anbernic RG40XX V";
-		if (!strcmp(d, "rg34xx-h")) return "Anbernic RG34XX";
-		if (!strcmp(d, "rg34xx-sp")) return "Anbernic RG34XX SP";
-		if (!strcmp(d, "rgsp"))     return "Anbernic RG SP";
-		if (!strcmp(d, "rgcubexx-h")) return "Anbernic RG CubeXX";
-		if (!strcmp(d, "rg28xx-h")) return "Anbernic RG28XX";
-	}
-	return "Anbernic RG35XX";
+	static char model[64];
+	const H700Board* b = h700_board();
+	if (!b) return "Anbernic RG35XX";
+	snprintf(model, sizeof(model), "Anbernic %s", b->label); // boards.txt label
+	return model;
 }
 
 int PLAT_isOnline(void) {
