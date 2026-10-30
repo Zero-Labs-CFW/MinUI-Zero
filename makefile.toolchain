@@ -51,7 +51,10 @@ all: $(INIT_IF_NECESSARY)
 	docker run -it --rm --platform linux/amd64 -v $(HOST_WORKSPACE):$(GUEST_WORKSPACE) $(IMAGE) /bin/bash
 
 $(INIT_IF_NECESSARY): $(PIN_IF_NECESSARY)
+	if [ $(TC_PLATFORM) = tg5040 ]; then sh tools/fetch-tg5040-toolchain.sh toolchains/tg5040-toolchain/support; fi
 	cd toolchains/$(TC_PLATFORM)-toolchain && DOCKER_DEFAULT_PLATFORM=linux/amd64 make .build
+	# setup-toolchain.sh ignores its own download failures, so prove the compiler landed in the image
+	if [ $(TC_PLATFORM) = tg5040 ]; then docker run --rm --platform linux/amd64 $(TC_PLATFORM)-toolchain /opt/aarch64-linux-gnu/bin/aarch64-linux-gnu-gcc --version >/dev/null || { rm -f $(INIT_IF_NECESSARY); echo "ERROR: $(TC_PLATFORM)-toolchain image has no compiler"; exit 1; }; fi
 
 $(GIT_IF_NECESSARY):
 	mkdir -p toolchains
