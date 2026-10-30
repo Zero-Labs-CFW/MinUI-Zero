@@ -158,6 +158,14 @@ extern int h700_fixed_w, h700_fixed_h, h700_row_count, h700_padding;
 // One DE render page (platform.c disp_init): minarch keeps every scaled game buffer inside it.
 #define PLAT_RENDER_MAX_BYTES	(1024 * 768 * FIXED_BPP)
 #define FIXED_SIZE		(FIXED_PITCH * FIXED_HEIGHT)
+// HDMI as upstream rg35xxplus declares it. There is no HDMI output here (GetHDMI is 0); without these defines.h
+// sets HDMI_WIDTH to FIXED_WIDTH, and minarch turns Cropped into Native whenever DEVICE_WIDTH == HDMI_WIDTH,
+// so the CubeXX's Cropped option (PLAT_supportsOverscan) would be Native in disguise.
+#define HAS_HDMI		1
+#define HDMI_WIDTH		1280
+#define HDMI_HEIGHT		720
+#define HDMI_PITCH		(HDMI_WIDTH * FIXED_BPP)
+#define HDMI_SIZE		(HDMI_PITCH * HDMI_HEIGHT)
 
 #define H700_PANEL_HZ	59.9777	// measured 2026-08-04, 3x600-pan probe runs
 
