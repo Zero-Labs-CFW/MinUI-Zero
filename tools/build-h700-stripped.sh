@@ -230,6 +230,14 @@ if [ "${_newest_src:-0}" -gt "${_elf_time:-0}" ]; then
 	echo "       (a stale binary here ships silently and costs a device-debugging session)"
 	exit 1
 fi
+# the one image runs the model picker before anything else, so it gets the same freshness gate
+if [ "$DEVICE" = all ]; then
+	_pick_time=$(stat -f "%m" "$REPO/workspace/h700/boardpick/build/h700/boardpick.elf" 2>/dev/null || echo 0)
+	if [ "${_newest_src:-0}" -gt "${_pick_time:-0}" ]; then
+		echo "ERROR: boardpick.elf is OLDER than the sources; run make h700-build before building an image."
+		exit 1
+	fi
+fi
 echo "  frontend binaries: current"
 
 mkdir -p "$OUT_DIR"
@@ -826,7 +834,9 @@ rm -f "$IMG"
 cp "$BUILT_RAW" "$IMG"
 # PER-DEVICE PARTS: parts-<device>/<file> overrides the shared part. Which boards carry their own kernel and
 # which the Plus one is in the fail-closed kernel note above; assets.sha256 pins each.
-part() { if [ -f "$ASSETS/parts-$DEVICE/$1" ]; then echo "$ASSETS/parts-$DEVICE/$1"; else echo "$ASSETS/parts/$1"; fi; }
+# The one image ships the Plus parts (there is no parts-all, and a stray one must never be picked up unpinned).
+_pdev=$DEVICE; [ "$_pdev" != all ] || _pdev=rg35xx-plus
+part() { if [ -f "$ASSETS/parts-$_pdev/$1" ]; then echo "$ASSETS/parts-$_pdev/$1"; else echo "$ASSETS/parts/$1"; fi; }
 # `gunzip -c X | dd ...` reports DD exit status, and /bin/sh has no pipefail, so a truncated or
 # corrupt part produced a short write, a zero exit, and a fully assembled image that cannot boot.
 # Decompress to a temp file first so set -e actually sees the failure.

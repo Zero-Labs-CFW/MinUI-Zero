@@ -37,6 +37,8 @@ def check(name, ok, detail=''):
 
 
 def part(assets, device, name):
+    if device == 'all':   # the one image ships the Plus parts; a stray parts-all must not be blessed
+        device = 'rg35xx-plus'
     own = os.path.join(assets, 'parts-' + device, name)
     return own if os.path.isfile(own) else os.path.join(assets, 'parts', name)
 
@@ -95,6 +97,16 @@ def debugfs(img, off, path):
     return r.stdout
 
 
+def debugfs_mode(img, off, path):
+    """The inode mode of PATH in the rootfs (e.g. 0o100755), or None when it does not exist."""
+    d, base = os.path.split(os.path.abspath(img))
+    r = subprocess.run(['docker', 'run', '--rm', '--platform', 'linux/amd64', '-v', d + ':/img:ro', 'tg5040-toolchain',
+                        'debugfs', '-R', 'stat ' + path, '/img/%s?offset=%d' % (base, off)], capture_output=True, text=True)
+    for tok in r.stdout.replace('\n', ' ').split('Mode:')[1:2]:
+        return int(tok.split()[0], 8)
+    return None
+
+
 def rdump(img, off, path, out):
     """Copy a rootfs directory out of the image into OUT; returns the copy or None."""
     d, base = os.path.split(os.path.abspath(img))
@@ -105,7 +117,7 @@ def rdump(img, off, path, out):
     return got if os.path.isdir(got) else None
 
 
-def boards_diff(assets, have, tmp):
+def boards_diff(assets, have, tmp, plus_device):
     """The one image's staged boards (HAVE, rdumped) against oneimage.py run on the pinned assets. Compressed files
     are compared by content: gzip and tar headers carry build-time stamps."""
     base = os.path.join(tmp, 'base.img')
@@ -130,9 +142,10 @@ def boards_diff(assets, have, tmp):
         x = os.path.join(tmp, 'dev-' + b)
         with tarfile.open(td) as t:
             t.extractall(x)
-        if b == 'rg35xx-plus':   # the donor rootfs's own tree: it must name the Plus
+        if b == 'rg35xx-plus':   # the donor rootfs's own tree: equal to the image's /opt/muos/device, naming the Plus
             if open(os.path.join(x, 'config', 'board', 'name')).read().strip() != 'rg35xx-plus':
                 out.append('rg35xx-plus device files do not name the Plus')
+            out += ['rg35xx-plus device %s' % d for d in (tree_diff(plus_device, x) if plus_device else ['rdump failed'])]
         else:
             out += ['%s device %s' % (b, d) for d in tree_diff(os.path.join(assets, 'device-' + b), x)]
     return out
@@ -255,11 +268,21 @@ def main():
         check('board/name is ' + first, name == first, name or 'missing')
         if device == 'all':
             check('frontend runs the model picker', 'boardpick.sh' in fe)
-            check('picker installed', bool(cat('/opt/minui-zero/boardpick.sh')) and bool(cat('/opt/minui-zero/boardpick.elf')))
-            check('no model chosen yet', not cat('/opt/minui-zero/boards/chosen'))
+            for src, dst in (('tools/h700-strip/boardpick.sh', '/opt/minui-zero/boardpick.sh'),
+                             ('workspace/h700/boardpick/build/h700/boardpick.elf', '/opt/minui-zero/boardpick.elf')):
+                want = open(os.path.join(REPO, src), 'rb').read()
+                mode = debugfs_mode(img, off, dst)
+                check('picker ' + os.path.basename(dst) + ' current + executable',
+                      cat(dst) == want and mode is not None and mode & 0o111 == 0o111,
+                      'mode %s' % (oct(mode) if mode is not None else 'missing'))
+            # the frontend and the picker test these by existence, so check existence, not contents
+            for n in ('chosen', 'chosen.new', 'trying'):
+                check('no boards/' + n + ' yet', debugfs_mode(img, off, '/opt/minui-zero/boards/' + n) is None)
             with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(img))) as tmp:
                 have = rdump(img, off, '/opt/minui-zero/boards', tmp)
-                diff = boards_diff(assets, have, tmp) if have else ['rdump failed']
+                os.makedirs(os.path.join(tmp, 'dev'))
+                plus = rdump(img, off, '/opt/muos/device', os.path.join(tmp, 'dev'))
+                diff = boards_diff(assets, have, tmp, plus) if have else ['rdump failed']
             check('all %d boards staged' % len(ALL), not diff, ', '.join(diff[:5]))
         elif device != 'rg35xx-plus':
             want = os.path.join(assets, 'device-' + device)

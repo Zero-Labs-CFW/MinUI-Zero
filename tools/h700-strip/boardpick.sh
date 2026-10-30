@@ -83,24 +83,40 @@ write() {
 	[ "$_want" = "$_got" ] || { log "readback mismatch writing $1 to $2 at $3"; return 1; }
 }
 
-# install <board> [full]: the board's kernel, boot package and device files (and with "full" its own boot0)
+# install <board> [full]: the board's kernel, boot package and device files (and with "full" its own boot0).
+# Everything that can fail without touching the card runs first (every file present, the kernel and the device
+# files unpacked); the raw writes come next, boot0 last, and the live device files are swapped only after every
+# write has read back. A failure part way is put back by the caller (rollback).
 install() {
 	_d=$B/$1
 	_k=$B/kernels/$(cat "$_d/kernel" 2>/dev/null)
-	for _f in "$_d/package.fex" "$_d/device.tar.gz" "$_k"; do [ -f "$_f" ] || { log "missing $_f"; return 1; }; done
-	gunzip -c "$_k" > /tmp/bp-kernel.img || return 1
+	for _f in "$_d/package.fex" "$_d/device.tar.gz" "$_d/boot0.img" "$_k"; do [ -f "$_f" ] || { log "missing $_f"; return 1; }; done
+	gunzip -c "$_k" > /tmp/bp-kernel.img || { log "cannot unpack $_k"; return 1; }
+	# the rootfs tar is busybox built without -z, so gunzip first (to a file: sh has no pipefail)
+	gunzip -c "$_d/device.tar.gz" > /tmp/bp-device.tar && rm -rf /opt/muos/device.new && mkdir -p /opt/muos/device.new &&
+		tar -xf /tmp/bp-device.tar -C /opt/muos/device.new || { log "cannot unpack $_d/device.tar.gz"; return 1; }
+	rm -f /tmp/bp-device.tar
 	write /tmp/bp-kernel.img "$P4" 0 || return 1
 	rm -f /tmp/bp-kernel.img
 	write "$_d/package.fex" "$DISK" 32800 || return 1   # 16793600
-	if [ "$2" = full ] && [ -f "$_d/boot0.img" ]; then
+	if [ "$2" = full ]; then
 		write "$_d/boot0.img" "$DISK" 16 || return 1     # 8192
 		write "$_d/boot0.img" "$DISK" 512 || return 1    # 262144
 	fi
-	rm -rf /opt/muos/device.new && mkdir -p /opt/muos/device.new &&
-		tar -xzf "$_d/device.tar.gz" -C /opt/muos/device.new || return 1
-	rm -rf /opt/muos/device && mv /opt/muos/device.new /opt/muos/device || return 1
-	printf '%s\n' "${1#rg35xx-}" > /mnt/mmc/.system/h700/board
+	rm -rf /opt/muos/device.old
+	[ ! -d /opt/muos/device ] || mv /opt/muos/device /opt/muos/device.old || return 1
+	mv /opt/muos/device.new /opt/muos/device || return 1
+	rm -rf /opt/muos/device.old
+	printf '%s\n' "${1#rg35xx-}" > /mnt/mmc/.system/h700/board || return 1
 	sync
+}
+
+# rollback <board> [<boot0 file>]: put back the screen type that was installed (and the boot0 that was on the
+# card) after a failed install, so a failed write never leaves a mixed set for the next boot.
+rollback() {
+	install "$1" && { [ -z "$2" ] || { write "$2" "$DISK" 16 && write "$2" "$DISK" 512; }; } && return 0
+	log "ROLLBACK FAILED: the boot files on the card are mixed, it may need reflashing"
+	return 1
 }
 
 check_layout || { log "card layout not recognized, not picking a model"; exit 0; }
@@ -111,27 +127,39 @@ case "$i" in ''|*[!0-9]*) i=0 ;; esac
 set --
 for b in $(type_line "$i"); do set -- "$@" "$b" "$(label "$b")"; done
 log "screen type $i: $(type_line "$i")"
+cur=$(type_line "$i" | cut -d ' ' -f 1)
 pick=$(/opt/minui-zero/boardpick.elf 30 "$@")
 rc=$?
-if [ $rc -eq 0 ] && [ -n "$pick" ]; then
+if [ $rc -eq 0 ]; then
+	# only a model the picker was offered: anything else (a stray line, an empty answer) picks nothing
+	case " $(type_line "$i") " in *" $pick "*) ;; *) log "picker answered [$pick], not a model of screen type $i"; exit 1 ;; esac
 	log "chosen: $pick"
-	if install "$pick" full; then
-		echo "$pick" > "$CHOSEN"
-		rm -f "$TRYING"
+	# the boot0 on the card now (the universal one), so a failed install can put it back
+	dd if="$DISK" of=/tmp/bp-boot0.img bs=512 skip=16 count=128 2>>"$LOG" &&
+		[ "$(wc -c < /tmp/bp-boot0.img)" -eq 65536 ] && head -c 12 /tmp/bp-boot0.img | tail -c 8 | grep -q eGON.BT0 ||
+		{ log "cannot save the boot0 on the card, not installing"; exit 1; }
+	if install "$pick" full && echo "$pick" > "$CHOSEN.new" && sync && mv "$CHOSEN.new" "$CHOSEN"; then
+		rm -f "$TRYING"; sync
 		restart
 	fi
-	log "install of $pick failed; asking again"
+	log "install of $pick failed; putting back screen type $i ($cur)"
+	rm -f "$CHOSEN" "$CHOSEN.new"
+	rollback "$cur" /tmp/bp-boot0.img
 	exit 1
 fi
+# Only the picker's own "no choice" (2: timeout or SELECT held) moves on. Any other exit is the picker failing,
+# which it would do the same way on every screen type, so stop here and let the menu start on what is installed.
+[ $rc -eq 2 ] || { log "picker failed (rc $rc), not cycling"; exit 1; }
 next=$(( (i + 1) % NTYPES ))
 rep=$(type_line "$next" | cut -d ' ' -f 1)
-log "no choice (rc $rc): trying screen type $next ($rep)"
+log "no choice: trying screen type $next ($rep)"
 # Record the type BEFORE writing its files: a power cut after the write must ask about the screen type that is
 # installed, and one during the write leaves a mixed set either way (reflash).
-echo "$next" > "$TRYING"; sync
+echo "$next" > "$TRYING" && sync || { log "cannot record screen type $next, not cycling"; exit 1; }
 if install "$rep"; then
 	restart
 fi
+log "install of $rep failed; putting back screen type $i ($cur)"
+rollback "$cur"
 echo "$i" > "$TRYING"; sync
-log "install of $rep failed"
 exit 1

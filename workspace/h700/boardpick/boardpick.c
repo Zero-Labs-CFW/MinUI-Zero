@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <msettings.h>
 
 #include "defines.h"
@@ -22,6 +23,10 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "usage: boardpick <timeout_s> <id> <label> [<id> <label> ...]\n");
 		return 1;
 	}
+	// stdout carries the answer alone: the shell reads it with $(...). The shared API logs [INFO] lines to
+	// stdout (GFX_init, input setup), which would be read as part of the board id, so send them to stderr.
+	int answer = dup(1);
+	dup2(2, 1);
 	uint32_t timeout_ms = atoi(argv[1]) * 1000;
 	int count = (argc - 2) / 2;
 	if (count > MAX_MODELS) count = MAX_MODELS;
@@ -99,6 +104,7 @@ int main(int argc, char* argv[]) {
 	PWR_quit();
 	PAD_quit();
 	GFX_quit();
-	if (result == 0) printf("%s\n", ids[selected]);
+	fflush(stdout);
+	if (result == 0) dprintf(answer, "%s\n", ids[selected]);
 	return result;
 }
