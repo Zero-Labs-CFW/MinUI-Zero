@@ -961,6 +961,19 @@ scaler_t PLAT_getScaler(GFX_Renderer* renderer) {
 }
 
 static int disp_warm = 0; // a completed present proves the mode-set settled; see settle_commits
+// CROPPED scaling (CubeXX only, PLAT_supportsOverscan). minarch trims src_w/src_h and sets src_x/src_y but
+// leaves renderer->src at the frame origin: upstream's SDL path applies the offset as a texture src_rect and
+// lets the GPU clip. Our software scalers write src * scale pixels from the pointer they get, so start the
+// source at (src_x, src_y), and trim what is left so src * scale fits the surface: minarch's trim rounds down
+// (a 161 px wide frame at 5x on 720 leaves 145 px = 725), and the overflow would run past the last row.
+static void crop_source(GFX_Renderer* r, void** src, int* sw, int* sh) {
+	*src = (uint8_t*)r->src + r->src_y * r->src_p + r->src_x * FIXED_BPP;
+	*sw = r->src_w; *sh = r->src_h;
+	if (r->scale < 1) return;
+	while (*sw > 1 && r->dst_x + *sw * r->scale > r->dst_w) (*sw)--;
+	while (*sh > 1 && r->dst_y + *sh * r->scale > r->dst_h) (*sh)--;
+}
+int PLAT_supportsOverscan(void) { return h700_fixed_w == 720 && h700_fixed_h == 720; } // upstream: is_cubexx
 void PLAT_blitRenderer(GFX_Renderer* renderer) {
 	disp_warm = 1;
 	// The effect changes from the menu between frames; minarch caches the chosen scaler in
@@ -976,15 +989,16 @@ void PLAT_blitRenderer(GFX_Renderer* renderer) {
 		// into the write-combined ION mapping cost +24% of a core (54% vs 30%, measured:
 		// scale3x's per-pixel writes defeat write combining). The flip then streams just the
 		// crop rect into the ION page as one sequential copy, which WC handles ideally.
+		void* src; int sw, sh;
+		crop_source(renderer, &src, &sw, &sh);
 		void* dst = renderer->dst + (renderer->dst_y * renderer->dst_p) + (renderer->dst_x * FIXED_BPP);
-		((scaler_t)renderer->blit)(renderer->src, dst,
-			renderer->src_w, renderer->src_h, renderer->src_p,
+		((scaler_t)renderer->blit)(src, dst, sw, sh, renderer->src_p,
 			renderer->dst_w, renderer->dst_h, renderer->dst_p);
 		// the true drawn size is src * integer scale — on the fit path minarch leaves
 		// dst_w/dst_h at DEVICE size (observed live: crop was 640x480 while the game was
 		// a 3x 480x432), and only dst_x/dst_y locate the image
-		int cw = renderer->scale >= 1 ? renderer->src_w * renderer->scale : renderer->dst_w;
-		int ch = renderer->scale >= 1 ? renderer->src_h * renderer->scale : renderer->dst_h;
+		int cw = renderer->scale >= 1 ? sw * renderer->scale : renderer->dst_w;
+		int ch = renderer->scale >= 1 ? sh * renderer->scale : renderer->dst_h;
 		// NO RESHAPE, EVER. The DE window is programmed ONCE at init and never touched again:
 		// that is exactly what upstream MinUI does on this same sunxi disp (trimuismart sets
 		// screen_win at init and only ever updates fb.addr per frame). Reprogramming the window
@@ -1010,9 +1024,10 @@ void PLAT_blitRenderer(GFX_Renderer* renderer) {
 		}
 		return;
 	}
+	void* src; int sw, sh;
+	crop_source(renderer, &src, &sw, &sh);
 	void* dst = renderer->dst + (renderer->dst_y * renderer->dst_p) + (renderer->dst_x * FIXED_BPP);
-	((scaler_t)renderer->blit)(renderer->src, dst,
-		renderer->src_w, renderer->src_h, renderer->src_p,
+	((scaler_t)renderer->blit)(src, dst, sw, sh, renderer->src_p,
 		renderer->dst_w, renderer->dst_h, renderer->dst_p);
 }
 
