@@ -62,6 +62,22 @@ $SSH "$TARGET" true 2>/dev/null || {
 
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 
+# .system/res first: the shared root (zero-log.sh, which MinUI.pak/launch.sh sources, the sprite sheets, the font).
+# Upload-only by md5, never pruned: it is shared, not this platform's directory.
+RSRC=./build/PAYLOAD/.system/res
+RDST=/mnt/SDCARD/.system/res
+if [ -d "$RSRC" ]; then
+	for f in "$RSRC"/*; do
+		[ -f "$f" ] || continue
+		n=$(basename "$f")
+		want=$(md5 -q "$f" 2>/dev/null || md5sum "$f" | cut -d' ' -f1)
+		have=$($SSH "$TARGET" "md5sum '$RDST/$n' 2>/dev/null | cut -d' ' -f1" 2>/dev/null || true)
+		[ "$want" = "$have" ] && continue
+		echo "  -> .system/res/$n"
+		$SSH "$TARGET" "mkdir -p '$RDST' && cat > '$RDST/$n.new' && mv -f '$RDST/$n.new' '$RDST/$n'" < "$f"
+	done
+fi
+
 REMOTE_MANIFEST="cd $DST 2>/dev/null && find . -type f | sed 's|^\./||' | sort | while IFS= read -r f; do echo \"\$(md5sum \"\$f\" | cut -d' ' -f1)  \$f\"; done"
 
 # Local manifest: "<md5>  <path relative to SRC>"

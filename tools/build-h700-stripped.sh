@@ -228,7 +228,7 @@ TOTAL=$((P6_LAST + 40))
 # binary while everyone debugged the device (2026-08-27). A build artifact older than any of its
 # shared or platform sources fails the build. Same class of gate as check-cores/check-payload:
 # the artifact must be checked against its own claim, and "exists" is not "current".
-_newest_src=$(find "$REPO/workspace/all/common" "$REPO/workspace/all/minui" "$REPO/workspace/all/minarch" 	"$REPO/workspace/h700" -name "*.c" -o -name "*.h" 2>/dev/null | xargs stat -f "%m" 2>/dev/null | sort -n | tail -1)
+_newest_src=$(find "$REPO/workspace/all/common" "$REPO/workspace/all/minui" "$REPO/workspace/all/minarch" 	"$REPO/workspace/h700" -name "*.c" -o -name "*.h" -o -name boards.txt -o -name gen-boards.sh 2>/dev/null | xargs stat -f "%m" 2>/dev/null | sort -n | tail -1)
 _elf_time=$(stat -f "%m" "$REPO/workspace/all/minui/build/h700/minui.elf" 2>/dev/null || echo 0)
 if [ "${_newest_src:-0}" -gt "${_elf_time:-0}" ]; then
 	echo "ERROR: minui.elf is OLDER than the sources; run 'make h700-build' before building an image."
