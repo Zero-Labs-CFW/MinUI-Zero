@@ -23,15 +23,15 @@ log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 [ -f "$CHOSEN" ] && exit 0
 [ -d "$B" ] || exit 0  # a single-board image: nothing to pick
 
-# Screen types in try order, from the board table (boards.txt, its type column): type_line <n> lists that type's
-# board ids in table order. The first id of each type is the board whose boot files stand in for the type while
-# it is tried. Type 0 starts with the Plus: the image ships its boot files.
+# Screen types in try order, from the board table (boards.txt, its type column, read through bin/board like every
+# device script): type_line <n> lists that type's board ids in table order. The first id of each type is the board
+# whose boot files stand in for the type while it is tried. Type 0 starts with the Plus: the image ships its files.
 BOARDS_TXT=/mnt/mmc/.system/h700/boards.txt
 BOARD=/mnt/mmc/.system/h700/bin/board
 export BOARDS_TXT
 label() { sh "$BOARD" label "$1"; }
-NTYPES=$(awk '$1 !~ /^#/ && NF >= 11 && $2 + 1 > n { n = $2 + 1 } END { print n + 0 }' "$BOARDS_TXT" 2>/dev/null)
-type_line() { awk -v t="$1" '$1 !~ /^#/ && NF >= 11 && $2 == t { printf "%s%s", s, $1; s = " " }' "$BOARDS_TXT"; }
+NTYPES=$(sh "$BOARD" ntypes)
+type_line() { sh "$BOARD" group "$1"; }
 [ "${NTYPES:-0}" -gt 0 ] || { log "no board table at $BOARDS_TXT, not picking a model"; exit 0; }
 
 # The card. Prove mmcblk0 is the card we booted from before writing anything, as expand-roms.sh does (these

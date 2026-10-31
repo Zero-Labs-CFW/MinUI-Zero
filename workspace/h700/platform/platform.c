@@ -111,7 +111,7 @@ struct raw_input_event { // struct input_event, aarch64 layout
 // Nodes are found by what they report, not by number: on the Plus event0 is axp2202-pek (POWER), event1
 // muOS-Keys (the pad) and event2 dierct-keys-polled (sic), but other boards' kernels may number them
 // differently or add nodes. evdev_scan (PLAT_initInput) keeps every eventN that advertises a key we map
-// or the d-pad hat, and skips the rest (jack switches, sensors).
+// or the d-pad hat or stick axes, and skips the rest (jack switches, sensors, touch).
 #define EVDEV_SCAN 16
 #define EVDEV_COUNT 8
 static int ev_fds[EVDEV_COUNT] = { -1, -1, -1, -1, -1, -1, -1, -1 };
@@ -159,8 +159,13 @@ static void evdev_scan(void) {
 		ioctl(fd, _IOC(_IOC_READ, 'E', 0x20 + 1, sizeof(keys)), keys); // EVIOCGBIT(EV_KEY)
 		ioctl(fd, _IOC(_IOC_READ, 'E', 0x20 + 3, sizeof(abs)), &abs);   // EVIOCGBIT(EV_ABS)
 		// ABS_X..ABS_RZ (0-5) too: a board whose sticks sit on their own node (adc-joystick, no keys, no
-		// hat) must keep it, or stick_axis_init never sees the axes and the sticks are dead.
-		int want = (abs & ((1UL << 16) | 0x3f)) != 0;
+		// hat) must keep it, or stick_axis_init never sees the axes and the sticks are dead. Not a sensor or
+		// a touch surface, though, which report the same axes: the kernel marks those with an input property
+		// (EVIOCGPROP: POINTER 0, DIRECT 1, ACCELEROMETER 6), and their motion would read as stick input.
+		unsigned long props = 0;
+		ioctl(fd, _IOC(_IOC_READ, 'E', 0x09, sizeof(props)), &props); // EVIOCGPROP
+		int stick = (abs & 0x3f) && !(props & ((1UL << 0) | (1UL << 1) | (1UL << 6)));
+		int want = (abs & (1UL << 16)) || stick;
 		for (int c = 114; c <= 116 && !want; c++) want = keys[c / 8] & (1 << (c % 8));
 		for (int c = 304; c <= 316 && !want; c++) want = keys[c / 8] & (1 << (c % 8));
 		char name[64] = "";

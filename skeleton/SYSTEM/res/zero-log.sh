@@ -13,13 +13,22 @@ zero_rotate_prev_log() {
 	return 0
 }
 # The launch loop's /tmp/next line: its first word, read without running anything. Evaluating the line to split it
-# ran every command of a compound line twice (2026-10-17). minui.c writes 'pak' 'rom', quotes escaped as '\''.
+# ran every command of a compound line twice (2026-10-17). minui.c writes 'pak' 'rom', quotes escaped as '\''; the
+# device test harnesses (tools/govsweep.sh, brickpro-autotest.sh, mmp-autotest.sh) write "pak" "rom".
 zero_rotate_prev_log_cmd() {
-	case "$1" in \'*"/launch.sh'"*) ;; *) return 0 ;; esac
-	_rpl_p=${1#\'}
-	_rpl_p=${_rpl_p%%"/launch.sh'"*}/launch.sh
-	case "$_rpl_p" in *"' '"*) return 0 ;; esac # past the first word
-	zero_rotate_prev_log "$(printf '%s' "$_rpl_p" | sed "s/'\\\\''/'/g")"
+	case "$1" in
+		\'*"/launch.sh'"*)
+			_rpl_p=${1#\'}
+			_rpl_p=${_rpl_p%%"/launch.sh'"*}/launch.sh
+			case "$_rpl_p" in *"' '"*) return 0 ;; esac # past the first word
+			zero_rotate_prev_log "$(printf '%s' "$_rpl_p" | sed "s/'\\\\''/'/g")" ;;
+		\"*'/launch.sh"'*)
+			_rpl_p=${1#\"}
+			_rpl_p=${_rpl_p%%'/launch.sh"'*}/launch.sh
+			case "$_rpl_p" in *'" "'*) return 0 ;; esac # past the first word
+			zero_rotate_prev_log "$_rpl_p" ;;
+	esac
+	return 0
 }
 
 # Boot receipt for dev cards (the caller checks devmode): kernel seconds at menu launch, one ~40-byte line per

@@ -3,12 +3,16 @@
 #   board <field> [<device>]      one column of the board's row: id type w h rot rows pad hz flags pins label
 #   board has <flag> [<device>]   exit 0 when the row carries the flag (lid, lpddr3, plusboot0, sleep, pwm3)
 #   board ids                     every board id, in table order
+#   board ntypes                  how many screen types the picker cycles (highest type + 1)
+#   board group <n>               the ids of screen type <n>, space separated, in table order
 # <device> defaults to $DEVICE (the muOS board name without "rg35xx-"; the full id works too). An unknown board
 # prints nothing and exits 1, so callers keep their own default.
 T=${BOARDS_TXT:-$(dirname "$0")/../boards.txt}
 row() { awk -v d="$1" '$1 !~ /^#/ && NF >= 11 && ($1 == d || $1 == "rg35xx-" d) { print; exit }' "$T" 2>/dev/null; }
 case "$1" in
 	ids) awk '$1 !~ /^#/ && NF >= 11 { print $1 }' "$T" 2>/dev/null ;;
+	ntypes) awk '$1 !~ /^#/ && NF >= 11 && $2 + 1 > n { n = $2 + 1 } END { print n + 0 }' "$T" 2>/dev/null ;;
+	group) awk -v t="$2" '$1 !~ /^#/ && NF >= 11 && $2 == t { printf "%s%s", s, $1; s = " " } END { print "" }' "$T" 2>/dev/null ;;
 	has)
 		r=$(row "${3-$DEVICE}"); [ -n "$r" ] || exit 1
 		case ",$(echo "$r" | awk '{ print $9 }')," in *",$2,"*) exit 0 ;; *) exit 1 ;; esac ;;
@@ -19,5 +23,5 @@ case "$1" in
 			if (f == "label") { s = $11; for (i = 12; i <= NF; i++) s = s " " $i; print s; exit }
 			for (i = 1; i <= n; i++) if (k[i] == f) { print $i; exit }
 		}' ;;
-	*) echo "usage: board <field>|has <flag>|ids [<device>]" >&2; exit 2 ;;
+	*) echo "usage: board <field>|has <flag>|ids|ntypes|group <n> [<device>]" >&2; exit 2 ;;
 esac

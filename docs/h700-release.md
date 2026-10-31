@@ -112,5 +112,8 @@ partition in use).
   Documented above, not automated.
 - **The assets live in `.notes/` (gitignored).** A clean checkout on another machine cannot build an
   image without copying them across.
-- **Deep sleep is on only when Zero owns the OS** (`PLAT_supportsDeepSleep()` returns `zero_owns_os()`): the
-  choreography is `skeleton/SYSTEM/h700/bin/suspend`, validated on the Plus 2026-08-13. As a muOS guest it stays off.
+- **Deep sleep is on only where it was proven on hardware, and only when Zero owns the OS**
+  (`PLAT_supportsDeepSleep()`: the board's `sleep` flag in `workspace/h700/boards.txt`, today the Plus and the H,
+  then `zero_owns_os()`): the choreography is `skeleton/SYSTEM/h700/bin/suspend`, validated on the Plus
+  2026-08-13. Every other board keeps the light sleep until a tester proves its suspend and wake; as a muOS guest
+  it stays off.

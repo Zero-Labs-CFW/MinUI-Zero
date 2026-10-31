@@ -101,8 +101,10 @@ fi
 export USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM"
 export SHARED_USERDATA_PATH="$SDCARD_PATH/.userdata/shared"
 export LOGS_PATH="$USERDATA_PATH/logs"
-# zero_rotate_prev_log, zero_rotate_prev_log_cmd and zero_boot_receipt: one copy for every platform
-[ -f "$SDCARD_PATH/.system/res/zero-log.sh" ] && . "$SDCARD_PATH/.system/res/zero-log.sh"
+# zero_rotate_prev_log, zero_rotate_prev_log_cmd and zero_boot_receipt: one copy for every platform. A card without
+# it (a partial deploy) gets do-nothing stand-ins: no rotation or receipt, and no "not found" on every launch.
+if [ -f "$SDCARD_PATH/.system/res/zero-log.sh" ]; then . "$SDCARD_PATH/.system/res/zero-log.sh"
+else zero_rotate_prev_log() { :; }; zero_rotate_prev_log_cmd() { :; }; zero_boot_receipt() { :; }; fi
 export DATETIME_PATH="$SHARED_USERDATA_PATH/datetime.txt" # used by bin/shutdown
 
 mkdir -p "$USERDATA_PATH"

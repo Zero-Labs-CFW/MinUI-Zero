@@ -12,8 +12,10 @@ export SDCARD_PATH=/mnt/mmc
 export SYSTEM_PATH=/mnt/mmc/.system/h700
 export USERDATA_PATH=/mnt/mmc/.userdata/h700
 export LOGS_PATH=/mnt/mmc/.userdata/h700/logs
-# zero_rotate_prev_log, zero_rotate_prev_log_cmd and zero_boot_receipt: one copy for every platform
-[ -f "$SDCARD_PATH/.system/res/zero-log.sh" ] && . "$SDCARD_PATH/.system/res/zero-log.sh"
+# zero_rotate_prev_log, zero_rotate_prev_log_cmd and zero_boot_receipt: one copy for every platform. A card without
+# it (a partial deploy) gets do-nothing stand-ins: no rotation or receipt, and no "not found" on every launch.
+if [ -f "$SDCARD_PATH/.system/res/zero-log.sh" ]; then . "$SDCARD_PATH/.system/res/zero-log.sh"
+else zero_rotate_prev_log() { :; }; zero_rotate_prev_log_cmd() { :; }; zero_boot_receipt() { :; }; fi
 export SHARED_USERDATA_PATH=/mnt/mmc/.userdata/shared
 export SAVES_PATH=/mnt/mmc/Saves
 export BIOS_PATH=/mnt/mmc/Bios
