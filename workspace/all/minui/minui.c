@@ -468,19 +468,28 @@ static int clearRecents(void) {
 	return 1;
 }
 
+// Written on every launch, so written crash-safe: a temp file, flushed to the card, then renamed over the old list.
+// Truncating in place left an empty Recently Played after a crash at that moment (the Brick Pro's stock kernel
+// panics on its controller i2c bus under WiFi load, r/trimui 2026-11-01).
 static void saveRecents(void) {
-	FILE* file = fopen(RECENT_PATH, "w");
+	char tmp[MAX_PATH];
+	snprintf(tmp, sizeof(tmp), "%s.tmp", RECENT_PATH);
+	FILE* file = fopen(tmp, "w");
 	if (file) {
+		int ok = 1;
 		for (int i=0; i<recents->count; i++) {
 			Recent* recent = recents->items[i];
-			fputs(recent->path, file);
+			if (fputs(recent->path, file) < 0) ok = 0;
 			if (recent->alias) {
 				fputs("\t", file);
 				fputs(recent->alias, file);
 			}
 			putc('\n', file);
 		}
-		fclose(file);
+		if (fflush(file) != 0 || fsync(fileno(file)) != 0) ok = 0;
+		if (fclose(file) != 0) ok = 0;
+		if (ok) rename(tmp, RECENT_PATH);
+		else unlink(tmp);
 	}
 }
 static void addRecent(char* path, char* alias) {

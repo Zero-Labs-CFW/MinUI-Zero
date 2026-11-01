@@ -140,7 +140,11 @@ void InitSettings(void) {
 		
 		int fd = open(SettingsPath, O_RDONLY);
 		if (fd>=0) {
-			read(fd, settings, shm_size);
+			// A short file (empty after a crash mid-write, or saved by an older, smaller struct) must not leave
+			// the rest zeroed: brightness and volume 0. Whatever was not read comes from the defaults.
+			ssize_t n = read(fd, settings, shm_size);
+			if (n < 0) n = 0;
+			if (n < shm_size) memcpy((char*)settings + n, (char*)&DefaultSettings + n, shm_size - n);
 			if (settings->version==1) {
 				settings->version = 2;
 				settings->headphones = DefaultSettings.headphones;
