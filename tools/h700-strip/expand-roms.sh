@@ -93,6 +93,16 @@ if [ -f "$SPLASH" ] && [ -c /dev/fb0 ]; then
 	say "splash shown"
 fi
 
+# ---- 0. repair the filesystem first. Users fill the card on a computer before first boot, and one bad
+# cluster chain from that copy (two BIOS files written by macOS on the H, 2026-11-02) makes the backup copy
+# hit read errors, so expansion backed off on every boot and the card stayed at the image size for good.
+# fsck -a truncates only files that are already unreadable; 0 = clean, 1 = repaired, anything else = skip.
+if command -v fsck.vfat >/dev/null 2>&1; then
+	fsck.vfat -a "$PART" >> "$LOG" 2>&1; _fsck=$?
+	[ "$_fsck" -le 1 ] || { say "fsck.vfat could not repair the card (exit $_fsck). Card untouched."; exit 0; }
+	[ "$_fsck" -eq 1 ] && say "fsck.vfat repaired the card filesystem first (see above)"
+fi
+
 # ---- 1. copy the payload off the card and verify it, before anything destructive ----
 mkdir -p "$MOUNT" 2>/dev/null
 mount -t vfat -o rw,utf8,noatime,nofail "$PART" "$MOUNT" 2>>"$LOG" || { say "cannot mount the card to back it up. Skipping."; exit 0; }
