@@ -119,24 +119,24 @@ static int vol_restore(void) { // -1 = no saved value
 // UI 3) to raw 16 (new UI 3). The old file is left alone, for a downgrade.
 #define BRIGHT_FILE    "/mnt/mmc/.userdata/h700/brightness2"
 #define BRIGHT_FILE_V1 "/mnt/mmc/.userdata/h700/brightness"
-static int cur_bright = 0; // -7..10 UI as last written by this process (below 0 = night steps)
+static int cur_bright = 0; // -4..10 UI as last written by this process (below 0 = night steps)
 static int have_bright = 0; // cur_bright is set (a night step is negative, so no -1 sentinel)
 // NIGHT STEPS (D69). On this panel neither the display engine's enhance_bright/contrast (TrimUI's way) nor a
 // backlight below raw 4 visibly changes anything (tried on the Plus, 2026-10-07). The display layer's global
-// alpha does: below 255 the DE blends the picture over its black background, with no CPU cost. Levels -1..-7
+// alpha does: below 255 the DE blends the picture over its black background, with no CPU cost. Levels -1..-4
 // hold the backlight at level 0 and lower the alpha. platform.c owns the layer and re-commits its whole config
 // every frame, so it carries this value in that commit (GetNightAlpha); a separate ioctl would be undone by the
 // next frame. A night step is saved in its own file, so brightness2 (1..10) and older builds are untouched.
 #define NIGHT_FILE "/mnt/mmc/.userdata/h700/night"
-static const int night_alpha[7] = { 200, 160, 125, 95, 70, 50, 35 }; // -1..-7: a first guess, tuned by eye
+static const int night_alpha[4] = { 190, 160, 133, 107 }; // -1..-4: the Miyoo ladder (luma 36/30/25/20, about 75/62/52/42% of normal) as alpha. Seven steps down to 35 were too dark at the bottom (Dan, H, 2026-11-02)
 static int cur_alpha = 255;
-static int night_read(void) { // 1..7, or 0 = none
+static int night_read(void) { // 1..4, or 0 = none (a 5..7 from the seven-step test build reads as 4)
 	FILE* f = fopen(NIGHT_FILE, "r");
 	if (!f) return 0;
 	int n = 0;
 	if (fscanf(f, "%d", &n) != 1) n = 0;
 	fclose(f);
-	return n >= 1 && n <= 7 ? n : 0;
+	return n < 1 ? 0 : n > 4 ? 4 : n;
 }
 int GetNightAlpha(void) { return cur_alpha; } // 255 unless a night step is active
 static void bright_persist(int ui) {
@@ -190,7 +190,7 @@ void QuitSettings(void) {
 	if (vol_mixer) { snd_mixer_close(vol_mixer); vol_mixer = NULL; vol_elem = NULL; }
 }
 
-int GetBrightness(void) { // -7..10 UI (below 0 = night steps)
+int GetBrightness(void) { // -4..10 UI (below 0 = night steps)
 	// This process's own level first, once it has one (the saved level from InitSettings, or the last
 	// SetBrightness). muOS starts device/start.sh in the BACKGROUND (startup.sh:124), so its boot bright.sh
 	// write can land after InitSettings; a live read would then adopt muOS's level, and the next sleep/wake
@@ -226,8 +226,8 @@ void SetRawVolume(int value) { // 0-100 (SetVolume passes UI*5); MUTE_VOLUME_RAW
 	(void)snd_mixer_selem_set_playback_volume_all(vol_elem, raw);
 }
 
-void SetBrightness(int value) { // -7..10 UI (below 0 = night steps)
-	if (value < -7) value = -7; // = BRIGHTNESS_MIN (platform.h)
+void SetBrightness(int value) { // -4..10 UI (below 0 = night steps)
+	if (value < -4) value = -4; // = BRIGHTNESS_MIN (platform.h)
 	if (value > 10) value = 10;
 	SetRawBrightness(bright_raw[value < 0 ? 0 : value]);
 	cur_alpha = value < 0 ? night_alpha[-value - 1] : 255; // platform.c commits it with the next frame

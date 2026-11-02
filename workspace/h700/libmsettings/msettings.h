@@ -10,7 +10,7 @@ int GetVolume(void);
 void SetRawBrightness(int value); // 0-255
 void SetRawVolume(int value); // 0-160
 
-void SetBrightness(int value); // -7..10 (below 0 = night steps)
+void SetBrightness(int value); // -4..10 (below 0 = night steps)
 int GetNightAlpha(void); // display-layer alpha for the current night step, 255 = none
 void SetVolume(int value); // 0-20
 

@@ -397,7 +397,7 @@ void PLAT_pollInput(void) {
 	int adj = pad.just_repeated & (BTN_PLUS | BTN_MINUS);
 	if (adj) {
 		int delta = (adj & BTN_PLUS) ? 1 : -1;
-		if (pad.is_pressed & BTN_MENU) { SetBrightness(GetBrightness() + delta); disp_night_refresh(); } // clamps -7..10
+		if (pad.is_pressed & BTN_MENU) { SetBrightness(GetBrightness() + delta); disp_night_refresh(); } // clamps -4..10
 		else SetVolume(GetVolume() + delta);                                   // clamps 0-20
 	}
 
