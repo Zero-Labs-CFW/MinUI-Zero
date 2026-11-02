@@ -16,6 +16,7 @@ rm -rf "$STAGE"; mkdir -p "$BIN" "$LIB" "$STAGE/Tools/h700"
 for _h in minui minarch confirm say settings clock status; do
 	cp "$REPO/workspace/all/$_h/build/h700/$_h.elf" "$BIN/" || { echo "ERROR: $_h.elf missing for h700"; exit 1; }
 done
+cp "$REPO/workspace/h700/tools/build/nightlayer" "$BIN/" || { echo "ERROR: nightlayer missing for h700"; exit 1; }
 cp "$REPO/workspace/h700/libmsettings/libmsettings.so" "$LIB/" 2>/dev/null || true
 for _l in "$REPO"/skeleton/SYSTEM/h700/lib/*; do [ -f "$_l" ] && cp "$_l" "$LIB/"; done
 for _b in "$REPO"/skeleton/SYSTEM/h700/bin/*; do [ -f "$_b" ] && { cp "$_b" "$BIN/"; chmod +x "$BIN/$(basename "$_b")"; }; done

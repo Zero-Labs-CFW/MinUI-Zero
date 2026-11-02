@@ -696,8 +696,35 @@ static int disp_commit(int page) {
 
 // A static screen (the menu, the charging screen) commits nothing until something redraws, so a brightness
 // step there re-commits the page already on screen with the new alpha. Cheap and only on a change.
+// The fbdev fallback presents through fb0, whose DE layer the fbdev driver owns (a SET_CONFIG2 of it read back
+// disables it: it wants an ION fd, 2026-11-02). So a night step there is a translucent black COLOR layer ABOVE
+// fb0 instead: black at (255 - a) over the picture equals the picture at a over black. Same slot as the
+// backdrop (channel 0 layer 0) and the same shade tools/nightlayer gives Tools > Files. On a change only.
+static void fb_night_shade(void) {
+	static int shade = -1;
+	int a = GetNightAlpha();
+	if (a == shade) return;
+	int fd = vid.dispfd >= 0 ? vid.dispfd : open("/dev/disp", O_RDWR);
+	if (fd < 0) return;
+	struct disp_layer_config2_raw raw;
+	memset(&raw, 0, sizeof(raw));
+	raw.dwords[0] = LAYER_MODE_COLOR;
+	raw.dwords[1] = ((uint32_t)(255 - a) << 16) | (1u << 8) | 16u; // shade opacity, global alpha, zorder 16 (above fb0)
+	raw.dwords[4] = h700_rotate ? FIXED_HEIGHT : FIXED_WIDTH;    // the physical panel
+	raw.dwords[5] = h700_rotate ? FIXED_WIDTH : FIXED_HEIGHT;
+	raw.dwords[8] = 0xFF000000u;
+	raw.dwords[52] = a < 255;
+	raw.dwords[53] = 0;
+	raw.dwords[54] = 0;
+	unsigned long args[4] = { 0, (unsigned long)&raw, 1, 0 };
+	ioctl(fd, DISP_LAYER_SET_CONFIG2, &args);
+	if (fd != vid.dispfd) close(fd);
+	shade = a;
+}
+
 static void disp_night_refresh(void) {
-	if (!vid.use_disp || disp_shown < 0) return;
+	if (!vid.use_disp) { fb_night_shade(); return; }
+	if (disp_shown < 0) return;
 	if (((vid.lraw.dwords[1] >> 16) & 0xFF) == (uint32_t)GetNightAlpha()) return;
 	disp_commit(disp_shown);
 }
@@ -822,6 +849,7 @@ SDL_Surface* PLAT_initVideo(void) {
 		}
 		else LOG_info("present: fbdev fallback\n");
 	}
+	if (!vid.use_disp) fb_night_shade(); // a saved night step applies from the first frame here too
 
 	// Draw into the page the panel is NOT scanning. The MMP's whole tearing saga came from
 	// nothing tracking the front page; with 2 pages and a SYNCHRONOUS pan (blocks ~16.7ms,

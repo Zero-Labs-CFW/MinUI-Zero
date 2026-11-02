@@ -12,4 +12,8 @@ unset SDL_VIDEODRIVER
 
 cd "$(dirname "$0")"
 HOME="$SDCARD_PATH"
+# Night brightness: Files draws through fb0, not our DE layer, so a night step needs the shade nightlayer puts
+# over it (workspace/h700/tools/nightlayer.c). Off again after, whatever way Files ends.
+nightlayer >/dev/null 2>&1
 ./DinguxCommander
+nightlayer 255 >/dev/null 2>&1

@@ -691,6 +691,9 @@ for _h in confirm say settings clock status; do
 	cp "$REPO/workspace/all/$_h/build/h700/$_h.elf" "$STAGE/.system/h700/bin/" 2>/dev/null || \
 		{ echo "ERROR: $_h.elf missing for h700, run 'make h700-build' first"; exit 1; }
 done
+# night shade for programs that draw through fb0 (Tools > Files): workspace/h700/tools/nightlayer.c
+cp "$REPO/workspace/h700/tools/build/nightlayer" "$STAGE/.system/h700/bin/" || \
+	{ echo "ERROR: nightlayer missing for h700, run 'make h700-build' first"; exit 1; }
 cp "$REPO/workspace/h700/libmsettings/libmsettings.so"  "$STAGE/.system/h700/lib/"
 # card-side libs (2026-09-17): libnl-tiny.so for hostapd (both lifted from the TrimUI firmware,
 # same aarch64 glibc; Device Sync hosts its hotspot with hostapd, wpa_supplicant AP mode dies
