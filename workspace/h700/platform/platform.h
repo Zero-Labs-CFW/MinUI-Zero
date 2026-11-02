@@ -154,6 +154,15 @@ extern int h700_has_l3, h700_has_r3;
 // the present rotates the frame (h700_rotate). Nothing uses these in #if or array sizes, so runtime is safe.
 extern int h700_fixed_w, h700_fixed_h, h700_row_count, h700_padding;
 #define FIXED_SCALE		2
+// UI SCALE IS PER BOARD too (boards.txt flags). The 3.5" 480-tall panels draw the Brick layout: its 1024x768
+// at 3x is a 341x256 canvas, and 480 / 256 = 15/8 gives these panels that same canvas (7 rows, padding 5).
+// Upstream's 2x gave them 6 rows with nothing to spare (Dan chose the Brick layout on the H, 2026-11-02, over
+// 2x and the Brick Pro's 25/16). The 4" RG40XX panels draw the Brick Pro layout (25/16, 8 rows) so text lands
+// near the H's physical size; the 2.8" RG28XX and the Cube keep upstream's 2x. Sheets: res/assets@<name>x.png.
+extern int h700_scale_num, h700_scale_den; extern const char* h700_scale_name;
+#define SCALE_NUM		h700_scale_num
+#define SCALE_DEN		h700_scale_den
+#define SCALE_NAME		h700_scale_name
 #define FIXED_WIDTH		h700_fixed_w
 #define FIXED_HEIGHT	h700_fixed_h
 #define FIXED_BPP		2
@@ -175,20 +184,21 @@ extern int h700_fixed_w, h700_fixed_h, h700_row_count, h700_padding;
 
 ///////////////////////////////
 
-// SIX rows at the stock pill size. TRIED AND REJECTED (Dan, on-device 2026-08-13): shrinking
-// PILL_SIZE to buy a 7th row like the Brick has. This panel divides badly, 640x480 at FIXED_SCALE 2
-// gives exactly 480/(30*2) = 8.00 slots, all spent on header + 6 rows + footer, with none of the
-// fractional slack the Brick's 768/(30*3) = 8.53 enjoys. PILL_SIZE 26 clipped the 7th row's
-// highlight; 24 fit but shrank every pill, button and text baseline and simply looked worse.
-// The row count is a consequence of panel geometry here, not a number to tune.
+// Rows: 7 at the Brick layout, 8 at the Brick Pro layout and on the Cube, 6 on the RG28XX (one more each with
+// Menu Hints Off).
+// History: at 2x these panels gave exactly 480/(30*2) = 8.00 slots, all spent on 6 rows plus chrome, and
+// shrinking PILL_SIZE alone for a 7th row was tried and rejected on-device (2026-08-13: 26 clipped, 24 looked
+// worse). The fractional scale shrinks pills, text and icons together instead, which is what the Brick does.
 // Debug HUD strip scale. The shared default is 3, which on this 640x480 panel gives a 213px strip,
 // about 34 characters, and renders the text large enough that longer lines run to the screen edge.
 // 2 gives a 320px strip (about 53 characters, close to the Brick 1024/3 = 341px) and draws the text
 // smaller, which is what it should look like here (Dan, on-device 2026-08-14).
 #define DBG_OVERLAY_SCALE 2
 
-#define MAIN_ROW_COUNT h700_row_count // 6, or 8 on the 720x720 Cube (upstream's values)
-#define PADDING h700_padding            // 10, or 40 on the Cube
+#define MAIN_ROW_COUNT h700_row_count // per board (boards.txt rows)
+extern int h700_row_pitch;
+#define ROW_PITCH h700_row_pitch // 30 (PILL_SIZE), or 32 at the Brick Pro layout, as on the Brick Pro (tg5040 platform.h)
+#define PADDING h700_padding            // per board (boards.txt pad)
 
 ///////////////////////////////
 

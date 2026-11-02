@@ -1,7 +1,7 @@
 #!/bin/sh
 # board: the H700 board table (.system/h700/boards.txt, from workspace/h700/boards.txt) for the device scripts.
 #   board <field> [<device>]      one column of the board's row: id type w h rot rows pad hz flags pins label
-#   board has <flag> [<device>]   exit 0 when the row carries the flag (lid, lpddr3, plusboot0, sleep, pwm3)
+#   board has <flag> [<device>]   exit 0 when the row carries the flag (lid, lpddr3, plusboot0, sleep, pwm3, ui2, ui1.5625)
 #   board ids                     every board id, in table order
 #   board ntypes                  how many screen types the picker cycles (highest type + 1)
 #   board group <n>               the ids of screen type <n>, space separated, in table order

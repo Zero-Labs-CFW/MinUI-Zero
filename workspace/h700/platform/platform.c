@@ -66,7 +66,9 @@ static int effect_type = EFFECT_NONE;
 // minui-frontend.sh from muOS's board/name with any "rg35xx-" prefix removed. ZERO_H700_GEOMETRY overrides it
 // for testing one board's layout on another (e.g. "720x720" or "640x480r270" on the Plus; the DE scaler
 // fits any size to the panel, so the result is visible, just letterboxed or sideways).
-int h700_fixed_w = 640, h700_fixed_h = 480, h700_row_count = 6, h700_padding = 10;
+int h700_fixed_w = 640, h700_fixed_h = 480, h700_row_count = 7, h700_padding = 5;
+int h700_scale_num = 15, h700_scale_den = 8; const char* h700_scale_name = "1.875"; // the Brick layout (platform.h)
+int h700_row_pitch = 30;
 int h700_rotate = 0; // 0, or 90 / 270: degrees clockwise the frame turns on its way to a portrait panel
 static void h700_rot_copy(const uint16_t* src, int spitch, int W, int H, int cx, int cy, int cw, int ch,
                           void* dst, int dpitch, int bpp);
@@ -81,15 +83,18 @@ static const H700Board* h700_board(void) {
 __attribute__((constructor)) static void h700_geometry_init(void) {
 	const H700Board* b = h700_board(); // unknown or unset: the 640x480 defaults above (the Plus)
 	const char* g = getenv("ZERO_H700_GEOMETRY");
-	if (b) { h700_fixed_w = b->w; h700_fixed_h = b->h; h700_rotate = b->rot; h700_row_count = b->rows; h700_padding = b->pad; }
+	if (b) { h700_fixed_w = b->w; h700_fixed_h = b->h; h700_rotate = b->rot; h700_row_count = b->rows; h700_padding = b->pad;
+	         h700_scale_num = b->snum; h700_scale_den = b->sden; h700_scale_name = b->sname; }
 	if (g && g[0]) {
 		int w = 0, h = 0, r = 0;
 		if (sscanf(g, "%dx%dr%d", &w, &h, &r) >= 2 && w >= 320 && h >= 240 && w <= 1024 && h <= 768) {
 			h700_fixed_w = w; h700_fixed_h = h;
-			h700_row_count = h >= 720 ? 8 : 6; h700_padding = h >= 720 ? 40 : 10;
+			h700_row_count = h >= 720 ? 8 : 7; h700_padding = h >= 720 ? 40 : 5;
+			h700_scale_num = h >= 720 ? 2 : 15; h700_scale_den = h >= 720 ? 1 : 8; h700_scale_name = h >= 720 ? "2" : "1.875";
 			h700_rotate = (r == 90 || r == 270) ? r : 0;
 		}
 	}
+	if (h700_scale_num == 25) h700_row_pitch = 32; // the Brick Pro layout spreads its 8 rows toward the footer the same way
 	const char* rot = getenv("ZERO_H700_ROTATE"); // flip the 28XX direction without a rebuild if 270 is wrong
 	if (rot && h700_rotate) h700_rotate = atoi(rot) == 90 ? 90 : 270;
 }

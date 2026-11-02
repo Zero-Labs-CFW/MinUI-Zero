@@ -112,6 +112,14 @@ extern int is_plus;
 
 extern int is_560p;
 #define FIXED_SCALE 	2
+// The Plus's 3.5" 640x480 draws the Brick layout, the same 15/8 scale as the h700's 3.5" boards (parity,
+// 2026-11-02): the Brick's 341x256 canvas, 7 rows. The 2.8" Mini and Flip keep upstream 2x, as the 2.8" RG28XX
+// does (the Brick layout would be too small there), and so does 560p (it would ENLARGE the UI to 7 rows from 8).
+// Sheet: res/assets@1.875x.png.
+#define BRICK_LAYOUT	(is_plus && !is_560p)
+#define SCALE_NUM		(BRICK_LAYOUT?15:2)
+#define SCALE_DEN		(BRICK_LAYOUT?8:1)
+#define SCALE_NAME		(BRICK_LAYOUT?"1.875":"2")
 #define FIXED_WIDTH		(is_560p?752:640)
 #define FIXED_HEIGHT	(is_560p?560:480)
 #define FIXED_BPP		2
@@ -126,8 +134,8 @@ extern int is_560p;
 
 ///////////////////////////////
 
-#define MAIN_ROW_COUNT (is_560p?8:6)
-#define PADDING (is_560p?5:10)
+#define MAIN_ROW_COUNT (BRICK_LAYOUT?7:(is_560p?8:6))
+#define PADDING (BRICK_LAYOUT||is_560p?5:10)
 // NOTE: no longer drives buffer sizing — MMA_PAGE in platform.c does. Kept for api.h.
 #define PAGE_SCALE (is_560p?2:3) // need to reduce memory usage for larger screen
 

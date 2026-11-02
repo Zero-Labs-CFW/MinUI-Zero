@@ -10,7 +10,8 @@
 # w h    the frame the UI renders (FIXED_WIDTH/HEIGHT): 720x720 Cube, 720x480 RG34XX/RG SP, else 640x480.
 # rot    degrees the frame turns onto a portrait panel (h700_rotate): the RG28XX panel is 480x640, direction
 #        unmeasured on our chain.
-# rows pad  menu rows and padding (the Cube's square panel: 8 and 40, as upstream rg35xxplus).
+# rows pad  menu rows and padding at the board's UI scale (the ui flags below): 7 and 5 at the Brick layout,
+#        8 and 7 at the Brick Pro layout, 6 and 10 at 2x on 640x480, 8 and 40 at 2x on the Cube (upstream rg35xxplus).
 # hz     panel refresh minarch paces to (MINARCH_PANEL_FPS). Plus/H MEASURED 59.9777 (panelprobe 2026-08-04); the
 #        Pro boots the 3f2fa25 package with the Plus/H timings. The rest are pixel clock / (htotal x vtotal) from
 #        the tree each board boots, not measured: SP and 40XX (audit 2026-09-25), RG34XX family 54 MHz /
@@ -21,18 +22,20 @@
 #          plusboot0  Anbernic's stock boot0 equals the Plus's, so its own is optional (Knulli dumps, 2026-09-25)
 #          sleep      deep sleep proven on this board (suspend and wake on hardware)
 #          pwm3       rumble on pwm3; the shared kernel's axp2202 'moto' drives pwm2 (2026-09-25 research)
+#          ui2        UI at upstream 2x (the 2.8" RG28XX, the Cube); ui1.5625 = the Brick Pro layout (the 4" RG40XX).
+#                     Neither = the Brick layout, 15/8. Picked by panel size, not seen on those boards (2026-11-02).
 # pins   GPIOs the frontend drives at boot, "pin:level" comma list, "-" for none
 # label  the rest of the line: the picker, About (as "Anbernic <label>") and Device Sync name the board with it
 #
 # id         type w   h   rot rows pad hz       flags            pins             label
-rg35xx-plus  0    640 480 0   6    10  59.9777  plusboot0,sleep  -                RG35XX Plus / 2024
-rg35xx-h     0    640 480 0   6    10  59.9777  plusboot0,sleep  -                RG35XX H
-rg35xx-pro   0    640 480 0   6    10  59.9777  lpddr3           -                RG35XX Pro
-rg35xx-sp    1    640 480 0   6    10  60.004   plusboot0,lid    210:high         RG35XX SP
-rg40xx-h     2    640 480 0   6    10  59.981   lpddr3,pwm3      133:low,263:low  RG40XX H
-rg40xx-v     2    640 480 0   6    10  59.981   lpddr3,pwm3      133:low,263:low  RG40XX V
-rgcubexx-h   3    720 720 0   8    40  59.9775  -                -                RG CubeXX
-rg28xx-h     4    640 480 270 6    10  59.9940  -                -                RG28XX
-rg34xx-h     5    720 480 0   6    10  60.0037  -                -                RG34XX
-rg34xx-sp    6    720 480 0   6    10  60.0037  lid              -                RG34XX SP
-rgsp         6    720 480 0   6    10  60.0037  lid              -                RG SP
+rg35xx-plus  0    640 480 0   7     5  59.9777  plusboot0,sleep  -                RG35XX Plus / 2024
+rg35xx-h     0    640 480 0   7     5  59.9777  plusboot0,sleep  -                RG35XX H
+rg35xx-pro   0    640 480 0   7     5  59.9777  lpddr3           -                RG35XX Pro
+rg35xx-sp    1    640 480 0   7     5  60.004   plusboot0,lid    210:high         RG35XX SP
+rg40xx-h     2    640 480 0   8     7  59.981   lpddr3,pwm3,ui1.5625 133:low,263:low  RG40XX H
+rg40xx-v     2    640 480 0   8     7  59.981   lpddr3,pwm3,ui1.5625 133:low,263:low  RG40XX V
+rgcubexx-h   3    720 720 0   8    40  59.9775  ui2             -                RG CubeXX
+rg28xx-h     4    640 480 270 6    10  59.9940  ui2             -                RG28XX
+rg34xx-h     5    720 480 0   7     5  60.0037  -                -                RG34XX
+rg34xx-sp    6    720 480 0   7     5  60.0037  lid              -                RG34XX SP
+rgsp         6    720 480 0   7     5  60.0037  lid              -                RG SP
