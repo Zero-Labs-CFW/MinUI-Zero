@@ -33,7 +33,7 @@ Our handhelds have more power than most retro games need. Zero uses only what th
 * **Hard to break**: bad ROMs exit cleanly, saves are crash-safe
 * **Device Sync**: sync saves/games directly between two handhelds, wirelessly, no WiFi network or internet needed
 * **File Transfer**: move files without taking the card out: over FTP or from any web browser, plus as a USB drive or over USB (MTP) on TrimUI
-* **Night brightness**: steps darker than the backlight's minimum: seven on TrimUI, four on Miyoo Mini Plus
+* **Night brightness**: steps darker than the backlight's minimum: seven on TrimUI, four on Miyoo Mini Plus and Anbernic
 * **Focus mode**: a main menu of only your favorites, for a five-game handheld
 * **Still MinUI**: no stores, themes, or LED light shows
 
