@@ -429,6 +429,12 @@ static int quit = 0;
 static int can_resume = 0;
 static int should_resume = 0; // set to 1 on BTN_RESUME but only if can_resume==1
 static int simple_mode = 0;
+// Rows a list shows. no-hints (Settings > Menu Hints Off) gives the footer's slot to one more row. That
+// fits wherever ROW_PITCH <= PILL_SIZE + PADDING, the footer plus the gap above it (every platform: the widest
+// pitch is the Brick Pro layout, 32 against 30 + 7). Set in
+// main after GFX_init, since MAIN_ROW_COUNT reads the device the platform detects there.
+static int menu_hints = 1;
+static int row_count = 6;
 static char slot_path[MAX_PATH];
 
 static int restore_depth = -1;
@@ -1360,7 +1366,7 @@ static void openDirectory(char* path, int auto_launch) {
 	
 	top = Directory_new(path, selected);
 	top->start = start;
-	top->end = end ? end : ((top->entries->count<MAIN_ROW_COUNT) ? top->entries->count : MAIN_ROW_COUNT);
+	top->end = end ? end : ((top->entries->count<row_count) ? top->entries->count : row_count);
 
 	Array_push(stack, top);
 }
@@ -1451,10 +1457,10 @@ static void loadLast(void) { // call after loading root directory
 					top->selected = i;
 					if (i>=top->end) {
 						top->start = i;
-						top->end = top->start + MAIN_ROW_COUNT;
+						top->end = top->start + row_count;
 						if (top->end>top->entries->count) {
 							top->end = top->entries->count;
-							top->start = top->end - MAIN_ROW_COUNT;
+							top->start = top->end - row_count;
 						}
 					}
 					if (last->count==0 && !exactMatch(entry->path, FAUX_RECENT_PATH) && !exactMatch(entry->path, FAUX_FAVORITE_PATH) && !(!exactMatch(entry->path, COLLECTIONS_PATH) && prefixMatch(COLLECTIONS_PATH, entry->path))) break; // don't show contents of auto-launch dirs (the faux lists ARE the destination)
@@ -1597,6 +1603,8 @@ int main (int argc, char *argv[]) {
 	
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
 	ui_screen = screen;
+	menu_hints = !flagExists(NO_HINTS_PATH);
+	row_count = MAIN_ROW_COUNT + !menu_hints;
 	UIMARK("gfx_init");
 	if (boot_timing) LOG_info("- graphics init: %lu\n", SDL_GetTicks() - main_begin);
 	
@@ -1714,7 +1722,7 @@ int main (int argc, char *argv[]) {
 						selected -= 1;
 						if (selected<0) {
 							selected = total-1;
-							int start = total - MAIN_ROW_COUNT;
+							int start = total - row_count;
 							top->start = (start<0) ? 0 : start;
 							top->end = total; 
 						}
@@ -1733,7 +1741,7 @@ int main (int argc, char *argv[]) {
 						if (selected>=total) {
 							selected = 0;
 							top->start = 0;
-							top->end = (total<MAIN_ROW_COUNT) ? total : MAIN_ROW_COUNT;
+							top->end = (total<row_count) ? total : row_count;
 						}
 						else if (selected>=top->end) {
 							top->start += 1;
@@ -1742,30 +1750,30 @@ int main (int argc, char *argv[]) {
 					}
 				}
 				if (PAD_justRepeated(BTN_LEFT)) {
-					selected -= MAIN_ROW_COUNT;
+					selected -= row_count;
 					if (selected<0) {
 						selected = 0;
 						top->start = 0;
-						top->end = (total<MAIN_ROW_COUNT) ? total : MAIN_ROW_COUNT;
+						top->end = (total<row_count) ? total : row_count;
 					}
 					else if (selected<top->start) {
-						top->start -= MAIN_ROW_COUNT;
+						top->start -= row_count;
 						if (top->start<0) top->start = 0;
-						top->end = top->start + MAIN_ROW_COUNT;
+						top->end = top->start + row_count;
 					}
 				}
 				else if (PAD_justRepeated(BTN_RIGHT)) {
-					selected += MAIN_ROW_COUNT;
+					selected += row_count;
 					if (selected>=total) {
 						selected = total-1;
-						int start = total - MAIN_ROW_COUNT;
+						int start = total - row_count;
 						top->start = (start<0) ? 0 : start;
 						top->end = total;
 					}
 					else if (selected>=top->end) {
-						top->end += MAIN_ROW_COUNT;
+						top->end += row_count;
 						if (top->end>total) top->end = total;
-						top->start = top->end - MAIN_ROW_COUNT;
+						top->start = top->end - row_count;
 					}
 				}
 			}
@@ -1794,11 +1802,11 @@ int main (int argc, char *argv[]) {
 				int i = entry->alpha-1;
 				if (i>=0) {
 					selected = top->alphas->items[i];
-					if (total>MAIN_ROW_COUNT) {
+					if (total>row_count) {
 						top->start = selected;
-						top->end = top->start + MAIN_ROW_COUNT;
+						top->end = top->start + row_count;
 						if (top->end>total) top->end = total;
-						top->start = top->end - MAIN_ROW_COUNT;
+						top->start = top->end - row_count;
 					}
 				}
 			}
@@ -1807,11 +1815,11 @@ int main (int argc, char *argv[]) {
 				int i = entry->alpha+1;
 				if (i<top->alphas->count) {
 					selected = top->alphas->items[i];
-					if (total>MAIN_ROW_COUNT) {
+					if (total>row_count) {
 						top->start = selected;
-						top->end = top->start + MAIN_ROW_COUNT;
+						top->end = top->start + row_count;
 						if (top->end>total) top->end = total;
-						top->start = top->end - MAIN_ROW_COUNT;
+						top->start = top->end - row_count;
 					}
 				}
 			}
@@ -1979,6 +1987,8 @@ int main (int argc, char *argv[]) {
 				if (total>0) {
 					int selected_row = top->selected - top->start;
 					for (int i=top->start,j=0; i<top->end; i++,j++) {
+						// without hints the brightness/volume bar draws in the last row's slot while it shows
+						if (show_setting && !menu_hints && j==row_count-1 && j!=selected_row) continue;
 						Entry* entry = top->entries->items[i];
 						char* entry_name = entry->name;
 						char* entry_unique = entry->unique;
@@ -2039,6 +2049,7 @@ int main (int argc, char *argv[]) {
 			
 				// buttons
 				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
+				else if (total>0 && !menu_hints) ; // Menu Hints Off: the footer's slot is a row
 				else if (total>0 && exactMatch(top->path, FAUX_RECENT_PATH)) {
 					if (can_resume) GFX_blitButtonGroup((char*[]){ "Y","CLEAR", "X","RESUME", NULL }, 0, screen, 0);
 					else GFX_blitButtonGroup((char*[]){ "Y","CLEAR", NULL }, 0, screen, 0);
@@ -2054,7 +2065,7 @@ int main (int argc, char *argv[]) {
 						GFX_blitButtonGroup((char*[]){ "B","BACK",  NULL }, 0, screen, 1);
 					}
 				}
-				else {
+				else if (menu_hints) {
 					if (stack->count>1) {
 						if (can_resume && exactMatch(top->path, FAUX_RECENT_PATH)
 							&& recentFooterCompact(screen->w))

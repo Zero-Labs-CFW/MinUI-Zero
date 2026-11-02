@@ -12,6 +12,7 @@ NO_RECENTS="$CARD/no-recents"
 NO_FAVORITES="$CARD/no-favorites"
 FOCUS="$CARD/focus"
 HIDE_TOOLS="$CARD/hide-tools"
+NO_HINTS="$CARD/no-hints"
 DEEP_SLEEP_OFF="$SHARED/disable-deep-sleep"
 WTXT="$CARD/wifi.txt"
 WOFF="$CARD/wifi.txt.off"
@@ -75,6 +76,7 @@ while :; do
 	set -- "$@" favorites "Favorites" "Off|On|Focus" "$FAV" "Y in a game's menu makes it a favorite.\nOn: Favorites appears on the main menu.\nFocus: the main menu is only your favorites."
 	if has_flag "$HIDE_TOOLS"; then TOOLS=Hidden; else TOOLS=Shown; fi
 	set -- "$@" tools "Tools" "Shown|Hidden" "$TOOLS" "Hidden: SELECT + START at the main menu\nstill opens Tools."
+	set -- "$@" hints "Menu Hints" "On|Off" "$(flag_off "$NO_HINTS")" "On: button hints under each list.\nOff: hidden, and lists show one more row."
 	# deep sleep exists on TrimUI and Anbernic; the Miyoo cannot (its bin/suspend is the faux sleep)
 	if [ "$PLATFORM" != "miyoomini" ]; then
 		set -- "$@" deepsleep "Deep Sleep" "On|Off" "$(if [ -f "$DEEP_SLEEP_OFF" ]; then echo Off; else echo On; fi)" "On: suspends to RAM when idle. Near-zero\npower, wakes instantly. Off: sleeps like stock."
@@ -133,6 +135,8 @@ Focus starts with your first favorite." ;;
 
 SELECT + START at the main menu
 opens Tools anyway." "HIDE" "BACK"; then touch "$HIDE_TOOLS"; else AGAIN=1; fi ;;
+			hints=On)      clear_flag "$NO_HINTS" ;;
+			hints=Off)     touch "$NO_HINTS" ;;
 			deepsleep=On)  rm -f "$DEEP_SLEEP_OFF" ;;
 			deepsleep=Off) touch "$DEEP_SLEEP_OFF" ;;
 			wifi=On)       [ -f "$WOFF" ] && wifi_on; AGAIN=1 ;;

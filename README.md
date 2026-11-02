@@ -78,6 +78,7 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 | Recents | On / Off | Recently Played on the main menu; Off also stops recording plays | `no-recents` = Off |
 | Favorites | Off / On / Focus | favorite a game with Y in its in-game menu (a star beside the title and a Favorited button show it is one); On adds Favorites to the main menu, Focus makes the main menu only your favorites | `no-favorites` = Off, `focus` = Focus |
 | Tools | Shown / Hidden | SELECT + START at the main menu opens Tools even when hidden | `hide-tools` = Hidden |
+| Menu Hints | On / Off | button hints under each list; Off hides them and lists show one more row | `no-hints` = Off |
 | Deep Sleep | On / Off | suspend to RAM when idle (TrimUI, Anbernic); Off sleeps like stock | `.userdata/shared/disable-deep-sleep` = Off |
 | Optimize CPU | Stock / Optimized | per-chip undervolting; A runs or manages it (TrimUI) | |
 | WiFi | On / Off | shown once `wifi.txt` exists; on TrimUI, On also starts SSH on port 2022 (key only, see `authorized_keys`) | `wifi.txt` (renamed `wifi.txt.off` when Off) |

@@ -37,6 +37,7 @@
 // accepts a "<name>.txt" form, so both "no-recents" and "no-recents.txt" work.
 #define NO_RECENTS_PATH SDCARD_PATH "/no-recents" // opt-out: hides Recently Played AND stops recording plays (r/trimui request, 2026-09-02)
 #define HIDE_TOOLS_PATH SDCARD_PATH "/hide-tools" // opt-out: hides Tools from the menu; unlike simple mode, a combo (SELECT+START at root) still opens it (2026-09-03, chord moved 2026-09-15)
+#define NO_HINTS_PATH SDCARD_PATH "/no-hints" // opt-out (Settings > Menu Hints): lists drop the button-hint footer and show one more row in its place (2026-11-02)
 #define NO_FAVORITES_PATH SDCARD_PATH "/no-favorites" // opt-out: no Favorites row, the in-game Y does nothing, focus is ignored (2026-09-15)
 #define FOCUS_PATH SDCARD_PATH "/focus" // Focus Mode: the root is the Favorites list plus Tools (add hide-tools to drop Tools too, like Russ's Tools_off). A flag, toggled by Tools > Focus Mode or by hand (2026-09-16)
 #define DEVMODE_PATH SDCARD_PATH "/devmode" // dev opt-in: stay-awake + SSH (read with flagExists, so "devmode" and "devmode.txt" both work, like every other card-root flag)
