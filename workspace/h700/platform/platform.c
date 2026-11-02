@@ -711,7 +711,7 @@ static void disp_layer_off(void) {
 	raw.dwords[54] = 0; // layer_id
 	unsigned long args[4] = { 0, (unsigned long)&raw, 1, 0 };
 	ioctl(vid.dispfd, DISP_LAYER_SET_CONFIG2, &args);
-	if (disp_backdrop_on) disp_backdrop(0);
+	disp_backdrop(0); // always: a crashed predecessor's backdrop is not in this process's disp_backdrop_on (Codex 2026-11-02)
 }
 
 static int disp_open(void) {
