@@ -649,6 +649,27 @@ static void disp_wait_latch(void) {
 	}
 }
 
+// NIGHT BACKDROP: global alpha only dims where the DE has something to blend with. Ours is the only enabled layer,
+// so alpha 35 changed nothing on screen (H, 2026-11-02: attr/sys showed a[globl 35], picture unchanged). A solid
+// black COLOR layer on the video channel (ch0, below our ch1) gives it that; no buffer, so no memory. On only while
+// a night step is active. The union after out_trd_mode starts at dword 8 (fb.fd for a buffer, color here).
+static int disp_backdrop_on = 0;
+static void disp_backdrop(int on) {
+	struct disp_layer_config2_raw raw;
+	memset(&raw, 0, sizeof(raw));
+	raw.dwords[0] = LAYER_MODE_COLOR;
+	raw.dwords[1] = (255u << 16) | (1u << 8) | 0u; // alpha 255, global alpha, zorder 0
+	raw.dwords[4] = h700_rotate ? FIXED_HEIGHT : FIXED_WIDTH;  // the physical panel
+	raw.dwords[5] = h700_rotate ? FIXED_WIDTH : FIXED_HEIGHT;
+	raw.dwords[8] = 0xFF000000u; // opaque black
+	raw.dwords[52] = on;
+	raw.dwords[53] = 0; // channel 0 (video)
+	raw.dwords[54] = 0;
+	unsigned long args[4] = { 0, (unsigned long)&raw, 1, 0 };
+	ioctl(vid.dispfd, DISP_LAYER_SET_CONFIG2, &args);
+	disp_backdrop_on = on;
+}
+
 static int disp_shown = -1; // page of the last commit, -1 = none yet
 static int disp_commit(int page) {
 	vid.lraw.dwords[8] = (uint32_t)vid.ion_fds[page];
@@ -662,6 +683,7 @@ static int disp_commit(int page) {
 	unsigned long args[4];
 	args[0] = 0; args[1] = 1; args[2] = 0; args[3] = 0;
 	if (ioctl(vid.dispfd, DISP_SHADOW_PROTECT, &args) < 0) return -1;
+	if ((GetNightAlpha() < 255) != disp_backdrop_on) disp_backdrop(GetNightAlpha() < 255);
 	args[0] = 0; args[1] = (unsigned long)&vid.lraw; args[2] = 1; args[3] = 0;
 	int ret = ioctl(vid.dispfd, DISP_LAYER_SET_CONFIG2, &args);
 	unsigned long cargs[4] = { 0, 4, 1, 0 };
@@ -689,6 +711,7 @@ static void disp_layer_off(void) {
 	raw.dwords[54] = 0; // layer_id
 	unsigned long args[4] = { 0, (unsigned long)&raw, 1, 0 };
 	ioctl(vid.dispfd, DISP_LAYER_SET_CONFIG2, &args);
+	if (disp_backdrop_on) disp_backdrop(0);
 }
 
 static int disp_open(void) {
