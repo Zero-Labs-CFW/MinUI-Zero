@@ -106,6 +106,12 @@ fi
 # ---- 1. copy the payload off the card and verify it, before anything destructive ----
 mkdir -p "$MOUNT" 2>/dev/null
 mount -t vfat -o rw,utf8,noatime,nofail "$PART" "$MOUNT" 2>>"$LOG" || { say "cannot mount the card to back it up. Skipping."; exit 0; }
+# fsck -a salvages lost cluster chains as FSCKnnnn.REC in the card root (17 of them on the H, 2026-11-02). They are
+# pieces of files that were already broken, so keep them but out of the user's way, beside the logs.
+if [ "${_fsck:-0}" -eq 1 ] && ls "$MOUNT"/FSCK[0-9][0-9][0-9][0-9].REC >/dev/null 2>&1; then
+	mkdir -p "$MOUNT/.userdata/h700/logs/fsck-recovered" && mv "$MOUNT"/FSCK[0-9][0-9][0-9][0-9].REC "$MOUNT/.userdata/h700/logs/fsck-recovered/" 2>>"$LOG" &&
+		say "moved fsck's salvaged fragments to .userdata/h700/logs/fsck-recovered"
+fi
 PAYLOAD_KB=$(du -sk "$MOUNT" 2>/dev/null | cut -f1)
 # Measure the filesystem that actually holds the backup, not "/" (they can differ).
 mkdir -p "$(dirname "$BACKUP")" 2>/dev/null
