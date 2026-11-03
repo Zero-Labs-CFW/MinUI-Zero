@@ -1,0 +1,33 @@
+name: Device report
+description: Tell us how MinUI Zero runs on your handheld, good or bad.
+labels: ["device report"]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Handheld
+      description: Model, as picked on first boot for Anbernic (for example RG34XX SP).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MinUI Zero version
+      placeholder: v1.10.0
+    validations:
+      required: true
+  - type: textarea
+    id: works
+    attributes:
+      label: What works
+      description: Screen, buttons, sticks, sound, sleep, the systems you played.
+  - type: textarea
+    id: broken
+    attributes:
+      label: What does not work
+      description: What you did, what you expected, what happened.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Drag in the files from the card's .userdata/<platform>/logs folder (h700 on Anbernic, miyoomini on Miyoo, tg5040 on TrimUI). They are hidden on most computers.

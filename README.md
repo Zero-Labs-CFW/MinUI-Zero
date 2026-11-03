@@ -131,6 +131,8 @@ Tools > Device Sync copies saves between two handhelds over a hotspot one of the
 * **Anbernic H700 boards**: Zero *is* the OS, so it boots straight to the launcher and idles with nothing else running. Newer and less proven: updates are a reflash, and six of fifteen systems are launch-tested. The RG35XX Plus and H are verified on hardware; every other board is untested. Deep sleep is on for the Plus and H only, and the RG40XX H/V sticks and lights don't work yet.
 * **Miyoo Mini family**: same launcher and governor, cores rebuilt for ARMv7. The Plus is verified; the Mini and Flip are untested on hardware. The tuning gains don't transfer here (the CPU is a small share of this SoC's power), and deep sleep is impossible (the vendor kernel has no suspend).
 
+Running Zero on an untested model? A [device report](https://github.com/Zero-Labs-CFW/MinUI-Zero/issues/new?template=device-report.yml) helps, good or bad. Bugs and questions go in [Issues](https://github.com/Zero-Labs-CFW/MinUI-Zero/issues) too.
+
 ## Disclaimer
 
 MinUI Zero is unofficial personal firmware, provided as-is without warranty. Custom firmware can cause data loss or failed boots; back up your card before installing. Use at your own risk.
