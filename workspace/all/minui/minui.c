@@ -1498,6 +1498,10 @@ static void Menu_quit(void) {
 static void blend_px(SDL_Surface* dst, int x, int y, SDL_Color c, int a) {
 	if (a <= 0 || x < 0 || y < 0 || x >= dst->w || y >= dst->h) return;
 	int bpp = dst->format->BytesPerPixel;
+	if (bpp != 2 && bpp != 4) { // other depths: no blend, just the pixels at least half covered
+		if (a >= 8) SDL_FillRect(dst, &(SDL_Rect){x, y, 1, 1}, SDL_MapRGB(dst->format, c.r, c.g, c.b));
+		return;
+	}
 	Uint8* p = (Uint8*)dst->pixels + y * dst->pitch + x * bpp;
 	Uint32 v = bpp == 2 ? *(Uint16*)p : *(Uint32*)p;
 	Uint8 r, g, b;

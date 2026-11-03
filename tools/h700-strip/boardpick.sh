@@ -115,6 +115,20 @@ check_layout || { log "card layout not recognized, not picking a model"; exit 0;
 # A model installed on the last boot waits for "the screen is right" before it counts as chosen (step 3).
 PENDING=$B/pending    # the board installed, until confirmed
 UNDO=$B/undo-boot0.img  # the boot0 that was on the card before it
+# A pick cut off before it was recorded as pending (PENDING.new left, power lost during or just after its install):
+# the card may hold all, some or none of the picked board's files, so install them again and finish the pick.
+# Left alone, the screen types would cycle under the picked board's boot0, and the next pick would save that boot0
+# as the one to put back.
+if [ -f "$PENDING.new" ] && [ ! -f "$PENDING" ] && [ -f "$UNDO" ]; then
+	p=$(cat "$PENDING.new")
+	log "pick of $p was cut off; installing it again"
+	if install "$p" full && mv "$PENDING.new" "$PENDING" && sync; then
+		restart
+	fi
+	log "installing $p again failed; it may need reflashing"
+	exit 1
+fi
+rm -f "$PENDING.new"
 if [ -f "$PENDING" ]; then
 	p=$(cat "$PENDING")
 	i=$(cat "$TRYING" 2>/dev/null || echo 0)
@@ -128,14 +142,20 @@ if [ -f "$PENDING" ]; then
 		log "confirmed: $p"
 		exit 0
 	fi
-	[ $rc -eq 2 ] || { log "confirm screen failed (rc $rc), keeping $p unconfirmed"; exit 1; }
+	# Hold B or no answer (2), or the confirm screen failing under the picked board (anything else, which would
+	# otherwise repeat on every boot with the model never recorded): put the screen type back.
+	[ $rc -eq 2 ] || log "confirm screen failed (rc $rc), treating $p as not confirmed"
 	cur=$(type_line "$i" | cut -d ' ' -f 1)
 	log "not confirmed: $p; putting back screen type $i ($cur)"
 	if [ -f "$UNDO" ] && install "$cur" && write "$UNDO" "$DISK" 16 && write "$UNDO" "$DISK" 512; then
 		rm -f "$PENDING" "$UNDO"; sync
 		restart
 	fi
-	log "putting back screen type $i failed; the menu starts on $p"
+	# Part of the old screen type may be on the card now, under either boot0. Put the picked board back whole, so
+	# the card matches PENDING and the next boot asks about it again; holding START there then records what is
+	# really installed.
+	log "putting back screen type $i failed; installing $p again"
+	install "$p" full || log "ROLLBACK FAILED: the boot files on the card are mixed, it may need reflashing"
 	exit 1
 fi
 

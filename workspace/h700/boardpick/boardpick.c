@@ -31,15 +31,16 @@
 // The 720x480 screen setups (34XX) also reach the 640x480 panels while the card steps through screen types, and
 // those panels show only the left 640 pixels (an H cut the right-hand hint, Dan 2026-11-03). Draw them in a
 // 640-wide canvas so every board that can read the screen sees all of it.
+static int canvas_w(SDL_Surface* screen) { return screen->w > 640 && screen->h <= 480 ? 640 : screen->w; }
 static SDL_Surface* canvas_for(SDL_Surface* screen) {
-	if (screen->w <= 640 || screen->h > 480) return screen;
-	return SDL_CreateRGBSurface(SDL_SWSURFACE, 640, screen->h, FIXED_DEPTH, RGBA_MASK_565);
+	if (canvas_w(screen) == screen->w) return screen;
+	return SDL_CreateRGBSurface(SDL_SWSURFACE, canvas_w(screen), screen->h, FIXED_DEPTH, RGBA_MASK_565);
 }
 
 static int message(char* title, char* line) {
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
 	GFX_clear(screen);
-	int cw = screen->w > 640 && screen->h <= 480 ? 640 : screen->w; // as canvas_for
+	int cw = canvas_w(screen);
 	// both lines centered on the screen as one block (GFX_blitText centers across the rect's width)
 	int title_h = TTF_FontHeight(font.large), line_h = TTF_FontHeight(font.small), gap = SCALE1(8);
 	int y = (screen->h - (title_h + gap + line_h)) / 2;
@@ -164,6 +165,7 @@ int main(int argc, char* argv[]) {
 	// clear both screens before handing back: the shell may write the boot area and reboot next
 	GFX_clear(screen);
 	GFX_flip(screen);
+	if (canvas != screen) SDL_FreeSurface(canvas);
 	QuitSettings();
 	PWR_quit();
 	PAD_quit();
