@@ -36,6 +36,12 @@ export SAVES_PATH="$SDCARD_PATH/Saves"
 # macs and windows leave droppings on any card they mount (._* resource forks, .DS_Store, Thumbs.db,
 # desktop.ini). MinUI hides them, Device Sync ignores them, and this sweeps them each boot so they do
 # not accumulate; known junk names only, never a user file (parity with the Brick launcher, 2026-09-22).
+# The Spotlight index, fsevents logs and no-index markers were missed in that port (.Spotlight-V100 left on
+# the H after a Mac mount, 2026-11-02): the markers stop a Mac indexing the card at all.
+rm -rf "$SDCARD_PATH/.Spotlight-V100" "$SDCARD_PATH/.Trashes" "$SDCARD_PATH/System Volume Information" 2>/dev/null
+touch "$SDCARD_PATH/.metadata_never_index" 2>/dev/null
+mkdir -p "$SDCARD_PATH/.fseventsd" && touch "$SDCARD_PATH/.fseventsd/no_log" 2>/dev/null
+find "$SDCARD_PATH/.fseventsd" -type f ! -name no_log -exec rm -f {} + 2>/dev/null
 rm -f "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._* 2>/dev/null
 # the & belongs OUTSIDE the subshell: inside it backgrounded only the find, and the sleep 15 ran in the
 # foreground of every boot (menu-ready 7 s -> 22 s on the Brick and Smart Pro, 2026-09-22)
