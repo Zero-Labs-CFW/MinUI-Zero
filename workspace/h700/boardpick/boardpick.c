@@ -41,11 +41,6 @@ static int message(char* title, char* line) {
 	return 0;
 }
 
-static void small_line(SDL_Surface* screen, char* text, int y) {
-	GFX_blitText(font.small, text, 0, COLOR_GRAY, screen,
-		&(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), y, screen->w - SCALE1(PADDING*2), SCALE1(PILL_SIZE)});
-}
-
 int main(int argc, char* argv[]) {
 	if (argc == 4 && !strcmp(argv[1], "-m")) { dup2(2, 1); return message(argv[2], argv[3]); }
 	int confirm = argc == 4 && !strcmp(argv[1], "-c");
@@ -82,10 +77,10 @@ int main(int argc, char* argv[]) {
 	PWR_init();
 	InitSettings();
 
-	// rows that fit between the title and the two hint lines above the button hints; the list scrolls past that
+	// rows that fit between the title and the button hints, as in the menu with its hints; the list scrolls past
+	// that, and a list running to the bottom says so better than a line of text (Dan 2026-11-03)
 	int list_y = SCALE1(PADDING + PILL_SIZE + 8);
-	int line_h = TTF_FontHeight(font.small) + SCALE1(4);
-	int rows = (screen->h - list_y - SCALE1(8) - line_h * 2 - SCALE1(PILL_SIZE + PADDING * 2)) / SCALE1(PILL_SIZE);
+	int rows = (screen->h - SCALE1(PADDING + PILL_SIZE) - SCALE1(4) - list_y) / SCALE1(PILL_SIZE);
 	if (rows < 1) rows = 1;
 	int first = 0; // the top row shown
 
@@ -143,18 +138,11 @@ int main(int argc, char* argv[]) {
 						&(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), y + SCALE1(4), w, h});
 				}
 			}
-			y += SCALE1(8);
-			if (start_at) snprintf(line, sizeof line, confirm ? "Keep holding START to keep it" : "Keep holding START to choose %s", labels[selected]);
-			else if (b_at) snprintf(line, sizeof line, confirm ? "Keep holding B to go back" : "Keep holding B to go back to the last screen type");
-			else if (confirm) snprintf(line, sizeof line, "No answer in %ds goes back", left_s);
-			else snprintf(line, sizeof line, "No choice in %ds tries the next screen type", left_s);
-			small_line(screen, line, y);
-			if (!confirm && count > rows) {
-				snprintf(line, sizeof line, "UP and DOWN show all %d models", count);
-				small_line(screen, line, y + line_h);
-			}
-			if (confirm) GFX_blitButtonGroup((char*[]){ "B", "HOLD TO GO BACK", NULL }, 0, screen, 0);
-			GFX_blitButtonGroup((char*[]){ "START", confirm ? "HOLD TO KEEP" : "HOLD TO CHOOSE", NULL }, 0, screen, 1);
+			// no countdown or other text (Dan 2026-11-03): whoever can read this needs only the list and the
+			// buttons, and a dark screen, the one the timer is for, shows nothing anyway
+			char* keep = start_at ? "KEEP HOLDING" : confirm ? "KEEP" : "HOLD TO CHOOSE";
+			if (confirm) GFX_blitButtonGroup((char*[]){ "B", "BACK", "START", keep, NULL }, 1, screen, 1);
+			else GFX_blitButtonGroup((char*[]){ "START", keep, NULL }, 0, screen, 1);
 			GFX_flip(screen);
 			dirty = 0;
 		}
