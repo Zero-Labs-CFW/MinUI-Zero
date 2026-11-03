@@ -280,7 +280,7 @@ def main():
                       cat(dst) == want and mode is not None and mode & 0o111 == 0o111,
                       'mode %s' % (oct(mode) if mode is not None else 'missing'))
             # the frontend and the picker test these by existence, so check existence, not contents
-            for n in ('chosen', 'chosen.new', 'trying'):
+            for n in ('chosen', 'chosen.new', 'trying', 'pending', 'pending.new', 'undo-boot0.img'):
                 check('no boards/' + n + ' yet', debugfs_mode(img, off, '/opt/minui-zero/boards/' + n) is None)
             with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(img))) as tmp:
                 have = rdump(img, off, '/opt/minui-zero/boards', tmp)

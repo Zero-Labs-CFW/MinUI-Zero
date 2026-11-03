@@ -3,10 +3,12 @@
 # /opt/minui-zero/boards/<board>/ (boot0.img, package.fex, device.tar.gz, and kernel: its name in boards/kernels/) and boots one screen
 # type at a time. Each board's panel is set up by its own boot package, so a picker shown under the wrong
 # board's package may be dark. Run by minui-frontend.sh until a model is chosen:
-#   1. ask which model this is, among the boards that share the screen type installed now (boardpick.elf);
+#   1. ask which model this is, listing EVERY model on any screen that can be read (boardpick.elf);
 #   2. no choice in time (a dark or garbled screen): install the NEXT screen type's boot files and reboot,
-#      so a dark screen moves on by itself and wraps around after the last type;
-#   3. a choice: install that board's own full boot set (including its boot0) and its device files, reboot.
+#      so a dark screen moves on by itself and wraps around after the last type (B held goes back one);
+#   3. a choice: install that board's own full boot set (including its boot0) and its device files, reboot,
+#      and ask on the next boot whether the screen is right; no answer puts the screen type it was picked on
+#      (and the boot0 that was on the card) back, so a wrong pick that garbles the screen undoes itself.
 # RAM: boot0 decides whether the board reaches Linux at all, so the screen types are cycled under ONE boot0, the
 # universal one the image ships (the LPDDR3-primary strap-selecting build: booted LPDDR4 on the RG35XX H,
 # LPDDR3 by construction). Only the final choice writes the board's own boot0.
@@ -110,46 +112,80 @@ rollback() {
 
 check_layout || { log "card layout not recognized, not picking a model"; exit 0; }
 
+# A model installed on the last boot waits for "the screen is right" before it counts as chosen (step 3).
+PENDING=$B/pending    # the board installed, until confirmed
+UNDO=$B/undo-boot0.img  # the boot0 that was on the card before it
+if [ -f "$PENDING" ]; then
+	p=$(cat "$PENDING")
+	i=$(cat "$TRYING" 2>/dev/null || echo 0)
+	case "$i" in ''|*[!0-9]*) i=0 ;; esac
+	[ "$i" -lt "$NTYPES" ] || i=0
+	/opt/minui-zero/boardpick.elf -c 60 "$(label "$p")" >/dev/null
+	rc=$?
+	if [ $rc -eq 0 ]; then
+		echo "$p" > "$CHOSEN.new" && sync && mv "$CHOSEN.new" "$CHOSEN" || { log "cannot record $p as chosen"; exit 1; }
+		rm -f "$PENDING" "$UNDO" "$TRYING"; sync
+		log "confirmed: $p"
+		exit 0
+	fi
+	[ $rc -eq 2 ] || { log "confirm screen failed (rc $rc), keeping $p unconfirmed"; exit 1; }
+	cur=$(type_line "$i" | cut -d ' ' -f 1)
+	log "not confirmed: $p; putting back screen type $i ($cur)"
+	if [ -f "$UNDO" ] && install "$cur" && write "$UNDO" "$DISK" 16 && write "$UNDO" "$DISK" 512; then
+		rm -f "$PENDING" "$UNDO"; sync
+		restart
+	fi
+	log "putting back screen type $i failed; the menu starts on $p"
+	exit 1
+fi
+
 i=$(cat "$TRYING" 2>/dev/null || echo 0)
 case "$i" in ''|*[!0-9]*) i=0 ;; esac
 [ "$i" -lt "$NTYPES" ] || i=0
-set --
-for b in $(type_line "$i"); do set -- "$@" "$b" "$(label "$b")"; done
-log "screen type $i: $(type_line "$i")"
 cur=$(type_line "$i" | cut -d ' ' -f 1)
+# Every model, in table order, starting on the first of the screen type installed now. A list limited to that
+# type sent an H that could read the SP's screen hunting through the RG40XX ones (Dan 2026-11-03).
+set --
+n=0; sel=0
+for b in $(sh "$BOARD" ids); do
+	[ "$b" = "$cur" ] && sel=$n
+	set -- "$@" "$b" "$(label "$b")"
+	n=$((n + 1))
+done
+log "screen type $i: $(type_line "$i")"
 # Types 0 and 1 hold the Plus, H, Pro and SP and show a picture on all of them, so they wait two minutes: the
 # first boot follows the card expansion, and 30 s there moved an H on to the wrong boards unseen (Dan
 # 2026-11-03). The later types are the ones a dark screen sits on, so they move on after 30 s.
 [ "$i" -le 1 ] && wait_s=120 || wait_s=30
-# Past the first type, B held goes back one (-b): the way back from a SELECT held by mistake is one hold, not a
-# trip through every other screen type (Dan 2026-11-03).
+# Past the first type, B held goes back one (-b): the way back from a garbled screen is one hold, not a trip
+# through every other screen type (Dan 2026-11-03).
 [ "$i" -gt 0 ] && back=-b || back=
-pick=$(/opt/minui-zero/boardpick.elf $back "$wait_s" "$@")
+pick=$(/opt/minui-zero/boardpick.elf $back -s "$sel" "$wait_s" "$@")
 rc=$?
 if [ $rc -eq 0 ]; then
-	# only a model the picker was offered: anything else (a stray line, an empty answer) picks nothing
-	case " $(type_line "$i") " in *" $pick "*) ;; *) log "picker answered [$pick], not a model of screen type $i"; exit 1 ;; esac
-	log "chosen: $pick"
-	# the boot0 on the card now (the universal one), so a failed install can put it back
-	dd if="$DISK" of=/tmp/bp-boot0.img bs=512 skip=16 count=128 2>>"$LOG" &&
-		[ "$(wc -c < /tmp/bp-boot0.img)" -eq 65536 ] && head -c 12 /tmp/bp-boot0.img | tail -c 8 | grep -q eGON.BT0 ||
-		{ log "cannot save the boot0 on the card, not installing"; exit 1; }
+	# only a model in the table: anything else (a stray line, an empty answer) picks nothing
+	case " $(sh "$BOARD" ids | tr '\n' ' ') " in *" $pick "*) ;; *) log "picker answered [$pick], not a model"; exit 1 ;; esac
+	log "chosen: $pick, on screen type $i"
+	# the boot0 on the card now, so a failed install or an unconfirmed pick can put it back
+	dd if="$DISK" of="$UNDO" bs=512 skip=16 count=128 2>>"$LOG" &&
+		[ "$(wc -c < "$UNDO")" -eq 65536 ] && head -c 12 "$UNDO" | tail -c 8 | grep -q eGON.BT0 ||
+		{ log "cannot save the boot0 on the card, not installing"; rm -f "$UNDO"; exit 1; }
 	# the install and reboot take several seconds with nothing else on screen (a black screen, Dan 2026-11-02)
 	/opt/minui-zero/boardpick.elf -m "Setting up $(label "$pick")..." "Leave it on. It restarts by itself." >/dev/null 2>&1 &
 	msg=$!
-	if install "$pick" full && echo "$pick" > "$CHOSEN.new" && sync && mv "$CHOSEN.new" "$CHOSEN"; then
-		rm -f "$TRYING"; sync
+	# TRYING stays: it names the screen type to put back if the next boot is not confirmed
+	if echo "$pick" > "$PENDING.new" && sync && install "$pick" full && mv "$PENDING.new" "$PENDING" && sync; then
 		restart
 	fi
 	kill "$msg" 2>/dev/null; wait "$msg" 2>/dev/null
 	log "install of $pick failed; putting back screen type $i ($cur)"
-	rm -f "$CHOSEN" "$CHOSEN.new"
-	rollback "$cur" /tmp/bp-boot0.img
+	rm -f "$PENDING" "$PENDING.new"
+	rollback "$cur" "$UNDO" && rm -f "$UNDO"
 	exit 1
 fi
-# Only the picker's own "no choice" (2: timeout or SELECT held) moves on, and its "back" (3: B held) goes back one.
-# Any other exit is the picker failing, which it would do the same way on every screen type, so stop here and let
-# the menu start on what is installed.
+# Only the picker's own "no choice" (2: timeout) moves on, and its "back" (3: B held) goes back one. Any other
+# exit is the picker failing, which it would do the same way on every screen type, so stop here and let the menu
+# start on what is installed.
 case $rc in
 2) next=$(( (i + 1) % NTYPES )); why="no choice" ;;
 3) next=$(( (i + NTYPES - 1) % NTYPES )); why="back" ;;
