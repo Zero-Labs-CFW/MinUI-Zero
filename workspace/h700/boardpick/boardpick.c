@@ -77,10 +77,10 @@ int main(int argc, char* argv[]) {
 	PWR_init();
 	InitSettings();
 
-	// rows that fit between the title and the button hints, as in the menu with its hints; the list scrolls past
-	// that, and a list running to the bottom says so better than a line of text (Dan 2026-11-03)
+	// the list runs the full height, under the button hint, and scrolls past the rows that fit whole; a row cut
+	// off at the bottom shows there is more (Dan 2026-11-03)
 	int list_y = SCALE1(PADDING + PILL_SIZE + 8);
-	int rows = (screen->h - SCALE1(PADDING + PILL_SIZE) - SCALE1(4) - list_y) / SCALE1(PILL_SIZE);
+	int rows = (screen->h - list_y) / SCALE1(PILL_SIZE);
 	if (rows < 1) rows = 1;
 	int first = 0; // the top row shown
 
@@ -126,7 +126,7 @@ int main(int argc, char* argv[]) {
 			else {
 				if (selected < first) first = selected;
 				if (selected >= first + rows) first = selected - rows + 1;
-				for (int i = first; i < count && i < first + rows; i++, y += SCALE1(PILL_SIZE)) {
+				for (int i = first; i < count && i <= first + rows; i++, y += SCALE1(PILL_SIZE)) {
 					SDL_Color color = COLOR_WHITE;
 					int w, h;
 					GFX_sizeText(font.large, labels[i], 0, &w, &h);
@@ -140,7 +140,7 @@ int main(int argc, char* argv[]) {
 			}
 			// no countdown or other text (Dan 2026-11-03): whoever can read this needs only the list and the
 			// buttons, and a dark screen, the one the timer is for, shows nothing anyway
-			char* keep = start_at ? "KEEP HOLDING" : confirm ? "KEEP" : "HOLD TO CHOOSE";
+			char* keep = confirm ? "KEEP" : "HOLD";
 			if (confirm) GFX_blitButtonGroup((char*[]){ "B", "BACK", "START", keep, NULL }, 1, screen, 1);
 			else GFX_blitButtonGroup((char*[]){ "START", keep, NULL }, 0, screen, 1);
 			GFX_flip(screen);
