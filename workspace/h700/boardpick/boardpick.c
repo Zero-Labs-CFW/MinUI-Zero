@@ -28,14 +28,23 @@
 #define TOUCHED_MS 180000 // the countdown after any press
 #define MAX_MODELS 16
 
+// The 720x480 screen setups (34XX) also reach the 640x480 panels while the card steps through screen types, and
+// those panels show only the left 640 pixels (an H cut the right-hand hint, Dan 2026-11-03). Draw them in a
+// 640-wide canvas so every board that can read the screen sees all of it.
+static SDL_Surface* canvas_for(SDL_Surface* screen) {
+	if (screen->w <= 640 || screen->h > 480) return screen;
+	return SDL_CreateRGBSurface(SDL_SWSURFACE, 640, screen->h, FIXED_DEPTH, RGBA_MASK_565);
+}
+
 static int message(char* title, char* line) {
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
 	GFX_clear(screen);
+	int cw = screen->w > 640 && screen->h <= 480 ? 640 : screen->w; // as canvas_for
 	// both lines centered on the screen as one block (GFX_blitText centers across the rect's width)
 	int title_h = TTF_FontHeight(font.large), line_h = TTF_FontHeight(font.small), gap = SCALE1(8);
 	int y = (screen->h - (title_h + gap + line_h)) / 2;
-	GFX_blitText(font.large, title, 0, COLOR_WHITE, screen, &(SDL_Rect){0, y, screen->w, title_h});
-	GFX_blitText(font.small, line, 0, COLOR_GRAY, screen, &(SDL_Rect){0, y + title_h + gap, screen->w, line_h});
+	GFX_blitText(font.large, title, 0, COLOR_WHITE, screen, &(SDL_Rect){0, y, cw, title_h});
+	GFX_blitText(font.small, line, 0, COLOR_GRAY, screen, &(SDL_Rect){0, y + title_h + gap, cw, line_h});
 	GFX_flip(screen);
 	for (;;) sleep(60); // the reboot (or the shell's kill) ends it
 	return 0;
@@ -73,6 +82,7 @@ int main(int argc, char* argv[]) {
 
 	PWR_setCPUSpeed(CPU_SPEED_MENU);
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
+	SDL_Surface* canvas = canvas_for(screen);
 	PAD_init();
 	PWR_init();
 	InitSettings();
@@ -80,7 +90,7 @@ int main(int argc, char* argv[]) {
 	// the list runs the full height, under the button hint, and scrolls past the rows that fit whole; a row cut
 	// off at the bottom shows there is more (Dan 2026-11-03)
 	int list_y = SCALE1(PADDING + PILL_SIZE + 8);
-	int rows = (screen->h - list_y) / SCALE1(PILL_SIZE);
+	int rows = (canvas->h - list_y) / SCALE1(PILL_SIZE);
 	if (rows < 1) rows = 1;
 	int first = 0; // the top row shown
 
@@ -113,14 +123,15 @@ int main(int argc, char* argv[]) {
 		if (dirty && !quit) {
 			shown_s = left_s;
 			GFX_clear(screen);
+			if (canvas != screen) SDL_FillRect(canvas, NULL, 0);
 			char line[128];
 			GFX_blitText(font.large, confirm ? "Does the screen look right?" : "Which handheld is this?", 0, COLOR_WHITE,
-				screen, &(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), SCALE1(PADDING), screen->w - SCALE1(PADDING*2), SCALE1(PILL_SIZE)});
+				canvas, &(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), SCALE1(PADDING), canvas->w - SCALE1(PADDING*2), SCALE1(PILL_SIZE)});
 			int y = list_y;
 			if (confirm) {
 				snprintf(line, sizeof line, "Set up as %s", labels[0]);
-				GFX_blitText(font.large, line, 0, COLOR_WHITE, screen,
-					&(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), y + SCALE1(4), screen->w - SCALE1(PADDING*2), SCALE1(PILL_SIZE)});
+				GFX_blitText(font.large, line, 0, COLOR_WHITE, canvas,
+					&(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), y + SCALE1(4), canvas->w - SCALE1(PADDING*2), SCALE1(PILL_SIZE)});
 				y += SCALE1(PILL_SIZE);
 			}
 			else {
@@ -131,18 +142,19 @@ int main(int argc, char* argv[]) {
 					int w, h;
 					GFX_sizeText(font.large, labels[i], 0, &w, &h);
 					if (i == selected) {
-						GFX_blitPill(ASSET_WHITE_PILL, screen, &(SDL_Rect){SCALE1(PADDING), y, w + SCALE1(BUTTON_PADDING*2), SCALE1(PILL_SIZE)});
+						GFX_blitPill(ASSET_WHITE_PILL, canvas, &(SDL_Rect){SCALE1(PADDING), y, w + SCALE1(BUTTON_PADDING*2), SCALE1(PILL_SIZE)});
 						color = COLOR_BLACK;
 					}
-					GFX_blitText(font.large, labels[i], 0, color, screen,
+					GFX_blitText(font.large, labels[i], 0, color, canvas,
 						&(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), y + SCALE1(4), w, h});
 				}
 			}
 			// no countdown or other text (Dan 2026-11-03): whoever can read this needs only the list and the
 			// buttons, and a dark screen, the one the timer is for, shows nothing anyway
 			char* keep = confirm ? "KEEP" : "HOLD 2s";
-			if (confirm) GFX_blitButtonGroup((char*[]){ "B", "BACK", "START", keep, NULL }, 1, screen, 1);
-			else GFX_blitButtonGroup((char*[]){ "START", keep, NULL }, 0, screen, 1);
+			if (confirm) GFX_blitButtonGroup((char*[]){ "B", "BACK", "START", keep, NULL }, 1, canvas, 1);
+			else GFX_blitButtonGroup((char*[]){ "START", keep, NULL }, 0, canvas, 1);
+			if (canvas != screen) SDL_BlitSurface(canvas, NULL, screen, NULL);
 			GFX_flip(screen);
 			dirty = 0;
 		}
