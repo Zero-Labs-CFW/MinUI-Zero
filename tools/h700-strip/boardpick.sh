@@ -121,7 +121,10 @@ cur=$(type_line "$i" | cut -d ' ' -f 1)
 # first boot follows the card expansion, and 30 s there moved an H on to the wrong boards unseen (Dan
 # 2026-11-03). The later types are the ones a dark screen sits on, so they move on after 30 s.
 [ "$i" -le 1 ] && wait_s=120 || wait_s=30
-pick=$(/opt/minui-zero/boardpick.elf "$wait_s" "$@")
+# Past the first type, B held goes back one (-b): the way back from a SELECT held by mistake is one hold, not a
+# trip through every other screen type (Dan 2026-11-03).
+[ "$i" -gt 0 ] && back=-b || back=
+pick=$(/opt/minui-zero/boardpick.elf $back "$wait_s" "$@")
 rc=$?
 if [ $rc -eq 0 ]; then
 	# only a model the picker was offered: anything else (a stray line, an empty answer) picks nothing
@@ -144,12 +147,16 @@ if [ $rc -eq 0 ]; then
 	rollback "$cur" /tmp/bp-boot0.img
 	exit 1
 fi
-# Only the picker's own "no choice" (2: timeout or SELECT held) moves on. Any other exit is the picker failing,
-# which it would do the same way on every screen type, so stop here and let the menu start on what is installed.
-[ $rc -eq 2 ] || { log "picker failed (rc $rc), not cycling"; exit 1; }
-next=$(( (i + 1) % NTYPES ))
+# Only the picker's own "no choice" (2: timeout or SELECT held) moves on, and its "back" (3: B held) goes back one.
+# Any other exit is the picker failing, which it would do the same way on every screen type, so stop here and let
+# the menu start on what is installed.
+case $rc in
+2) next=$(( (i + 1) % NTYPES )); why="no choice" ;;
+3) next=$(( (i + NTYPES - 1) % NTYPES )); why="back" ;;
+*) log "picker failed (rc $rc), not cycling"; exit 1 ;;
+esac
 rep=$(type_line "$next" | cut -d ' ' -f 1)
-log "no choice: trying screen type $next ($rep)"
+log "$why: trying screen type $next ($rep)"
 # Record the type BEFORE writing its files: a power cut after the write must ask about the screen type that is
 # installed, and one during the write leaves a mixed set either way (reflash).
 echo "$next" > "$TRYING" && sync || { log "cannot record screen type $next, not cycling"; exit 1; }

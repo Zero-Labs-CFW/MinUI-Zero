@@ -1,10 +1,12 @@
 // boardpick: first-boot model picker for the one H700 image (tools/h700-strip/boardpick.sh drives it).
 // The card boots one screen type at a time; this asks which handheld it is among the models that share it.
-//   boardpick <timeout_s> <id> <label> [<id> <label> ...]
+//   boardpick [-b] <timeout_s> <id> <label> [<id> <label> ...]
 //   boardpick -m <title> <line>: show a message until killed (the shell runs it while it installs and reboots,
 //   which otherwise happens on a black screen; Dan 2026-11-02)
 // Hold START 2 s on a model: prints its id, exit 0. Hold SELECT 2 s, or no input before the countdown ends:
-// exit 2 (try the next screen type). A HOLD, never a press: mashing A through first boot must not pick a model.
+// exit 2 (try the next screen type). With -b, hold B 2 s: exit 3 (back to the previous screen type, the way back
+// from a SELECT held by mistake, Dan 2026-11-03). A HOLD, never a press: mashing A through first boot must not
+// pick a model.
 // Every button press restarts the countdown at three minutes, so someone reading the list is never cut off (the
 // H moved on unseen after 30 s, Dan 2026-11-03); a dark screen gets no input and moves on by itself, and one
 // mashed in the dark still moves on three minutes after the last press.
@@ -37,8 +39,10 @@ static int message(char* title, char* line) {
 
 int main(int argc, char* argv[]) {
 	if (argc == 4 && !strcmp(argv[1], "-m")) { dup2(2, 1); return message(argv[2], argv[3]); }
+	int back = argc > 1 && !strcmp(argv[1], "-b");
+	if (back) { argc--; argv++; }
 	if (argc < 4 || (argc - 2) % 2) {
-		fprintf(stderr, "usage: boardpick <timeout_s> <id> <label> [<id> <label> ...]\n");
+		fprintf(stderr, "usage: boardpick [-b] <timeout_s> <id> <label> [<id> <label> ...]\n");
 		return 1;
 	}
 	// stdout carries the answer alone: the shell reads it with $(...). The shared API logs [INFO] lines to
@@ -60,7 +64,7 @@ int main(int argc, char* argv[]) {
 
 	int selected = 0, result = 2, quit = 0, dirty = 1, shown_s = -1;
 	uint32_t deadline = SDL_GetTicks() + timeout_ms;
-	uint32_t start_at = 0, select_at = 0; // when the hold began, 0 = not held
+	uint32_t start_at = 0, select_at = 0, b_at = 0; // when the hold began, 0 = not held
 	while (!quit) {
 		PAD_poll();
 		uint32_t now = SDL_GetTicks();
@@ -75,13 +79,16 @@ int main(int argc, char* argv[]) {
 		else start_at = 0;
 		if (PAD_isPressed(BTN_SELECT)) { if (!select_at) select_at = now; }
 		else select_at = 0;
+		if (back && PAD_isPressed(BTN_B)) { if (!b_at) b_at = now; }
+		else b_at = 0;
 
 		if (start_at && now - start_at >= HOLD_MS) { result = 0; quit = 1; }
 		else if (select_at && now - select_at >= HOLD_MS) { result = 2; quit = 1; }
+		else if (b_at && now - b_at >= HOLD_MS) { result = 3; quit = 1; }
 		else if ((int32_t)(deadline - now) <= 0) { result = 2; quit = 1; }
 
 		int left_s = ((int32_t)(deadline - now) + 999) / 1000;
-		if (left_s != shown_s || start_at || select_at) dirty = 1;
+		if (left_s != shown_s || start_at || select_at || b_at) dirty = 1;
 		if (dirty && !quit) {
 			shown_s = left_s;
 			GFX_clear(screen);
@@ -103,10 +110,16 @@ int main(int argc, char* argv[]) {
 			char line[128];
 			if (start_at) snprintf(line, sizeof line, "Keep holding START to choose %s", labels[selected]);
 			else if (select_at) snprintf(line, sizeof line, "Keep holding SELECT to try the next screen type");
+			else if (b_at) snprintf(line, sizeof line, "Keep holding B to go back to the last list");
 			else snprintf(line, sizeof line, "No choice in %ds tries the next screen type", left_s);
 			y += SCALE1(8);
 			GFX_blitText(font.small, line, 0, COLOR_GRAY, screen,
 				&(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), y, screen->w - SCALE1(PADDING*2), SCALE1(PILL_SIZE)});
+			if (back) {
+				y += TTF_FontHeight(font.small) + SCALE1(4);
+				GFX_blitText(font.small, "Hold B to go back to the last list", 0, COLOR_GRAY, screen,
+					&(SDL_Rect){SCALE1(PADDING+BUTTON_PADDING), y, screen->w - SCALE1(PADDING*2), SCALE1(PILL_SIZE)});
+			}
 			GFX_blitButtonGroup((char*[]){ "SELECT", "NOT LISTED", NULL }, 0, screen, 0);
 			GFX_blitButtonGroup((char*[]){ "START", "HOLD TO CHOOSE", NULL }, 0, screen, 1);
 			GFX_flip(screen);
