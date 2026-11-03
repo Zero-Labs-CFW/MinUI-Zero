@@ -1494,16 +1494,45 @@ static void Menu_quit(void) {
 
 ///////////////////////////////////////
 
-// filled rounded rectangle via per-row spans (same technique as confirm's check-circle)
-static void fill_rrect(SDL_Surface* dst, int x, int y, int w, int h, int r, uint32_t c) {
+// blend c over one pixel by a/16 (16 = opaque); 16- and 32-bit surfaces
+static void blend_px(SDL_Surface* dst, int x, int y, SDL_Color c, int a) {
+	if (a <= 0 || x < 0 || y < 0 || x >= dst->w || y >= dst->h) return;
+	int bpp = dst->format->BytesPerPixel;
+	Uint8* p = (Uint8*)dst->pixels + y * dst->pitch + x * bpp;
+	Uint32 v = bpp == 2 ? *(Uint16*)p : *(Uint32*)p;
+	Uint8 r, g, b;
+	SDL_GetRGB(v, dst->format, &r, &g, &b);
+	v = SDL_MapRGB(dst->format, r + (c.r - r) * a / 16, g + (c.g - g) * a / 16, b + (c.b - b) * a / 16);
+	if (bpp == 2) *(Uint16*)p = v;
+	else *(Uint32*)p = v;
+}
+
+// filled rounded rectangle with anti-aliased corners: solid spans, then each corner pixel blended by how much
+// of it (4x4 samples) lies inside the corner circle. The per-row-span version stepped visibly on the panel
+// (Dan 2026-11-03).
+static void fill_rrect(SDL_Surface* dst, int x, int y, int w, int h, int r, SDL_Color c) {
 	if (r > h/2) r = h/2;
 	if (r > w/2) r = w/2;
-	for (int row=0; row<h; row++) {
-		int inset = 0;
-		if (row < r) { float dy = r-row-0.5f; inset = r - (int)sqrtf((float)r*r - dy*dy); }
-		else if (row >= h-r) { float dy = row-(h-r)+0.5f; inset = r - (int)sqrtf((float)r*r - dy*dy); }
-		SDL_FillRect(dst, &(SDL_Rect){x+inset, y+row, w-2*inset, 1}, c);
+	if (r < 0) r = 0;
+	uint32_t full = SDL_MapRGB(dst->format, c.r, c.g, c.b);
+	SDL_FillRect(dst, &(SDL_Rect){x, y+r, w, h-2*r}, full);
+	SDL_FillRect(dst, &(SDL_Rect){x+r, y, w-2*r, r}, full);
+	SDL_FillRect(dst, &(SDL_Rect){x+r, y+h-r, w-2*r, r}, full);
+	if (SDL_MUSTLOCK(dst)) SDL_LockSurface(dst);
+	for (int j=0; j<r; j++) {
+		for (int i=0; i<r; i++) {
+			int a = 0; // samples inside the circle centered on the corner square's inner corner
+			for (int sj=0; sj<4; sj++) for (int si=0; si<4; si++) {
+				float dx = r - (i + (si + 0.5f) / 4), dy = r - (j + (sj + 0.5f) / 4);
+				if (dx*dx + dy*dy <= (float)r*r) a++;
+			}
+			blend_px(dst, x+i, y+j, c, a);
+			blend_px(dst, x+w-1-i, y+j, c, a);
+			blend_px(dst, x+i, y+h-1-j, c, a);
+			blend_px(dst, x+w-1-i, y+h-1-j, c, a);
+		}
 	}
+	if (SDL_MUSTLOCK(dst)) SDL_UnlockSurface(dst);
 }
 
 // Charging screen: while idle on the charger the menu would otherwise stay lit for the
@@ -1547,8 +1576,7 @@ static void ChargingScreen(SDL_Surface* screen) {
 
 			// rounded battery (reference: iOS-style): outline ring + rounded nub +
 			// proportional rounded fill with a clear gap
-			uint32_t white = SDL_MapRGB(screen->format, 0xff,0xff,0xff);
-			uint32_t black = SDL_MapRGB(screen->format, 0x00,0x00,0x00);
+			SDL_Color white = COLOR_WHITE, black = COLOR_BLACK;
 			int bw = SCALE1(92), bh = SCALE1(44);
 			int t  = SCALE1(4);            // stroke
 			int r  = bh/5;                 // a touch less rounded
