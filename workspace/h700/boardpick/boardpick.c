@@ -1,6 +1,8 @@
 // boardpick: first-boot model picker for the one H700 image (tools/h700-strip/boardpick.sh drives it).
 // The card boots one screen type at a time; this asks which handheld it is among the models that share it.
 //   boardpick <timeout_s> <id> <label> [<id> <label> ...]
+//   boardpick -m <title> <line>: show a message until killed (the shell runs it while it installs and reboots,
+//   which otherwise happens on a black screen; Dan 2026-11-02)
 // Hold START 2 s on a model: prints its id, exit 0. Hold SELECT 2 s, or no input before the countdown ends:
 // exit 2 (try the next screen type). A HOLD, never a press: mashing A through first boot must not pick a model.
 // Any button pushes the countdown out to at least a minute, so someone reading the list is never cut off;
@@ -18,7 +20,21 @@
 #define HOLD_MS 2000
 #define MAX_MODELS 8
 
+static int message(char* title, char* line) {
+	SDL_Surface* screen = GFX_init(MODE_MAIN);
+	GFX_clear(screen);
+	// both lines centered on the screen as one block (GFX_blitText centers across the rect's width)
+	int title_h = TTF_FontHeight(font.large), line_h = TTF_FontHeight(font.small), gap = SCALE1(8);
+	int y = (screen->h - (title_h + gap + line_h)) / 2;
+	GFX_blitText(font.large, title, 0, COLOR_WHITE, screen, &(SDL_Rect){0, y, screen->w, title_h});
+	GFX_blitText(font.small, line, 0, COLOR_GRAY, screen, &(SDL_Rect){0, y + title_h + gap, screen->w, line_h});
+	GFX_flip(screen);
+	for (;;) sleep(60); // the reboot (or the shell's kill) ends it
+	return 0;
+}
+
 int main(int argc, char* argv[]) {
+	if (argc == 4 && !strcmp(argv[1], "-m")) { dup2(2, 1); return message(argv[2], argv[3]); }
 	if (argc < 4 || (argc - 2) % 2) {
 		fprintf(stderr, "usage: boardpick <timeout_s> <id> <label> [<id> <label> ...]\n");
 		return 1;

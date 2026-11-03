@@ -58,6 +58,7 @@ restart() {
 	reboot -f
 	sleep 30
 	log "no reboot after 30 s; carrying on to the menu, the next boot uses the new files"
+	[ -z "$msg" ] || { kill "$msg" 2>/dev/null; wait "$msg" 2>/dev/null; }  # the menu needs the screen
 	exit 0
 }
 
@@ -126,10 +127,14 @@ if [ $rc -eq 0 ]; then
 	dd if="$DISK" of=/tmp/bp-boot0.img bs=512 skip=16 count=128 2>>"$LOG" &&
 		[ "$(wc -c < /tmp/bp-boot0.img)" -eq 65536 ] && head -c 12 /tmp/bp-boot0.img | tail -c 8 | grep -q eGON.BT0 ||
 		{ log "cannot save the boot0 on the card, not installing"; exit 1; }
+	# the install and reboot take several seconds with nothing else on screen (a black screen, Dan 2026-11-02)
+	/opt/minui-zero/boardpick.elf -m "Setting up $(label "$pick")..." "Leave it on. It restarts by itself." >/dev/null 2>&1 &
+	msg=$!
 	if install "$pick" full && echo "$pick" > "$CHOSEN.new" && sync && mv "$CHOSEN.new" "$CHOSEN"; then
 		rm -f "$TRYING"; sync
 		restart
 	fi
+	kill "$msg" 2>/dev/null; wait "$msg" 2>/dev/null
 	log "install of $pick failed; putting back screen type $i ($cur)"
 	rm -f "$CHOSEN" "$CHOSEN.new"
 	rollback "$cur" /tmp/bp-boot0.img
