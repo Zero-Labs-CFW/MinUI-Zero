@@ -117,7 +117,11 @@ set --
 for b in $(type_line "$i"); do set -- "$@" "$b" "$(label "$b")"; done
 log "screen type $i: $(type_line "$i")"
 cur=$(type_line "$i" | cut -d ' ' -f 1)
-pick=$(/opt/minui-zero/boardpick.elf 30 "$@")
+# Types 0 and 1 hold the Plus, H, Pro and SP and show a picture on all of them, so they wait two minutes: the
+# first boot follows the card expansion, and 30 s there moved an H on to the wrong boards unseen (Dan
+# 2026-11-03). The later types are the ones a dark screen sits on, so they move on after 30 s.
+[ "$i" -le 1 ] && wait_s=120 || wait_s=30
+pick=$(/opt/minui-zero/boardpick.elf "$wait_s" "$@")
 rc=$?
 if [ $rc -eq 0 ]; then
 	# only a model the picker was offered: anything else (a stray line, an empty answer) picks nothing

@@ -5,8 +5,9 @@
 //   which otherwise happens on a black screen; Dan 2026-11-02)
 // Hold START 2 s on a model: prints its id, exit 0. Hold SELECT 2 s, or no input before the countdown ends:
 // exit 2 (try the next screen type). A HOLD, never a press: mashing A through first boot must not pick a model.
-// Any button pushes the countdown out to at least a minute, so someone reading the list is never cut off;
-// a dark screen gets no input and moves on by itself.
+// Every button press restarts the countdown at three minutes, so someone reading the list is never cut off (the
+// H moved on unseen after 30 s, Dan 2026-11-03); a dark screen gets no input and moves on by itself, and one
+// mashed in the dark still moves on three minutes after the last press.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +19,7 @@
 #include "utils.h"
 
 #define HOLD_MS 2000
+#define TOUCHED_MS 180000 // the countdown after any press
 #define MAX_MODELS 8
 
 static int message(char* title, char* line) {
@@ -63,7 +65,7 @@ int main(int argc, char* argv[]) {
 		PAD_poll();
 		uint32_t now = SDL_GetTicks();
 		if (PAD_anyJustPressed()) {
-			if (deadline < now + 60000) deadline = now + 60000;
+			deadline = now + TOUCHED_MS;
 			dirty = 1;
 		}
 		if (PAD_justRepeated(BTN_UP)) { selected = (selected + count - 1) % count; dirty = 1; }
