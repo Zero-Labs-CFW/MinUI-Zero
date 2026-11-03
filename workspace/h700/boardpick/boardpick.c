@@ -140,7 +140,7 @@ int main(int argc, char* argv[]) {
 			}
 			// no countdown or other text (Dan 2026-11-03): whoever can read this needs only the list and the
 			// buttons, and a dark screen, the one the timer is for, shows nothing anyway
-			char* keep = confirm ? "KEEP" : "HOLD";
+			char* keep = confirm ? "KEEP" : "HOLD 2s";
 			if (confirm) GFX_blitButtonGroup((char*[]){ "B", "BACK", "START", keep, NULL }, 1, screen, 1);
 			else GFX_blitButtonGroup((char*[]){ "START", keep, NULL }, 0, screen, 1);
 			GFX_flip(screen);
