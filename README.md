@@ -57,17 +57,17 @@ We don't build or tune these cores ourselves, but Zero's governor still runs the
 
 ## Download and install
 
-[The latest release](https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/latest) carries a TrimUI zip, a Miyoo zip and one image per Anbernic board. A card serves its whole family, and no card crosses families.
+[The latest release](https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/latest) carries a TrimUI zip, a Miyoo zip, and an Anbernic image plus an Anbernic zip. A card serves its whole family, and no card crosses families.
 
 | Device | Download | Install |
 |---|---|---|
 | TrimUI Brick / Brick Pro / Smart Pro | `MinUI-Zero-trimui-*.zip` | copy onto the card |
 | Miyoo Mini / Plus / Flip | `MinUI-Zero-miyoo-*.zip` | copy onto the card |
-| Anbernic RG35XX Plus / 2024 / H / Pro / SP, RG40XX H / V, RG34XX / SP, RG SP, RG CubeXX, RG28XX | the `.img.xz` named for your board (the 2024 uses the Plus image) | flash the card |
+| Anbernic RG35XX Plus / 2024 / H / Pro / SP, RG40XX H / V, RG34XX / SP, RG SP, RG CubeXX, RG28XX | `MinUI-Zero-h700-*-all.img.xz` to install, `MinUI-Zero-h700-*.zip` to update | flash the card once, then copy onto the card |
 
 **TrimUI and Miyoo** ride along with the stock firmware, nothing is erased: unzip onto a blank FAT32 card, or drop `MinUI.zip` on the card root to update.
 
-**Anbernic** *is* the operating system: flash the `.img.xz` for your exact device with Raspberry Pi Imager, balenaEtcher, or `dd`. Flashing erases the card, and the images are not interchangeable between boards.
+**Anbernic** *is* the operating system: flash the `.img.xz` with Raspberry Pi Imager, balenaEtcher, or `dd`, which erases the card. One image serves every board: on first boot, pick your model and hold START (a dark screen moves on to the next screen type by itself). To update later, drop the Anbernic zip on the card root, as downloaded or renamed to `MinUI.zip`, and restart; a few rare changes still need a reflash, and the update says so.
 
 ## Settings
 
@@ -128,7 +128,7 @@ Tools > Device Sync copies saves between two handhelds over a hotspot one of the
 ## Devices
 
 * **TrimUI (Brick, Brick Pro, Smart Pro)**: the primary platform, where Zero is tuned and measured.
-* **Anbernic H700 boards**: Zero *is* the OS, so it boots straight to the launcher and idles with nothing else running. Newer and less proven: updates are a reflash, and six of fifteen systems are launch-tested. The RG35XX Plus and H are verified on hardware; every other board is untested. Deep sleep is on for the Plus and H only, and the RG40XX H/V sticks and lights don't work yet.
+* **Anbernic H700 boards**: Zero *is* the OS, so it boots straight to the launcher and idles with nothing else running. Newer and less proven: six of fifteen systems are launch-tested. The RG35XX Plus and H are verified on hardware; every other board is untested. Deep sleep is on for the Plus and H only, and the RG40XX H/V sticks and lights don't work yet.
 * **Miyoo Mini family**: same launcher and governor, cores rebuilt for ARMv7. The Plus is verified; the Mini and Flip are untested on hardware. The tuning gains don't transfer here (the CPU is a small share of this SoC's power), and deep sleep is impossible (the vendor kernel has no suspend).
 
 Running Zero on an untested model? A [device report](https://github.com/Zero-Labs-CFW/MinUI-Zero/issues/new?template=device-report.yml) helps, good or bad. Bugs and questions go in [Issues](https://github.com/Zero-Labs-CFW/MinUI-Zero/issues) too. Pull requests aren't accepted; open an issue instead.
