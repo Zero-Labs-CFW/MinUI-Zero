@@ -2,9 +2,8 @@
 // The card boots one screen type at a time. Any screen that can be read lists EVERY model, so nobody hunts for
 // theirs through other boards' screen setups (an H read the SP's screen fine, Dan 2026-11-03).
 //   boardpick [-b] [-s <n>] <timeout_s> <id> <label> [<id> <label> ...]
-//     Hold START 2 s on a model: prints its id, exit 0. No second "Set up as <model>?" step (added 2026-11-03,
-//     dropped 2026-11-04, Dan): the -c question after the reboot already undoes a wrong pick. No input before the
-//     countdown ends: exit 2 (try the next
+//     Hold START 2 s on a model, then hold START 2 s again on "Set up as <model>?" (B goes back to the list; Dan
+//     2026-11-03): prints its id, exit 0. No input before the countdown ends: exit 2 (try the next
 //     screen type: a dark screen moves on by itself). With -b, hold B 2 s: exit 3 (back to the previous screen
 //     type, the way back from a garbled one). -s <n> starts on model n.
 //   boardpick -c <timeout_s> <label>: after a model is installed, ask whether the screen is right. Hold START 2 s:
@@ -108,6 +107,7 @@ int main(int argc, char* argv[]) {
 	int first = 0; // the top row shown
 
 	int result = 2, quit = 0, dirty = 1, shown_s = -1;
+	int asking = 0; // on "Set up as <model>?" after a model was picked from the list
 	uint32_t deadline = SDL_GetTicks() + timeout_ms;
 	uint32_t start_at = 0, b_at = 0; // when the hold began, 0 = not held
 	while (!quit) {
@@ -117,19 +117,28 @@ int main(int argc, char* argv[]) {
 			deadline = now + TOUCHED_MS;
 			dirty = 1;
 		}
-		if (!confirm) {
+		if (!confirm && !asking) {
 			if (PAD_justRepeated(BTN_UP)) { selected = (selected + count - 1) % count; dirty = 1; }
 			else if (PAD_justRepeated(BTN_DOWN)) { selected = (selected + 1) % count; dirty = 1; }
 		}
+		if (asking && PAD_justPressed(BTN_B)) { asking = 0; start_at = b_at = 0; dirty = 1; continue; } // back to the list
 
 		if (PAD_justPressed(BTN_START)) start_at = now;
 		else if (!PAD_isPressed(BTN_START)) start_at = 0;
-		if ((back || confirm) && PAD_justPressed(BTN_B)) b_at = now;
+		if ((back || confirm) && !asking && PAD_justPressed(BTN_B)) b_at = now;
 		else if (!PAD_isPressed(BTN_B)) b_at = 0;
 
-		if (start_at && now - start_at >= HOLD_MS) { result = 0; quit = 1; }
+		if (start_at && now - start_at >= HOLD_MS) {
+			if (confirm || asking) { result = 0; quit = 1; }
+			else { asking = 1; start_at = b_at = 0; dirty = 1; continue; } // a model picked: ask before installing
+		}
 		else if (b_at && now - b_at >= HOLD_MS) { result = confirm ? 2 : 3; quit = 1; }
-		else if ((int32_t)(deadline - now) <= 0) { result = 2; quit = 1; }
+		else if ((int32_t)(deadline - now) <= 0) {
+			// someone picked a model on this screen, so it can be read: left on "Set up as" it goes back to the
+			// list for another countdown rather than on to the next screen type
+			if (asking) { asking = 0; deadline = now + TOUCHED_MS; dirty = 1; continue; }
+			result = 2; quit = 1;
+		}
 
 		int left_s = ((int32_t)(deadline - now) + 999) / 1000;
 		if (left_s != shown_s || start_at || b_at) dirty = 1;
@@ -138,11 +147,11 @@ int main(int argc, char* argv[]) {
 			GFX_clear(screen);
 			if (canvas != screen) SDL_FillRect(canvas, NULL, 0);
 			char line[128];
-			blit_left(font.large, confirm ? "Does the screen look right?" : "Which handheld is this?", COLOR_WHITE, canvas,
-				SCALE1(PADDING+BUTTON_PADDING), SCALE1(PADDING));
+			blit_left(font.large, confirm ? "Does the screen look right?" : asking ? "Set up this handheld?" : "Which handheld is this?",
+				COLOR_WHITE, canvas, SCALE1(PADDING+BUTTON_PADDING), SCALE1(PADDING));
 			int y = list_y;
-			if (confirm) {
-				snprintf(line, sizeof line, "Set up as %s", labels[0]);
+			if (confirm || asking) {
+				snprintf(line, sizeof line, "Set up as %s", labels[asking ? selected : 0]);
 				blit_left(font.large, line, COLOR_WHITE, canvas, SCALE1(PADDING+BUTTON_PADDING), y + SCALE1(4));
 				y += SCALE1(PILL_SIZE);
 			}
@@ -164,7 +173,8 @@ int main(int argc, char* argv[]) {
 			// no countdown or other text (Dan 2026-11-03): whoever can read this needs only the list and the
 			// buttons, and a dark screen, the one the timer is for, shows nothing anyway
 			if (confirm) GFX_blitButtonGroup((char*[]){ "B", "UNDO", "START", "HOLD TO KEEP", NULL }, 1, canvas, 1);
-			else GFX_blitButtonGroup((char*[]){ "START", "HOLD TO SET UP", NULL }, 0, canvas, 1);
+			else if (asking) GFX_blitButtonGroup((char*[]){ "B", "BACK", "START", "HOLD TO SET UP", NULL }, 1, canvas, 1);
+			else GFX_blitButtonGroup((char*[]){ "START", "HOLD 2s", NULL }, 0, canvas, 1);
 			if (canvas != screen) SDL_BlitSurface(canvas, NULL, screen, NULL);
 			GFX_flip(screen);
 			dirty = 0;
