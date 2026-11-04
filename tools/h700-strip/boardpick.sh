@@ -163,8 +163,16 @@ if [ -f "$PENDING" ]; then
 	if [ -f "$UNDOING" ]; then
 		log "putting back screen type $i was cut off; finishing it"
 	else
-		/opt/minui-zero/boardpick.elf -c 60 "$(label "$p")" >/dev/null
-		rc=$?
+		# Only a pick from ANOTHER screen type can garble the screen, so only that one is asked about. A model of the
+		# type it was picked on gets the same screen setup, the one the person just read the list on, so it is
+		# recorded without a question (Dan 2026-11-04: an H picked on the first screen was asked for nothing).
+		if type_line "$i" | tr ' ' '\n' | grep -qx "$p"; then
+			log "$p is of screen type $i, the one it was picked on: no screen question"
+			rc=0
+		else
+			/opt/minui-zero/boardpick.elf -c 60 "$(label "$p")" >/dev/null
+			rc=$?
+		fi
 		if [ $rc -eq 0 ]; then
 			echo "$p" > "$CHOSEN.new" && sync && mv "$CHOSEN.new" "$CHOSEN" || { log "cannot record $p as chosen"; exit 1; }
 			rm -f "$PENDING" "$UNDO" "$TRYING"; sync
