@@ -248,7 +248,7 @@ def main():
 
     # the MinUI.zip the same build writes beside the image (card-update.sh installs it on a device): it must pass the
     # CRC test the device runs first, carry every piece card-update.sh requires, and never the picked model
-    zp = os.path.join(os.path.dirname(os.path.abspath(img)), os.path.basename(img).rsplit('-', 1)[0] + '.zip')
+    zp = os.path.join(os.path.dirname(os.path.abspath(img)), os.path.basename(img).rsplit('-', 1)[0] + '-update.zip')
     zip_min_rootfs = None
     if os.path.isfile(zp):
         import zipfile

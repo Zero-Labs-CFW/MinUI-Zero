@@ -94,7 +94,7 @@ if [ "$_fsck" = repaired ] && ls "$SDCARD_PATH"/FSCK[0-9][0-9][0-9][0-9].REC >/d
 		mv "$SDCARD_PATH"/FSCK[0-9][0-9][0-9][0-9].REC "$SDCARD_PATH/.userdata/h700/logs/fsck-recovered/" 2>/dev/null
 fi
 
-# THE DOWNLOAD AS-IS (Dan 2026-11-04): the release asset is MinUI-Zero-h700-<version>.zip, and renaming it is the step
+# THE DOWNLOAD AS-IS (Dan 2026-11-04): the release asset is MinUI-Zero-h700-<version>-update.zip, and renaming it is the step
 # people get wrong, so one such file on the card root is taken as MinUI.zip (a rename on the card, no copy). A browser's
 # "(1)" copy matches too. Several of them: which one is meant is not ours to guess, so nothing installs and a note says
 # so. MinUI.zip itself, when present, always wins.

@@ -206,7 +206,7 @@ fi
 # an older same-name .img and .xz sitting there looking current, and a later upload publishes stale
 # code from a build that never succeeded.
 IMG="${IMG%.img}-$DEVICE.img"   # every image names its board; they are NOT interchangeable
-rm -f "$IMG" "$IMG.xz" "${IMG%-$DEVICE.img}.zip"   # AFTER the suffix: before it, this deleted a name no build produces (audit 2026-09-25)
+rm -f "$IMG" "$IMG.xz" "${IMG%-$DEVICE.img}.zip" "${IMG%-$DEVICE.img}-update.zip"   # AFTER the suffix: before it, this deleted a name no build produces (audit 2026-09-25)
 
 echo "== build mode: $MODE (version $VERSION) =="
 
@@ -916,7 +916,7 @@ rm -f "$OUT_DIR/p5.img" "$OUT_DIR/p6.img"
 xz -9 -T0 -f -k "$IMG"
 # MinUI.zip: the card payload of this same build, for updating a card without a reflash (card-update.sh on the
 # device installs it at boot). .system and Tools only; never the picked model, a dev flag or a key.
-ZIP="${IMG%.img}.zip"; ZIP="${ZIP%-$DEVICE.zip}.zip"
+ZIP="${IMG%.img}.zip"; ZIP="${ZIP%-$DEVICE.zip}-update.zip"   # -update: tells it apart from the -all image on the release page
 rm -f "$ZIP"
 (cd "$STAGE" && COPYFILE_DISABLE=1 zip -qrX "$ZIP" .system Tools -x .system/h700/board -x '*/.DS_Store' -x '*/._*')
 unzip -tqq "$ZIP" || { echo "ERROR: $ZIP fails its CRC test"; exit 1; }   # the data, not just the listing (Codex review 2026-11-04)
