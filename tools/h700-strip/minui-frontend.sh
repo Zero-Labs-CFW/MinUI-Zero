@@ -273,25 +273,26 @@ WIFI_TXT=/mnt/mmc/wifi.txt
 		# the device offline until the next reboot (seen live 2026-08-10). While wifi.txt is present,
 		# re-run the whole proven connect whenever wlan0 has no IPv4 on two checks in a row (~90s
 		# cadence; a connect takes ~30s, so checks never overlap a run in progress).
-		# NO CHIP: a driver that loads with no card ever answering on SDIO (bin/board radio = missing, the RG35XX
-		# 2024 on the Plus row) on three checks in a row (~2 minutes, after at least one re-run) stops the monitor
-		# for this boot: a Plus that loses its card that badly is not recovered by more connects either.
+		# NO CHIP: three re-runs in a row that each end with the driver loaded and no card answering on SDIO
+		# (bin/board radio = missing, the RG35XX 2024 on the Plus row) stop the monitor for this boot, ~4.5 minutes
+		# in. Counted per completed re-run, not per check, so a Plus with a transient RTL failure still gets three
+		# full unload/load attempts, as muOS's own RELOAD_NETWORK gives it (Codex review 2026-11-04).
 		( _down=0; _miss=0
 		  while : ; do
 			sleep 45
 			[ -f "$WIFI_TXT" ] || continue
 			if ip -4 -o addr show wlan0 2>/dev/null | grep -q inet; then _down=0; _miss=0; continue; fi
-			if [ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" = missing ]; then _miss=$((_miss+1)); else _miss=0; fi
-			if [ $_miss -ge 3 ]; then
-				echo "wifi monitor: no WiFi chip answered on SDIO, stopping until reboot" >> "$LOG"
-				break
-			fi
 			_down=$((_down+1))
 			if [ $_down -ge 2 ]; then
 				trim_log
 				echo "wifi monitor: offline, re-running connect" >> "$LOG"
 				/opt/muos/script/system/network.sh connect >> "$LOG" 2>&1
 				_down=0
+				if [ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" = missing ]; then _miss=$((_miss+1)); else _miss=0; fi
+				if [ $_miss -ge 3 ]; then
+					echo "wifi monitor: no WiFi chip answered on SDIO after 3 connects, stopping until reboot" >> "$LOG"
+					break
+				fi
 			fi
 		  done ) &
 	fi

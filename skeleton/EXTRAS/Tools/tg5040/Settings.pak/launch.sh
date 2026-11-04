@@ -52,6 +52,8 @@ wifi_row() { # sets WIFI_VALUES WIFI_CURRENT WIFI_DESC
 	else
 		WIFI_VALUES="On|Off"; WIFI_CURRENT=Off
 		WIFI_DESC="On: connects to \"$(wifi_ssid "$WOFF")\"."   # SSH only follows on TrimUI (audit 2026-09-24): not promised here
+		# Off keeps the driver loaded, so a chip found missing stays missing (Codex review 2026-11-04)
+		[ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" = missing ] && WIFI_DESC="No WiFi chip found on this handheld."
 	fi
 }
 wifi_off() {
