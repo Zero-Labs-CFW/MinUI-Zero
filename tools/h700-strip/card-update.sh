@@ -33,6 +33,13 @@ _msg=
 done_msg() { [ -n "$_msg" ] && { kill "$_msg" 2>/dev/null; wait "$_msg" 2>/dev/null; }; }
 
 rm -rf "$STAGE"
+# sizes for the free-space check below, format-checked first: a bad value in $(( )) aborts this shell. A df that
+# cannot answer skips the check rather than blocking every update.
+_kb=$("$UNZIP" -l "$UPDATE_PATH" 2>/dev/null | tail -1 | awk '{print int($1/1024)}')
+case "$_kb" in ''|*[!0-9]*) _kb=0 ;; esac
+_need=$((_kb * 2 + 16384))
+_free=$(df -k "$SDCARD_PATH" 2>/dev/null | awk 'NR==2 {print $4}')
+case "$_free" in ''|*[!0-9]*) _free= ;; esac
 if [ ! -x "$UNZIP" ]; then
 	note "This system has no unzip, so MinUI.zip cannot be installed. Nothing was changed and the file was kept."
 elif ! "$UNZIP" -tqq "$UPDATE_PATH" >/dev/null 2>&1; then
@@ -40,9 +47,18 @@ elif ! "$UNZIP" -tqq "$UPDATE_PATH" >/dev/null 2>&1; then
 	note "MinUI.zip is damaged (the download did not finish, or the copy failed). Nothing was changed; it was renamed MinUI.zip.bad. Download it again and reboot."
 elif ! "$UNZIP" -l "$UPDATE_PATH" 2>/dev/null | grep -q '\.system/h700/paks/MinUI\.pak/launch\.sh'; then
 	note "This MinUI.zip does not contain an Anbernic (h700) system: it is probably the download for a TrimUI or Miyoo. Nothing was changed and the file was kept; replace it with the Anbernic zip and reboot."
+# ROOM FOR BOTH COPIES, checked before anything is written (Codex review 2026-11-04). The staged copy and the merge
+# need space at once, and a merge that runs out partway has already cut live files short, then repeats on every
+# boot. Need twice the unpacked size plus 16 MB; the last line of unzip -l is the unpacked total in bytes.
+elif [ -n "$_free" ] && [ "$_free" -lt "$_need" ]; then
+	note "Not enough free space to install MinUI.zip: it needs $((_need / 1024)) MB free and the card has $((_free / 1024)) MB. Nothing was changed and the file was kept; free some space and reboot."
 elif ! mkdir -p "$STAGE"; then
 	note "Could not create a staging folder on the card: it may be full or write-protected. Nothing was changed."
-elif "$UNZIP" -oq "$UPDATE_PATH" -d "$STAGE" && [ -f "$STAGE/.system/h700/paks/MinUI.pak/launch.sh" ]; then
+# a complete system, not just a launcher: the pieces that have to match each other (Codex review 2026-11-04)
+elif "$UNZIP" -oq "$UPDATE_PATH" -d "$STAGE" && [ -f "$STAGE/.system/h700/paks/MinUI.pak/launch.sh" ] &&
+	[ -f "$STAGE/.system/h700/bin/minui.elf" ] && [ -f "$STAGE/.system/h700/bin/minarch.elf" ] &&
+	[ -f "$STAGE/.system/h700/bin/minui-frontend.sh" ] && [ -f "$STAGE/.system/h700/boards.txt" ] &&
+	[ -d "$STAGE/.system/h700/cores" ] && [ -d "$STAGE/.system/res" ] && [ -f "$STAGE/.system/version.txt" ]; then
 	rm -f "$STAGE/.system/h700/board"
 	# only this platform's parts and the shared ones, so an archive that also carries other platforms (one zip for
 	# every device) installs just the h700 system here

@@ -246,6 +246,27 @@ def main():
         if opts.get('--release'):
             check('payload checks ran (mtools)', False)
 
+    # the MinUI.zip the same build writes beside the image (card-update.sh installs it on a device): it must pass the
+    # CRC test the device runs first, carry every piece card-update.sh requires, and never the picked model
+    zp = os.path.join(os.path.dirname(os.path.abspath(img)), os.path.basename(img).rsplit('-', 1)[0] + '.zip')
+    if os.path.isfile(zp):
+        import zipfile
+        with zipfile.ZipFile(zp) as z:
+            names = set(z.namelist())
+            bad = z.testzip()
+            fe = '.system/h700/bin/minui-frontend.sh'
+            fe_ok = fe in names and z.read(fe) == open(os.path.join(REPO, 'tools/h700-strip/minui-frontend.sh'), 'rb').read()
+        need = ['.system/h700/paks/MinUI.pak/launch.sh', '.system/h700/bin/minui.elf', '.system/h700/bin/minarch.elf',
+                fe, '.system/h700/boards.txt', '.system/version.txt']
+        missing = [n for n in need if n not in names] + [d for d in ('.system/h700/cores/', '.system/res/')
+                                                         if not any(n.startswith(d) for n in names)]
+        check('update zip CRC', bad is None, bad or '')
+        check('update zip complete', not missing, ', '.join(missing))
+        check('update zip has no picked model', '.system/h700/board' not in names)
+        check('update zip frontend current', fe_ok)
+    elif opts.get('--release'):
+        check('update zip present (%s)' % os.path.basename(zp), False)
+
     if opts.get('--no-docker') or not parts or 'rootfs' not in parts:
         print('  (rootfs checks skipped)')
         if opts.get('--release'):

@@ -891,6 +891,7 @@ xz -9 -T0 -f -k "$IMG"
 ZIP="${IMG%.img}.zip"; ZIP="${ZIP%-$DEVICE.zip}.zip"
 rm -f "$ZIP"
 (cd "$STAGE" && COPYFILE_DISABLE=1 zip -qrX "$ZIP" .system Tools -x .system/h700/board -x '*/.DS_Store' -x '*/._*')
+unzip -tqq "$ZIP" || { echo "ERROR: $ZIP fails its CRC test"; exit 1; }   # the data, not just the listing (Codex review 2026-11-04)
 unzip -l "$ZIP" | grep -q '\.system/h700/paks/MinUI\.pak/launch\.sh' || { echo "ERROR: $ZIP lacks the h700 launcher"; exit 1; }
 ! unzip -l "$ZIP" | grep -q '\.system/h700/board$' || { echo "ERROR: $ZIP carries .system/h700/board"; exit 1; }
 echo ""
