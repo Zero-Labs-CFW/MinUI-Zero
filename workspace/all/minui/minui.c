@@ -2019,8 +2019,9 @@ int main (int argc, char *argv[]) {
 				if (total>0) {
 					int selected_row = top->selected - top->start;
 					for (int i=top->start,j=0; i<top->end; i++,j++) {
-						// without hints the brightness/volume bar draws in the last row's slot while it shows
-						if (show_setting && !menu_hints && j==row_count-1 && j!=selected_row) continue;
+						// without hints the brightness/volume bar draws in the last row's slot while it shows (even when
+						// that row is selected: its pill and the bar would draw over each other)
+						if (show_setting && !menu_hints && j==row_count-1) continue;
 						Entry* entry = top->entries->items[i];
 						char* entry_name = entry->name;
 						char* entry_unique = entry->unique;

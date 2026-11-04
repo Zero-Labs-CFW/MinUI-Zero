@@ -1055,9 +1055,11 @@ static int disp_warm = 0; // a completed present proves the mode-set settled; se
 static void crop_source(GFX_Renderer* r, void** src, int* sw, int* sh) {
 	*src = (uint8_t*)r->src + r->src_y * r->src_p + r->src_x * FIXED_BPP;
 	*sw = r->src_w; *sh = r->src_h;
-	if (r->scale < 1) return;
-	while (*sw > 1 && r->dst_x + *sw * r->scale > r->dst_w) (*sw)--;
-	while (*sh > 1 && r->dst_y + *sh * r->scale > r->dst_h) (*sh)--;
+	// scale 0 is minarch's "forced crop" (a frame bigger than the screen on Native/Cropped): it sets src_x/src_y
+	// but leaves src_w/src_h whole, and blits at 1x, so trim to the screen like any other scale
+	int s = r->scale < 1 ? 1 : r->scale;
+	while (*sw > 1 && r->dst_x + *sw * s > r->dst_w) (*sw)--;
+	while (*sh > 1 && r->dst_y + *sh * s > r->dst_h) (*sh)--;
 }
 int PLAT_supportsOverscan(void) { return h700_fixed_w == 720 && h700_fixed_h == 720; } // upstream: is_cubexx
 void PLAT_blitRenderer(GFX_Renderer* renderer) {

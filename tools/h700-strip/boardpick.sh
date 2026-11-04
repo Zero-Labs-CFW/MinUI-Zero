@@ -25,6 +25,13 @@ log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 
 [ -f "$CHOSEN" ] && exit 0
 [ -d "$B" ] || exit 0  # a single-board image: nothing to pick
+# install swaps the device files with two renames; a power cut between them leaves no /opt/muos/device. The new
+# set was unpacked whole before the first rename, so it is the one to finish with (else the old one).
+if [ ! -d /opt/muos/device ]; then
+	for _d in /opt/muos/device.new /opt/muos/device.old; do
+		[ -d "$_d" ] && mv "$_d" /opt/muos/device && { log "device files were cut off mid-swap; kept ${_d##*/}"; sync; break; }
+	done
+fi
 
 # Screen types in try order, from the board table (boards.txt, its type column, read through bin/board like every
 # device script): type_line <n> lists that type's board ids in table order. The first id of each type is the board
@@ -58,8 +65,11 @@ check_layout() {
 restart() {
 	sync
 	/opt/muos/script/system/halt.sh reboot 2>/dev/null
+	# halt.sh returned (or is missing): leave the card clean before the forced reboot, as power_off does
+	cd /; mount -o remount,ro /mnt/mmc 2>/dev/null
 	reboot -f
 	sleep 30
+	mount -o remount,rw /mnt/mmc 2>/dev/null  # the menu needs the card writable
 	log "no reboot after 30 s; carrying on to the menu, the next boot uses the new files"
 	[ -z "$msg" ] || { kill "$msg" 2>/dev/null; wait "$msg" 2>/dev/null; }  # the menu needs the screen
 	exit 0
@@ -208,7 +218,9 @@ log "screen type $i: $(type_line "$i")"
 pick=$(/opt/minui-zero/boardpick.elf $back -s "$sel" "$wait_s" "$@")
 rc=$?
 if [ $rc -eq 0 ]; then
-	# only a model in the table: anything else (a stray line, an empty answer) picks nothing
+	# only a model in the table: anything else (a stray line, an empty answer) picks nothing. The id list ends in
+	# two spaces, so an empty answer would match it: reject that (and anything not shaped like an id) first.
+	case "$pick" in ''|*[!a-z0-9-]*) log "picker answered [$pick], not a model"; exit 1 ;; esac
 	case " $(sh "$BOARD" ids | tr '\n' ' ') " in *" $pick "*) ;; *) log "picker answered [$pick], not a model"; exit 1 ;; esac
 	log "chosen: $pick, on screen type $i"
 	# the boot0 on the card now, so a failed install or an unconfirmed pick can put it back

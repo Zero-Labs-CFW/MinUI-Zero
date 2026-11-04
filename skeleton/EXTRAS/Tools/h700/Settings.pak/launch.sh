@@ -77,8 +77,9 @@ while :; do
 	if has_flag "$HIDE_TOOLS"; then TOOLS=Hidden; else TOOLS=Shown; fi
 	set -- "$@" tools "Tools" "Shown|Hidden" "$TOOLS" "Hidden: SELECT + START at the main menu\nstill opens Tools."
 	set -- "$@" hints "Menu Hints" "On|Off" "$(flag_off "$NO_HINTS")" "On: button hints under each list.\nOff: hidden, and lists show one more row."
-	# deep sleep exists on TrimUI and Anbernic; the Miyoo cannot (its bin/suspend is the faux sleep)
-	if [ "$PLATFORM" != "miyoomini" ]; then
+	# deep sleep exists on TrimUI and Anbernic; the Miyoo cannot (its bin/suspend is the faux sleep). On h700 only
+	# the boards that carry the sleep flag (bin/board; PLAT_supportsDeepSleep reads the same table) suspend.
+	if [ "$PLATFORM" != "miyoomini" ] && { [ "$PLATFORM" != "h700" ] || sh "$SDCARD_PATH/.system/h700/bin/board" has sleep; }; then
 		set -- "$@" deepsleep "Deep Sleep" "On|Off" "$(if [ -f "$DEEP_SLEEP_OFF" ]; then echo Off; else echo On; fi)" "On: suspends to RAM when idle. Near-zero\npower, wakes instantly. Off: sleeps like stock."
 	fi
 	# Optimize CPU (TrimUI only; Dan, 2026-09-16: "saying it's been optimized or not"). The pak
