@@ -210,8 +210,9 @@ if [ -f "$TRYING.new" ]; then
 			restart
 		fi
 		log "installing screen type $n again failed; putting back screen type $i ($cur)"
-		rm -f "$TRYING.new"; sync
-		rollback "$cur"
+		# the marker now names the type being put back, so a rollback cut off is finished the same way
+		echo "$i" > "$TRYING.new"; sync
+		rollback "$cur" && rm -f "$TRYING.new"; sync
 		exit 1
 	fi
 	rm -f "$TRYING.new"
@@ -275,6 +276,7 @@ if install "$rep" && mv "$TRYING.new" "$TRYING" && sync; then
 	restart
 fi
 log "install of $rep failed; putting back screen type $i ($cur)"
-rm -f "$TRYING.new"; sync
-rollback "$cur"
+# the marker now names the type being put back, so a rollback cut off is finished on the next boot (above)
+echo "$i" > "$TRYING.new"; sync
+rollback "$cur" && rm -f "$TRYING.new"; sync
 exit 1

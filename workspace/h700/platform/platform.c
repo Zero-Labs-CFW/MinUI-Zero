@@ -1055,13 +1055,15 @@ static int disp_warm = 0; // a completed present proves the mode-set settled; se
 static void crop_source(GFX_Renderer* r, void** src, int* sw, int* sh) {
 	*src = (uint8_t*)r->src + r->src_y * r->src_p + r->src_x * FIXED_BPP;
 	*sw = r->src_w; *sh = r->src_h;
-	// scale -1 is the fit path: dst_w/dst_h are the scaled image, which the nearest scaler fills whole, so no trim.
-	// scale 0 is minarch's "forced crop" (a frame bigger than the screen on Native/Cropped): it sets src_x/src_y
-	// but leaves src_w/src_h whole, and blits at 1x, so trim to the screen like any other scale
+	// Trim only an axis minarch cropped (src_x/src_y set: Cropped, or scale 0's "forced crop" of a frame bigger
+	// than the screen, which leaves src_w/src_h whole and blits at 1x); there dst_w/dst_h is the whole screen.
+	// Elsewhere the source already fits, and dst_w/dst_h may be just the game rect (an exact 1x aspect fit is
+	// scale 1 with dst_w = the frame, so trimming against it cut a centered frame; Codex 2026-11-03). Scale -1
+	// (fit) fills dst_w/dst_h whole.
 	if (r->scale < 0) return;
 	int s = r->scale < 1 ? 1 : r->scale;
-	while (*sw > 1 && r->dst_x + *sw * s > r->dst_w) (*sw)--;
-	while (*sh > 1 && r->dst_y + *sh * s > r->dst_h) (*sh)--;
+	if (r->src_x > 0) while (*sw > 1 && r->dst_x + *sw * s > r->dst_w) (*sw)--;
+	if (r->src_y > 0) while (*sh > 1 && r->dst_y + *sh * s > r->dst_h) (*sh)--;
 }
 int PLAT_supportsOverscan(void) { return h700_fixed_w == 720 && h700_fixed_h == 720; } // upstream: is_cubexx
 void PLAT_blitRenderer(GFX_Renderer* renderer) {
