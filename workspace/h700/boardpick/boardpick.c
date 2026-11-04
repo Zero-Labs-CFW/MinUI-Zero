@@ -124,7 +124,12 @@ int main(int argc, char* argv[]) {
 			else { asking = 1; start_at = b_at = 0; dirty = 1; continue; } // a model picked: ask before installing
 		}
 		else if (b_at && now - b_at >= HOLD_MS) { result = confirm ? 2 : 3; quit = 1; }
-		else if ((int32_t)(deadline - now) <= 0) { result = 2; quit = 1; }
+		else if ((int32_t)(deadline - now) <= 0) {
+			// someone picked a model on this screen, so it can be read: left on "Set up as" it goes back to the
+			// list for another countdown rather than on to the next screen type
+			if (asking) { asking = 0; deadline = now + TOUCHED_MS; dirty = 1; continue; }
+			result = 2; quit = 1;
+		}
 
 		int left_s = ((int32_t)(deadline - now) + 999) / 1000;
 		if (left_s != shown_s || start_at || b_at) dirty = 1;

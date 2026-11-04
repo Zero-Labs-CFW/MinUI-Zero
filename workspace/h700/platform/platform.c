@@ -215,7 +215,7 @@ void PLAT_initInput(void) {
 	if (power_grace) touch(POWER_GRACE_MARK);
 }
 void PLAT_quitInput(void) {
-	for (int i = 0; i < EVDEV_COUNT; i++) if (ev_fds[i] >= 0) close(ev_fds[i]);
+	for (int i = 0; i < EVDEV_COUNT; i++) if (ev_fds[i] >= 0) { close(ev_fds[i]); ev_fds[i] = -1; }
 	if (joystick) SDL_JoystickClose(joystick);
 	SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
 }
@@ -1055,8 +1055,10 @@ static int disp_warm = 0; // a completed present proves the mode-set settled; se
 static void crop_source(GFX_Renderer* r, void** src, int* sw, int* sh) {
 	*src = (uint8_t*)r->src + r->src_y * r->src_p + r->src_x * FIXED_BPP;
 	*sw = r->src_w; *sh = r->src_h;
+	// scale -1 is the fit path: dst_w/dst_h are the scaled image, which the nearest scaler fills whole, so no trim.
 	// scale 0 is minarch's "forced crop" (a frame bigger than the screen on Native/Cropped): it sets src_x/src_y
 	// but leaves src_w/src_h whole, and blits at 1x, so trim to the screen like any other scale
+	if (r->scale < 0) return;
 	int s = r->scale < 1 ? 1 : r->scale;
 	while (*sw > 1 && r->dst_x + *sw * s > r->dst_w) (*sw)--;
 	while (*sh > 1 && r->dst_y + *sh * s > r->dst_h) (*sh)--;
