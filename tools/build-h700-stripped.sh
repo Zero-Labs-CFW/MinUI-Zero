@@ -199,7 +199,7 @@ fi
 # an older same-name .img and .xz sitting there looking current, and a later upload publishes stale
 # code from a build that never succeeded.
 IMG="${IMG%.img}-$DEVICE.img"   # every image names its board; they are NOT interchangeable
-rm -f "$IMG" "$IMG.xz"          # AFTER the suffix: before it, this deleted a name no build produces (audit 2026-09-25)
+rm -f "$IMG" "$IMG.xz" "${IMG%-$DEVICE.img}.zip"   # AFTER the suffix: before it, this deleted a name no build produces (audit 2026-09-25)
 
 echo "== build mode: $MODE (version $VERSION) =="
 
@@ -268,6 +268,7 @@ else
 echo "== extracting + stripping muOS rootfs (this takes a few minutes) =="
 cp "$REPO/tools/h700-strip/minui-frontend.sh" "$ASSETS/minui-frontend.sh"
 cp "$REPO/tools/h700-strip/expand-roms.sh" "$ASSETS/expand-roms.sh"
+cp "$REPO/tools/h700-strip/card-update.sh" "$ASSETS/card-update.sh"
 if [ "$DEVICE" = all ]; then
 	cp "$REPO/tools/h700-strip/boardpick.sh" "$ASSETS/boardpick.sh"
 	cp "$REPO/workspace/h700/boardpick/build/h700/boardpick.elf" "$ASSETS/boardpick.elf" || { echo "ERROR: no boardpick.elf, run make h700-build"; exit 1; }
@@ -558,6 +559,7 @@ printf "0" > "$R/opt/muos/config/settings/network/boot"
 mkdir -p "$R/opt/minui-zero"
 cp /a/minui-frontend.sh "$R/opt/minui-zero/minui-frontend.sh"
 cp /a/expand-roms.sh "$R/opt/minui-zero/expand-roms.sh"
+cp /a/card-update.sh "$R/opt/minui-zero/card-update.sh"   # MinUI.zip updates (rootfs only: a zip never replaces it)
 # ONE IMAGE: every board boot set plus the picker. The Plus device files are those of the donor rootfs.
 if [ "$DEVICE" = all ]; then
 	cp -R /a/boards-stage "$R/opt/minui-zero/boards"
@@ -569,7 +571,7 @@ if [ "$DEVICE" = all ]; then
 fi
 chmod +x "$R/opt/minui-zero/expand-roms.sh"
 [ -f /a/installing.raw ] && cp /a/installing.raw "$R/opt/minui-zero/installing.raw"
-chmod +x "$R/opt/minui-zero/minui-frontend.sh"
+chmod +x "$R/opt/minui-zero/minui-frontend.sh" "$R/opt/minui-zero/card-update.sh"
 # NO wifi credentials baked into the image (privacy): WIPE muOS saved creds from the rdumped rootfs.
 # It bakes the builder network at /opt/muos/config/network/{ssid,pass} (net.sh no-ops on empty SSID),
 # so after this wifi is driven SOLELY by the USER-SUPPLIED wifi.txt (SSID:password) at the SD-card
@@ -669,7 +671,7 @@ fi
 # This exact failure (an expander shipped 0644, guarded by [ -x ], first boot showing NO SYSTEM
 # FOUND) is a known one on this class of image. Same reasoning applies: a chmod that quietly did
 # not take must fail the BUILD, not the device.
-for _crit in /opt/minui-zero/expand-roms.sh /opt/minui-zero/minui-frontend.sh \
+for _crit in /opt/minui-zero/expand-roms.sh /opt/minui-zero/minui-frontend.sh /opt/minui-zero/card-update.sh /usr/bin/unzip \
              /opt/muos/script/system/startup.sh; do
 	if [ ! -f "$R$_crit" ]; then
 		echo "ERROR: boot-critical script missing from the rootfs: $_crit"; exit 1
@@ -737,6 +739,8 @@ cp "$REPO"/workspace/tg5040/cores/output/*.so           "$STAGE/.system/h700/cor
 cp "$REPO"/skeleton/SYSTEM/res/*                        "$STAGE/.system/res/"
 cp -R "$REPO"/skeleton/SYSTEM/h700/paks                 "$STAGE/.system/h700/paks"
 cp "$REPO/workspace/h700/boards.txt"                    "$STAGE/.system/h700/boards.txt"   # the board table the device scripts read
+# the card copy of the frontend: the rootfs copy hands off to it when they differ, so a MinUI.zip can update it
+cp "$REPO/tools/h700-strip/minui-frontend.sh" "$STAGE/.system/h700/bin/minui-frontend.sh"
 # system.cfg: frontend defaults + the LOCKS that hide options whose PLAT_ hooks are still stubs on
 # this platform (effects, sharpness, tearing, debug HUD). Without it the in-game Options > Frontend
 # menu offered choices that silently did nothing (Dan 2026-08-11). minarch reads SYSTEM_PATH/system.cfg.
@@ -882,7 +886,14 @@ dd if="$OUT_DIR/p6.img" of="$IMG" bs=512 seek=$P6_FIRST conv=notrunc status=none
 python3 "$REPO/tools/h700-image/gpt.py" "$IMG" $TOTAL $P5_LAST $P6_FIRST $P6_LAST
 rm -f "$OUT_DIR/p5.img" "$OUT_DIR/p6.img"
 xz -9 -T0 -f -k "$IMG"
+# MinUI.zip: the card payload of this same build, for updating a card without a reflash (card-update.sh on the
+# device installs it at boot). .system and Tools only; never the picked model, a dev flag or a key.
+ZIP="${IMG%.img}.zip"; ZIP="${ZIP%-$DEVICE.zip}.zip"
+rm -f "$ZIP"
+(cd "$STAGE" && COPYFILE_DISABLE=1 zip -qrX "$ZIP" .system Tools -x .system/h700/board -x '*/.DS_Store' -x '*/._*')
+unzip -l "$ZIP" | grep -q '\.system/h700/paks/MinUI\.pak/launch\.sh' || { echo "ERROR: $ZIP lacks the h700 launcher"; exit 1; }
+! unzip -l "$ZIP" | grep -q '\.system/h700/board$' || { echo "ERROR: $ZIP carries .system/h700/board"; exit 1; }
 echo ""
-echo "IMAGE: $IMG ($(du -h "$IMG" | cut -f1) on disk)  DOWNLOAD: $IMG.xz ($(du -h "$IMG.xz" | cut -f1))"
+echo "IMAGE: $IMG ($(du -h "$IMG" | cut -f1) on disk)  DOWNLOAD: $IMG.xz ($(du -h "$IMG.xz" | cut -f1))  UPDATE: $ZIP ($(du -h "$ZIP" | cut -f1))"
 echo "Verify: python3 tools/h700-image/verify-image.py $IMG $DEVICE --version $VERSION$([ "$MODE" = release ] && echo " --release")"
 echo "Flash: diskutil unmountDisk /dev/diskN && sudo dd if=$IMG of=/dev/rdiskN bs=4m  (NEVER the muOS card)"

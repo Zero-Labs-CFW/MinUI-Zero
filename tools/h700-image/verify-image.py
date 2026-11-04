@@ -233,7 +233,8 @@ def main():
         # what the device scripts read: the board table, its reader, and the shared launch-loop log helpers
         for src, dst in (('workspace/h700/boards.txt', '.system/h700/boards.txt'),
                          ('skeleton/SYSTEM/h700/bin/board', '.system/h700/bin/board'),
-                         ('skeleton/SYSTEM/res/zero-log.sh', '.system/res/zero-log.sh')):
+                         ('skeleton/SYSTEM/res/zero-log.sh', '.system/res/zero-log.sh'),
+                         ('tools/h700-strip/minui-frontend.sh', '.system/h700/bin/minui-frontend.sh')):
             got = subprocess.run([mtype, '-i', spec, '::/' + dst], capture_output=True).stdout
             check(dst + ' current', got == open(os.path.join(REPO, src), 'rb').read(), '' if got else 'missing')
         if opts.get('--release'):
@@ -263,6 +264,15 @@ def main():
         check('muOS lid.sh off', 'lid.sh start &' not in start and 'muOS lid.sh disabled' in start)
         check('WiFi not loaded at boot', 'WiFi driver not loaded at boot' in mod)
         check('GPU ceiling 648 MHz', 'MinUI Zero GPU ceiling 648 MHz' in mod)
+        # MinUI.zip updates: the rootfs frontend and its updater are this tree's, and the updater has its unzip
+        for src, dst in (('tools/h700-strip/minui-frontend.sh', '/opt/minui-zero/minui-frontend.sh'),
+                         ('tools/h700-strip/card-update.sh', '/opt/minui-zero/card-update.sh')):
+            mode = debugfs_mode(img, off, dst)
+            check(os.path.basename(dst) + ' current + executable',
+                  cat(dst) == open(os.path.join(REPO, src), 'rb').read() and mode is not None and mode & 0o111 == 0o111,
+                  'mode %s' % (oct(mode) if mode is not None else 'missing'))
+        mode = debugfs_mode(img, off, '/usr/bin/unzip')
+        check('unzip for MinUI.zip updates', mode is not None and mode & 0o111 == 0o111)
         if opts.get('--release'):
             check('no baked ssh key', not cat('/root/.ssh/authorized_keys').strip())
         # The frontend reads its board (rotation, panel size, lid, rate) from config/board/name, so check

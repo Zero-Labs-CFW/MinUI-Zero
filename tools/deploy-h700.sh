@@ -24,6 +24,9 @@ for _b in "$REPO"/skeleton/SYSTEM/h700/bin/*; do [ -f "$_b" ] && { cp "$_b" "$BI
 [ -f "$REPO/skeleton/SYSTEM/tg5040/bin/dropbearmulti" ] && cp "$REPO/skeleton/SYSTEM/tg5040/bin/dropbearmulti" "$BIN/dropbearmulti" && chmod +x "$BIN/dropbearmulti"
 cp -R "$REPO/skeleton/SYSTEM/h700/paks" "$STAGE/.system/h700/paks"
 cp "$REPO/workspace/h700/boards.txt" "$STAGE/.system/h700/boards.txt"   # the board table the device scripts read
+# the card copy of the frontend, which the rootfs copy hands off to (MinUI.zip updates, 2026-11-04): a frontend change
+# deploys like any other card file and runs from the next boot
+cp "$REPO/tools/h700-strip/minui-frontend.sh" "$BIN/minui-frontend.sh"
 # .system/res: the shared root (zero-log.sh, the sprite sheets, the font), as the image ships it
 mkdir -p "$STAGE/.system/res" && cp "$REPO"/skeleton/SYSTEM/res/* "$STAGE/.system/res/"
 [ -f "$REPO/skeleton/SYSTEM/h700/system.cfg" ] && cp "$REPO/skeleton/SYSTEM/h700/system.cfg" "$STAGE/.system/h700/system.cfg"
@@ -49,10 +52,10 @@ touch "$STAGE/latest.txt"
 echo "staged h700 payload: $(find "$STAGE" -type f | wc -l | tr -d ' ') files"
 cd "$REPO"
 PAYLOAD="$STAGE" DEVROOT=/mnt/mmc LATEST="$STAGE/latest.txt" sh tools/deploy-device.sh h700 "$TARGET" -i "$HOME/.ssh/tg5040_dev"
-# The rootfs side (/opt/minui-zero: the frontend, the model picker, expand-roms) is baked into the image and is NOT
-# part of this payload. Say so when the device's copy differs from the tree, so a fix there is never believed
+# The rootfs side (/opt/minui-zero: the built-in frontend and its card hand-off, the updater, the model picker,
+# expand-roms) is baked into the image and is NOT part of this payload (the card copy of the frontend above is). Say so when the device's copy differs from the tree, so a fix there is never believed
 # deployed (Codex review 2026-10-30). Read-only; a file the device lacks (no picker on a per-board image) is skipped.
-for _f in minui-frontend.sh boardpick.sh boardpick.elf expand-roms.sh; do
+for _f in minui-frontend.sh card-update.sh boardpick.sh boardpick.elf expand-roms.sh; do
 	case "$_f" in *.elf) _src="$REPO/workspace/h700/boardpick/build/h700/$_f" ;; *) _src="$REPO/tools/h700-strip/$_f" ;; esac
 	[ -f "$_src" ] || continue
 	_want=$(md5 -q "$_src" 2>/dev/null || md5sum "$_src" | cut -d" " -f1)

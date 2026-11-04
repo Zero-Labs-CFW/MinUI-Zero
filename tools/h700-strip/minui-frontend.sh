@@ -7,6 +7,21 @@
 # muOS mounts the ROMS/data partition at /mnt/mmc (via /opt/muos/script/mount). Our payload lives
 # there under .system/h700, same as the piggyback/hosted-dev loop.
 
+# UPDATES WITHOUT A REFLASH (2026-11-04). The image runs this file from the rootfs. First, card-update.sh (rootfs
+# only, never replaced by a zip) installs a MinUI.zip dropped on the card root. Then, when the card carries a
+# different copy of this file (.system/h700/bin/minui-frontend.sh, shipped in every image and every zip), that copy
+# runs instead, so a zip can change everything this file does. A card copy that fails sh -n is not run, and one
+# that returns at all (the loop below never does: it powers off) hands back to this built-in copy. Nothing in here
+# may assume which copy is running: the rootfs one has to keep working on its own with any card.
+if [ -z "$ZERO_FE_CARD" ]; then
+	SDCARD_PATH=/mnt/mmc sh /opt/minui-zero/card-update.sh > /tmp/card-update.out 2>&1
+	_fe=/mnt/mmc/.system/h700/bin/minui-frontend.sh
+	if [ -f "$_fe" ] && ! cmp -s "$_fe" /opt/minui-zero/minui-frontend.sh && sh -n "$_fe" 2>/dev/null; then
+		ZERO_FE_CARD=1 sh "$_fe"
+		echo "card frontend returned rc=$?, running the built-in copy" >> /tmp/card-update.out
+	fi
+fi
+
 # boot stage mark (the image build puts the same line in sysinit and startup.sh; written out below on dev cards)
 zmark() { read -r _zu _ </proc/uptime; echo "$_zu $1" >>/dev/shm/zero-boot; }
 zmark frontend-run
@@ -71,6 +86,9 @@ LOG="$LOGS_PATH/minui-zero.log"
 mkdir -p "$LOGS_PATH" 2>/dev/null
 : > "$LOG" 2>/dev/null
 rm -f "$SDCARD_PATH/minui-zero.log" 2>/dev/null # the old card-root copy on cards upgraded from before the move (code review, 2026-10-05)
+# what card-update.sh and the hand-off at the top said, held in /tmp until the log was truncated above
+cat /tmp/card-update.out >> "$LOG" 2>/dev/null; rm -f /tmp/card-update.out
+echo "frontend: $([ -n "$ZERO_FE_CARD" ] && echo card || echo built-in) copy" >> "$LOG"
 # ONE IMAGE: until a model is chosen, ask which handheld this is (boardpick.sh; it reboots into the chosen
 # board's boot files, or into the next screen type when nobody answers). A failed write asks again, twice;
 # then the menu starts on what is installed rather than leaving the device stuck on a picker.
