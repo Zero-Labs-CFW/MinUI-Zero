@@ -94,6 +94,20 @@ if [ "$_fsck" = repaired ] && ls "$SDCARD_PATH"/FSCK[0-9][0-9][0-9][0-9].REC >/d
 		mv "$SDCARD_PATH"/FSCK[0-9][0-9][0-9][0-9].REC "$SDCARD_PATH/.userdata/h700/logs/fsck-recovered/" 2>/dev/null
 fi
 
+# THE DOWNLOAD AS-IS (Dan 2026-11-04): the release asset is MinUI-Zero-h700-<version>.zip, and renaming it is the step
+# people get wrong, so one such file on the card root is taken as MinUI.zip (a rename on the card, no copy). A browser's
+# "(1)" copy matches too. Several of them: which one is meant is not ours to guess, so nothing installs and a note says
+# so. MinUI.zip itself, when present, always wins.
+if [ ! -f "$UPDATE_PATH" ]; then
+	set -- "$SDCARD_PATH"/[Mm][Ii][Nn][Uu][Ii]-[Zz][Ee][Rr][Oo]-[Hh]700-*.[Zz][Ii][Pp]   # any case: names on vfat keep theirs, and the shell's glob is case-sensitive
+	if [ $# -eq 1 ] && [ -f "$1" ]; then
+		mv -f "$1" "$UPDATE_PATH" && sync && echo "update: taking ${1##*/} as MinUI.zip"
+	elif [ $# -gt 1 ]; then
+		echo "$(date '+%F %T') There are several MinUI-Zero-h700 zips on the card root. Nothing was changed: keep only the one to install and reboot." > "$FAILED"
+		sync
+		exit 0
+	fi
+fi
 [ -f "$UPDATE_PATH" ] || exit 0
 
 note() { echo "$(date '+%F %T') $1" > "$FAILED"; sync; echo "update: $1"; }
