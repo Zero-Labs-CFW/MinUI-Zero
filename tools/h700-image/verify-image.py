@@ -249,6 +249,7 @@ def main():
     # the MinUI.zip the same build writes beside the image (card-update.sh installs it on a device): it must pass the
     # CRC test the device runs first, carry every piece card-update.sh requires, and never the picked model
     zp = os.path.join(os.path.dirname(os.path.abspath(img)), os.path.basename(img).rsplit('-', 1)[0] + '.zip')
+    zip_min_rootfs = None
     if os.path.isfile(zp):
         import zipfile
         with zipfile.ZipFile(zp) as z:
@@ -256,6 +257,9 @@ def main():
             bad = z.testzip()
             fe = '.system/h700/bin/minui-frontend.sh'
             fe_ok = fe in names and z.read(fe) == open(os.path.join(REPO, 'tools/h700-strip/minui-frontend.sh'), 'rb').read()
+            mr = '.system/h700/min-rootfs'
+            if mr in names and z.read(mr).strip().isdigit():
+                zip_min_rootfs = int(z.read(mr).strip())
         need = ['.system/h700/paks/MinUI.pak/launch.sh', '.system/h700/bin/minui.elf', '.system/h700/bin/minarch.elf',
                 fe, '.system/h700/boards.txt', '.system/version.txt']
         missing = [n for n in need if n not in names] + [d for d in ('.system/h700/cores/', '.system/res/')
@@ -264,6 +268,7 @@ def main():
         check('update zip complete', not missing, ', '.join(missing))
         check('update zip has no picked model', '.system/h700/board' not in names)
         check('update zip frontend current', fe_ok)
+        check('update zip states its min-rootfs', zip_min_rootfs is not None)
     elif opts.get('--release'):
         check('update zip present (%s)' % os.path.basename(zp), False)
 
@@ -287,13 +292,25 @@ def main():
         check('GPU ceiling 648 MHz', 'MinUI Zero GPU ceiling 648 MHz' in mod)
         # MinUI.zip updates: the rootfs frontend and its updater are this tree's, and the updater has its unzip
         for src, dst in (('tools/h700-strip/minui-frontend.sh', '/opt/minui-zero/minui-frontend.sh'),
-                         ('tools/h700-strip/card-update.sh', '/opt/minui-zero/card-update.sh')):
+                         ('tools/h700-strip/card-update.sh', '/opt/minui-zero/card-update.sh'),
+                         ('tools/h700-strip/card-fsck.sh', '/opt/minui-zero/card-fsck.sh')):
             mode = debugfs_mode(img, off, dst)
             check(os.path.basename(dst) + ' current + executable',
                   cat(dst) == open(os.path.join(REPO, src), 'rb').read() and mode is not None and mode & 0o111 == 0o111,
                   'mode %s' % (oct(mode) if mode is not None else 'missing'))
         mode = debugfs_mode(img, off, '/usr/bin/unzip')
         check('unzip for MinUI.zip updates', mode is not None and mode & 0o111 == 0o111)
+        # card-fsck.sh repairs the card before an install, so it must run before muOS mounts the card, with its fsck
+        su = cat('/opt/muos/script/system/startup.sh').decode(errors='replace').splitlines()
+        hook = next((i for i, l in enumerate(su) if 'card-fsck.sh' in l and not l.lstrip().startswith('#')), None)
+        mnt = next((i for i, l in enumerate(su) if l.startswith('/opt/muos/script/mount/start.sh')), None)
+        check('card-fsck runs before the card mounts', hook is not None and mnt is not None and hook < mnt)
+        mode = debugfs_mode(img, off, '/sbin/fsck.vfat')
+        check('fsck.vfat for card-fsck', mode is not None and mode & 0o111 == 0o111)
+        # the rootfs level must cover what this build's own zip needs, or a fresh image refuses its own update
+        lvl = cat('/opt/minui-zero/rootfs-level').decode(errors='replace').strip()
+        check('rootfs-level covers the zip', lvl.isdigit() and (zip_min_rootfs is None or int(lvl) >= zip_min_rootfs),
+              'rootfs %s, zip needs %s' % (lvl or 'missing', zip_min_rootfs))
         if opts.get('--release'):
             check('no baked ssh key', not cat('/root/.ssh/authorized_keys').strip())
         # The frontend reads its board (rotation, panel size, lid, rate) from config/board/name, so check

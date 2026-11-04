@@ -16,9 +16,20 @@
 if [ -z "$ZERO_FE_CARD" ]; then
 	SDCARD_PATH=/mnt/mmc sh /opt/minui-zero/card-update.sh > /tmp/card-update.out 2>&1
 	_fe=/mnt/mmc/.system/h700/bin/minui-frontend.sh
+	# THREE TRIES (the 3-boot trial BaseOS uses, 2026-11-04): a card copy that hangs or powers off before the menu
+	# would otherwise do it on every boot, and only a computer could fix the card. Each run counts a try on the
+	# rootfs; the card copy reaching its first launch clears it (see above boot-to-game), and so does a new
+	# install. After three, this built-in copy runs until a MinUI.zip brings a new one.
+	_tries=$(cat /opt/minui-zero/card-fe-tries 2>/dev/null)
+	case "$_tries" in ''|*[!0-9]*) _tries=0 ;; esac
 	if [ -f "$_fe" ] && ! cmp -s "$_fe" /opt/minui-zero/minui-frontend.sh && sh -n "$_fe" 2>/dev/null; then
-		ZERO_FE_CARD=1 sh "$_fe"
-		echo "card frontend returned rc=$?, running the built-in copy" >> /tmp/card-update.out
+		if [ "$_tries" -ge 3 ]; then
+			echo "card frontend did not reach the menu in 3 tries, running the built-in copy" >> /tmp/card-update.out
+		else
+			echo $((_tries + 1)) > /opt/minui-zero/card-fe-tries; sync
+			ZERO_FE_CARD=1 sh "$_fe"
+			echo "card frontend returned rc=$?, running the built-in copy" >> /tmp/card-update.out
+		fi
 	fi
 fi
 
@@ -488,6 +499,13 @@ if devmode; then
 	_bc=$("$SYSTEM_PATH/bin/bootclock" 2>/dev/null)
 	echo "$(date +%Y-%m-%d) ${_bc:-pre ? post ? total ?} | $(awk '{ printf "%s %s  ", $2, $1 }' /dev/shm/zero-boot 2>/dev/null)" >> "$LOGS_PATH/boot-stages.txt"
 fi
+
+# The card copy got through its setup to the first launch: clear its tries (see the top of this file). Here, before
+# boot-to-game, because a resumed game that is powered off in-game never reaches the menu loop, and three of those
+# would lock out a working copy (Codex review 2026-11-04). Only the card copy clears them, or the built-in copy's own
+# good boot after three failures would hand the next boot back to the broken one. A file test first, so a normal
+# boot writes nothing to the rootfs.
+[ -n "$ZERO_FE_CARD" ] && [ -f /opt/minui-zero/card-fe-tries ] && { rm -f /opt/minui-zero/card-fe-tries; sync; }
 
 # BOOT STRAIGHT INTO THE GAME. MinUI already quicksaves on power-off and resumes on the next boot,
 # but the resume goes through the launcher: it starts, reads the marker, writes /tmp/next and exits,

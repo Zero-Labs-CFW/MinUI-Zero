@@ -55,7 +55,7 @@ PAYLOAD="$STAGE" DEVROOT=/mnt/mmc LATEST="$STAGE/latest.txt" sh tools/deploy-dev
 # The rootfs side (/opt/minui-zero: the built-in frontend and its card hand-off, the updater, the model picker,
 # expand-roms) is baked into the image and is NOT part of this payload (the card copy of the frontend above is). Say so when the device's copy differs from the tree, so a fix there is never believed
 # deployed (Codex review 2026-10-30). Read-only; a file the device lacks (no picker on a per-board image) is skipped.
-for _f in minui-frontend.sh card-update.sh boardpick.sh boardpick.elf expand-roms.sh; do
+for _f in minui-frontend.sh card-update.sh card-fsck.sh boardpick.sh boardpick.elf expand-roms.sh; do
 	case "$_f" in *.elf) _src="$REPO/workspace/h700/boardpick/build/h700/$_f" ;; *) _src="$REPO/tools/h700-strip/$_f" ;; esac
 	[ -f "$_src" ] || continue
 	_want=$(md5 -q "$_src" 2>/dev/null || md5sum "$_src" | cut -d" " -f1)

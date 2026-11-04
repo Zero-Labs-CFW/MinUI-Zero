@@ -62,6 +62,13 @@ fi
 #   rg35xx-h     substitutes that board's boot_package (u-boot + device tree) into the chain and
 #                overlays its /opt/muos/device, which is what makes its analog sticks exist at all:
 #                the H tree enables a GPADC + analog mux and adds keyL3/keyR3, none of it in the Plus.
+# ROOTFS LEVEL (MinUI.zip updates, 2026-11-04). The rootfs only changes by reflashing, so card-update.sh refuses a zip
+# whose payload needs a newer rootfs than the card has. ROOTFS_LEVEL is what this rootfs provides: bump it when the
+# rootfs gains something a payload could depend on (a binary or script in /opt/minui-zero, a kernel module, a muOS
+# script change). PAYLOAD_MIN_ROOTFS is what this payload needs: raise it, up to ROOTFS_LEVEL, only in the release
+# whose card files start depending on that. Raising it means every older image must reflash to get the release.
+ROOTFS_LEVEL=1
+PAYLOAD_MIN_ROOTFS=1
 DEVICE="${H700_DEVICE:-rg35xx-plus}"   # or "all": the one image with a first-boot model picker
 # Every board fact below (the list, LPDDR3, an optional own boot0, splash geometry) comes from the board table, the
 # one list the device scripts and platform.c read too; bin/board is its reader.
@@ -269,6 +276,8 @@ echo "== extracting + stripping muOS rootfs (this takes a few minutes) =="
 cp "$REPO/tools/h700-strip/minui-frontend.sh" "$ASSETS/minui-frontend.sh"
 cp "$REPO/tools/h700-strip/expand-roms.sh" "$ASSETS/expand-roms.sh"
 cp "$REPO/tools/h700-strip/card-update.sh" "$ASSETS/card-update.sh"
+cp "$REPO/tools/h700-strip/card-fsck.sh" "$ASSETS/card-fsck.sh"
+echo "$ROOTFS_LEVEL" > "$ASSETS/rootfs-level"
 if [ "$DEVICE" = all ]; then
 	cp "$REPO/tools/h700-strip/boardpick.sh" "$ASSETS/boardpick.sh"
 	cp "$REPO/workspace/h700/boardpick/build/h700/boardpick.elf" "$ASSETS/boardpick.elf" || { echo "ERROR: no boardpick.elf, run make h700-build"; exit 1; }
@@ -447,9 +456,12 @@ sed -i "s|^FRONTEND start|sh /opt/minui-zero/minui-frontend.sh \&|" "$SU"
 # in use, and a lazy unmount is not enough (it reports success while the filesystem is still busy —
 # that is exactly how the first version silently did nothing). mount/start.sh is the mount step, so
 # hook immediately above it.
-sed -i "s|^/opt/muos/script/mount/start.sh &|[ -x /opt/minui-zero/expand-roms.sh ] \&\& /opt/minui-zero/expand-roms.sh\n/opt/muos/script/mount/start.sh \&|" "$SU"
+# card-fsck.sh goes after it, for the same reason: it repairs the card before a MinUI.zip install, which only works
+# on an unmounted filesystem.
+sed -i "s|^/opt/muos/script/mount/start.sh &|[ -x /opt/minui-zero/expand-roms.sh ] \&\& /opt/minui-zero/expand-roms.sh\n[ -x /opt/minui-zero/card-fsck.sh ] \&\& /opt/minui-zero/card-fsck.sh\n/opt/muos/script/mount/start.sh \&|" "$SU"
 grep -q "expand-roms.sh" "$SU" || { echo "ERROR: expand-roms pre-mount hook did not apply (startup.sh anchor changed)"; exit 1; }
-echo "  expand-roms hooked pre-mount in startup.sh"
+grep -q "card-fsck.sh" "$SU" || { echo "ERROR: card-fsck pre-mount hook did not apply (startup.sh anchor changed)"; exit 1; }
+echo "  expand-roms and card-fsck hooked pre-mount in startup.sh"
 # CPU CEILING FROM THE FIRST LINE OF BOOT. startup.sh pins the "performance" governor while it boots, and the
 # SP/Pro/40XX device trees add 1608/1704 MHz steps past the Plus/H top of 1512, so a new board booted (and
 # sat in the menu) above verified stock until a game capped it. Knulli caps these boards at 1512000 too
@@ -560,6 +572,8 @@ mkdir -p "$R/opt/minui-zero"
 cp /a/minui-frontend.sh "$R/opt/minui-zero/minui-frontend.sh"
 cp /a/expand-roms.sh "$R/opt/minui-zero/expand-roms.sh"
 cp /a/card-update.sh "$R/opt/minui-zero/card-update.sh"   # MinUI.zip updates (rootfs only: a zip never replaces it)
+cp /a/card-fsck.sh "$R/opt/minui-zero/card-fsck.sh"       # repairs the card before such an install (pre-mount)
+cp /a/rootfs-level "$R/opt/minui-zero/rootfs-level"       # what this rootfs provides; a zip states what it needs
 # ONE IMAGE: every board boot set plus the picker. The Plus device files are those of the donor rootfs.
 if [ "$DEVICE" = all ]; then
 	cp -R /a/boards-stage "$R/opt/minui-zero/boards"
@@ -571,7 +585,7 @@ if [ "$DEVICE" = all ]; then
 fi
 chmod +x "$R/opt/minui-zero/expand-roms.sh"
 [ -f /a/installing.raw ] && cp /a/installing.raw "$R/opt/minui-zero/installing.raw"
-chmod +x "$R/opt/minui-zero/minui-frontend.sh" "$R/opt/minui-zero/card-update.sh"
+chmod +x "$R/opt/minui-zero/minui-frontend.sh" "$R/opt/minui-zero/card-update.sh" "$R/opt/minui-zero/card-fsck.sh"
 # NO wifi credentials baked into the image (privacy): WIPE muOS saved creds from the rdumped rootfs.
 # It bakes the builder network at /opt/muos/config/network/{ssid,pass} (net.sh no-ops on empty SSID),
 # so after this wifi is driven SOLELY by the USER-SUPPLIED wifi.txt (SSID:password) at the SD-card
@@ -672,6 +686,7 @@ fi
 # FOUND) is a known one on this class of image. Same reasoning applies: a chmod that quietly did
 # not take must fail the BUILD, not the device.
 for _crit in /opt/minui-zero/expand-roms.sh /opt/minui-zero/minui-frontend.sh /opt/minui-zero/card-update.sh /usr/bin/unzip \
+             /opt/minui-zero/card-fsck.sh /sbin/fsck.vfat \
              /opt/muos/script/system/startup.sh; do
 	if [ ! -f "$R$_crit" ]; then
 		echo "ERROR: boot-critical script missing from the rootfs: $_crit"; exit 1
@@ -741,6 +756,7 @@ cp -R "$REPO"/skeleton/SYSTEM/h700/paks                 "$STAGE/.system/h700/pak
 cp "$REPO/workspace/h700/boards.txt"                    "$STAGE/.system/h700/boards.txt"   # the board table the device scripts read
 # the card copy of the frontend: the rootfs copy hands off to it when they differ, so a MinUI.zip can update it
 cp "$REPO/tools/h700-strip/minui-frontend.sh" "$STAGE/.system/h700/bin/minui-frontend.sh"
+echo "$PAYLOAD_MIN_ROOTFS" > "$STAGE/.system/h700/min-rootfs"   # card-update.sh refuses this payload on an older rootfs
 # system.cfg: frontend defaults + the LOCKS that hide options whose PLAT_ hooks are still stubs on
 # this platform (effects, sharpness, tearing, debug HUD). Without it the in-game Options > Frontend
 # menu offered choices that silently did nothing (Dan 2026-08-11). minarch reads SYSTEM_PATH/system.cfg.
@@ -894,6 +910,8 @@ rm -f "$ZIP"
 unzip -tqq "$ZIP" || { echo "ERROR: $ZIP fails its CRC test"; exit 1; }   # the data, not just the listing (Codex review 2026-11-04)
 unzip -l "$ZIP" | grep -q '\.system/h700/paks/MinUI\.pak/launch\.sh' || { echo "ERROR: $ZIP lacks the h700 launcher"; exit 1; }
 ! unzip -l "$ZIP" | grep -q '\.system/h700/board$' || { echo "ERROR: $ZIP carries .system/h700/board"; exit 1; }
+[ "$(unzip -p "$ZIP" .system/h700/min-rootfs)" = "$PAYLOAD_MIN_ROOTFS" ] || { echo "ERROR: $ZIP lacks min-rootfs"; exit 1; }
+[ "$PAYLOAD_MIN_ROOTFS" -le "$ROOTFS_LEVEL" ] || { echo "ERROR: PAYLOAD_MIN_ROOTFS is above ROOTFS_LEVEL: this image could not install its own zip"; exit 1; }
 echo ""
 echo "IMAGE: $IMG ($(du -h "$IMG" | cut -f1) on disk)  DOWNLOAD: $IMG.xz ($(du -h "$IMG.xz" | cut -f1))  UPDATE: $ZIP ($(du -h "$ZIP" | cut -f1))"
 echo "Verify: python3 tools/h700-image/verify-image.py $IMG $DEVICE --version $VERSION$([ "$MODE" = release ] && echo " --release")"
