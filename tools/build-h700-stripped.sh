@@ -277,6 +277,18 @@ cp "$REPO/tools/h700-strip/minui-frontend.sh" "$ASSETS/minui-frontend.sh"
 cp "$REPO/tools/h700-strip/expand-roms.sh" "$ASSETS/expand-roms.sh"
 cp "$REPO/tools/h700-strip/card-update.sh" "$ASSETS/card-update.sh"
 cp "$REPO/tools/h700-strip/card-fsck.sh" "$ASSETS/card-fsck.sh"
+# BOOT SPEED (2026-11-04, .notes/2026-11-04-boot-speed): the boards' boot files are staged fast (oneimage.py ->
+# fastboot.py: no initramfs, so the rootfs takes over the initramfs's jobs) and four muOS boot steps change below.
+cp "$REPO/tools/h700-strip/root-check.sh" "$REPO/tools/h700-strip/udev-bg.awk" "$REPO/tools/h700-strip/mount-fast.awk" "$ASSETS/"
+rm -rf "$ASSETS/e2fsck"; mkdir -p "$ASSETS/e2fsck"
+python3 - "$ASSETS/parts/p4-kernel.img.gz" "$ASSETS/e2fsck" "$REPO" <<"E2PY" || { echo "ERROR: cannot take e2fsck from the stock initramfs"; exit 1; }
+import gzip, os, sys
+sys.path.insert(0, os.path.join(sys.argv[3], "tools", "h700-image"))
+import fastboot
+names = ["e2fsck", "libext2fs.so.2", "libe2p.so.2", "libcom_err.so.2", "libblkid.so.1", "libuuid.so.1"]
+for n, data in fastboot.initramfs_files(gzip.open(sys.argv[1]).read(), names).items():
+    open(os.path.join(sys.argv[2], n), "wb").write(data)
+E2PY
 echo "$ROOTFS_LEVEL" > "$ASSETS/rootfs-level"
 if [ "$DEVICE" = all ]; then
 	cp "$REPO/tools/h700-strip/boardpick.sh" "$ASSETS/boardpick.sh"
@@ -498,6 +510,10 @@ zmark() { # <file> <anchor regex> <label> [after]: insert the mark line before (
 SI="$R/opt/muos/script/init/sysinit"
 zmark "$SI" "^for S in" "sysinit"
 zmark "$SI" "^[ \t]*case ..S. in" "\${S##*/}"   # [ \t], not [[:space:]]: the container awk lacks classes
+# BOOT SPEED (2026-11-04): wait for the main card itself (mount-fast.awk mounts it directly), not for the muOS bind tree;
+# mount_ready still releases the wait if the card never mounts. Kept on one line with mount_ready for the marks below.
+sed -i "s|^until \[ -f \"\$MUOS_STORE_DIR/mount_ready\" \]; do sleep 0.01; done\$|until grep -q \" /mnt/mmc \" /proc/mounts \|\| [ -f \"\$MUOS_STORE_DIR/mount_ready\" ]; do sleep 0.01; done|" "$SU"
+grep -q "^until grep -q .* /mnt/mmc .* /proc/mounts .*mount_ready" "$SU" || { echo "ERROR: startup.sh card wait did not land"; exit 1; }
 zmark "$SU" "^until .*mount_ready" "mount-wait"
 zmark "$SU" "^until .*mount_ready" "mounted" after
 zmark "$SU" "^sh /opt/minui-zero/minui-frontend.sh" "frontend"
@@ -584,6 +600,32 @@ cp /a/minui-frontend.sh "$R/opt/minui-zero/minui-frontend.sh"
 cp /a/expand-roms.sh "$R/opt/minui-zero/expand-roms.sh"
 cp /a/card-update.sh "$R/opt/minui-zero/card-update.sh"   # MinUI.zip updates (rootfs only: a zip never replaces it)
 cp /a/card-fsck.sh "$R/opt/minui-zero/card-fsck.sh"       # repairs the card before such an install (pre-mount)
+# BOOT SPEED (2026-11-04). The boards boot without an initramfs, so the rootfs does its jobs: inittab checks the root
+# filesystem only when the kernel recorded errors (root-check.sh, e2fsck from the stock initramfs) and remounts / with
+# the options the initramfs used; console and null nodes exist before devtmpfs is mounted.
+mkdir -p "$R/opt/minui-zero/e2fsck"
+cp /a/e2fsck/* "$R/opt/minui-zero/e2fsck/"
+cp /a/root-check.sh "$R/opt/minui-zero/root-check.sh"
+chmod +x "$R/opt/minui-zero/e2fsck/e2fsck" "$R/opt/minui-zero/root-check.sh"
+IT="$R/etc/inittab"
+grep -q "^::sysinit:/bin/mount -o remount,rw /\$" "$IT" || { echo "ERROR: inittab remount line changed"; exit 1; }
+sed -i "s|^::sysinit:/bin/mount -o remount,rw /\$|::sysinit:/opt/minui-zero/root-check.sh\n::sysinit:/bin/mount -o remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /|" "$IT"
+grep -q "^::sysinit:/opt/minui-zero/root-check.sh" "$IT" && grep -q "remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /" "$IT" || { echo "ERROR: inittab root check/remount did not land"; exit 1; }
+[ -e "$R/dev/console" ] || mknod -m 600 "$R/dev/console" c 5 1
+[ -e "$R/dev/null" ] || mknod -m 666 "$R/dev/null" c 1 3
+# udev off the boot path (udev-bg.awk says why), dbus not started at all (nothing on this image talks to it: wpa_supplicant
+# runs without -u and pipewire is gone; func.sh only exports its address), and the main card mounted directly with the
+# second card and USB in the background (mount-fast.awk). startup.sh then waits for the card itself, not the muOS bind
+# tree, which bind.sh still builds, now in the background. H, warm reboots: 0.57 + 0.19 + 0.45 + 0.1 s.
+UD="$R/opt/muos/script/init/S10udev"
+awk -f /a/udev-bg.awk "$UD" > "$UD.new" || { echo "ERROR: S10udev anchors changed"; exit 1; }
+cat "$UD.new" > "$UD" && rm -f "$UD.new"
+rm -f "$R/opt/muos/script/init/S30dbus"
+MS2="$R/opt/muos/script/mount/start.sh"
+awk -f /a/mount-fast.awk "$MS2" > "$MS2.new" || { echo "ERROR: mount/start.sh anchors changed"; exit 1; }
+grep -q "MinUI Zero fast path" "$MS2.new" && grep -q "one sequence, off the boot path" "$MS2.new" && ! grep -q "^wait\$" "$MS2.new" &&
+	! grep -q "^/opt/muos/script/mount/union.sh start\$" "$MS2.new" || { echo "ERROR: mount/start.sh fast path did not land"; exit 1; }
+cat "$MS2.new" > "$MS2" && rm -f "$MS2.new"
 cp /a/rootfs-level "$R/opt/minui-zero/rootfs-level"       # what this rootfs provides; a zip states what it needs
 # ONE IMAGE: every board boot set plus the picker. The Plus device files are those of the donor rootfs.
 if [ "$DEVICE" = all ]; then
@@ -698,7 +740,7 @@ fi
 # FOUND) is a known one on this class of image. Same reasoning applies: a chmod that quietly did
 # not take must fail the BUILD, not the device.
 for _crit in /opt/minui-zero/expand-roms.sh /opt/minui-zero/minui-frontend.sh /opt/minui-zero/card-update.sh /usr/bin/unzip \
-             /opt/minui-zero/card-fsck.sh /sbin/fsck.vfat \
+             /opt/minui-zero/card-fsck.sh /sbin/fsck.vfat /opt/minui-zero/root-check.sh /opt/minui-zero/e2fsck/e2fsck \
              /opt/muos/script/system/startup.sh; do
 	if [ ! -f "$R$_crit" ]; then
 		echo "ERROR: boot-critical script missing from the rootfs: $_crit"; exit 1

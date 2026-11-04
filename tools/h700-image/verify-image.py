@@ -323,6 +323,27 @@ def main():
         check('updating frame for every board', not bad, ', '.join(bad))
         mode = debugfs_mode(img, off, '/sbin/fsck.vfat')
         check('fsck.vfat for card-fsck', mode is not None and mode & 0o111 == 0o111)
+        # BOOT SPEED (2026-11-04): the boards boot without an initramfs, so the rootfs must do its jobs, and the muOS boot
+        # steps taken off the boot path must stay off it
+        it = cat('/etc/inittab').decode(errors='replace')
+        check('inittab checks root then remounts it with options',
+              '::sysinit:/opt/minui-zero/root-check.sh\n::sysinit:/bin/mount -o remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /' in it)
+        for src, dst in (('tools/h700-strip/root-check.sh', '/opt/minui-zero/root-check.sh'),):
+            mode = debugfs_mode(img, off, dst)
+            check('root-check.sh current + executable', cat(dst) == open(os.path.join(REPO, src), 'rb').read() and
+                  mode is not None and mode & 0o111 == 0o111)
+        mode = debugfs_mode(img, off, '/opt/minui-zero/e2fsck/e2fsck')
+        check('e2fsck for root-check', mode is not None and mode & 0o111 == 0o111 and
+              all(debugfs_mode(img, off, '/opt/minui-zero/e2fsck/' + l) is not None for l in
+                  ('libext2fs.so.2', 'libe2p.so.2', 'libcom_err.so.2', 'libblkid.so.1', 'libuuid.so.1')))
+        check('console and null nodes in /dev', debugfs_mode(img, off, '/dev/console') is not None and
+              debugfs_mode(img, off, '/dev/null') is not None)
+        check('udev off the boot path', b'udev off the boot path' in cat('/opt/muos/script/init/S10udev'))
+        check('dbus not started', debugfs_mode(img, off, '/opt/muos/script/init/S30dbus') is None)
+        ms = cat('/opt/muos/script/mount/start.sh').decode(errors='replace')
+        check('main card mounted directly', 'MinUI Zero fast path' in ms and 'one sequence, off the boot path' in ms)
+        check('startup waits for the card', 'until grep -q " /mnt/mmc " /proc/mounts' in
+              cat('/opt/muos/script/system/startup.sh').decode(errors='replace'))
         # the rootfs level must cover what this build's own zip needs, or a fresh image refuses its own update
         lvl = cat('/opt/minui-zero/rootfs-level').decode(errors='replace').strip()
         check('rootfs-level covers the zip', lvl.isdigit() and (zip_min_rootfs is None or int(lvl) >= zip_min_rootfs),
