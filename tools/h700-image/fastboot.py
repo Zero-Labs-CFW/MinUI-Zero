@@ -13,8 +13,8 @@ cold starts. Every function asserts that no byte outside the intended ones chang
   boot0     header byte 0x34 debug_mode 3 -> 0 and its checksum (boot0 prints nothing).
   boot.img  the kernel stored as gzip -9 (byte-identical once unpacked), an empty initramfs (the kernel mounts root= itself;
             the rootfs inittab mounts /proc, /sys, /dev and remounts / with the options the initramfs used), and the header
-            cmdline field, which U-Boot appends to bootargs: loglevel=1 (only panics reach the serial port; dmesg keeps all)
-            and expedited RCU while the kernel starts.
+            cmdline field, which U-Boot appends to bootargs: loglevel=1 (only panics reach the serial port; dmesg keeps all),
+            expedited RCU while the kernel starts, and three unused vendor drivers skipped (see CMDLINE).
 The package and boot.img must be installed together: the patched U-Boot cannot boot a raw kernel, nor the stock one a gzip
 kernel. boardpick.sh always installs a board's package and kernel as one set.
 """
@@ -25,8 +25,13 @@ UBOOT_AT = 2048               # U-Boot's place in every one of our 11 boot packa
 SELECTOR = 63128              # in U-Boot: the Android image_info compression/type store
 SELECTOR_CONTEXT = bytes.fromhex('4ff400733046a4f85c30052384f85e30')   # movw.w r3,#512; mov r0,r6; strh r3,[r4,#92]; ...
 SELECTOR_GZIP = bytes.fromhex('40f20123')                              # movw r3,#0x201
-CMDLINE = b'loglevel=1 rcupdate.rcu_expedited=1 rcupdate.rcu_normal_after_boot=1'
+# initcall_blacklist skips three built-in vendor drivers nothing on this image uses: deeplay_encrypt (/dev/deeplayer, a
+# vendor crypto device, 35 ms), vin (camera input, 20 ms), brd (RAM block devices, 12 ms); measured -0.08 s on the H. A
+# kernel without one of them just ignores the name.
+CMDLINE = (b'loglevel=1 rcupdate.rcu_expedited=1 rcupdate.rcu_normal_after_boot=1 '
+           b'initcall_blacklist=deeplay_encrypt_init,vin_init,brd_init')
 BOOT0_DEBUG = 0x34
+LATE_USB = ('ehci1-controller', 'ohci1-controller', 'ohci2-controller', 'ehci3-controller', 'ohci3-controller')
 
 
 def word(b, o):
@@ -98,9 +103,17 @@ def package(orig):
     off, ln = _fdt_prop(bytes(pkg[dstart:dstart + dsize]), 'platform', 'debug_mode')
     assert ln == 4 and pkg[dstart + off:dstart + off + 4] == struct.pack('>I', 3), 'debug_mode is not 3'
     pkg[dstart + off:dstart + off + 4] = bytes(4)
-    struct.pack_into('<I', pkg, 20, checksum(pkg, 20))
     allowed = (set(range(20, 24)) | set(range(start + 12, start + 16)) | set(range(start + SELECTOR, start + SELECTOR + 4))
                | set(range(dstart + off, dstart + off + 4)))
+    # USB host controllers held back from the kernel's start-up (~0.36 s on the H); zero_late_usb.ko starts them once the
+    # menu is up. "late" is any status but "okay" to the kernel, and the module only touches nodes that say exactly
+    # "late". The OTG port's own controllers (ehci0/ohci0) and EHCI 2 are left alone.
+    for node in LATE_USB:
+        o, ln = _fdt_prop(bytes(pkg[dstart:dstart + dsize]), node, 'status')
+        assert ln == 5 and pkg[dstart + o:dstart + o + 5] == b'okay\0', node + ' status is not okay'
+        pkg[dstart + o:dstart + o + 5] = b'late\0'
+        allowed |= set(range(dstart + o, dstart + o + 4))
+    struct.pack_into('<I', pkg, 20, checksum(pkg, 20))
     assert changed(orig, pkg) <= allowed, 'package changed outside the selector, debug_mode and checksums'
     return bytes(pkg)
 

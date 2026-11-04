@@ -517,6 +517,24 @@ fi
 # Same block as MinUI.pak/launch.sh (f6e7d824): keep the two in step.
 #
 # Every failure falls through to the normal launcher path, which is the safe default.
+# MENU FIRST (boot speed, 2026-11-04): on an image boot early.sh starts this file before muOS's startup has loaded the
+# GPU module and restored the codec, which the menu does not need and a game does. So the first launch of a game waits
+# for both (the codec restore drops /run/zero-codec-ready, pipewire.sh), up to 5 s, then goes ahead regardless. Not
+# started by early.sh (no /run/zero-early): nothing to wait for, as before.
+_sys_ready=
+wait_for_system() {
+	[ -n "$_sys_ready" ] && return 0
+	_sys_ready=1
+	[ -e /run/zero-early ] || return 0
+	_w=0
+	until [ -d /sys/module/mali_kbase ] && [ -e /run/zero-codec-ready ]; do
+		[ $_w -ge 500 ] && { echo "wait_for_system: gave up after 5 s (mali $([ -d /sys/module/mali_kbase ] && echo y || echo n), codec $([ -e /run/zero-codec-ready ] && echo y || echo n))" >> "$LOG"; return 0; }
+		sleep 0.01; _w=$((_w + 1))
+	done
+	[ $_w -gt 0 ] && echo "wait_for_system: waited $((_w * 10)) ms for the GPU module and codec" >> "$LOG"
+	return 0
+}
+
 AUTO_RESUME="$SHARED_USERDATA_PATH/.minui/auto_resume.txt"
 if [ -f "$AUTO_RESUME" ]; then
 	_rel=$(head -1 "$AUTO_RESUME" 2>/dev/null)
@@ -535,6 +553,7 @@ if [ -f "$AUTO_RESUME" ]; then
 		rm -f "$AUTO_RESUME"; sync            # consume it FIRST: never resume-loop on a bad entry
 		echo "boot-to-game: $_tag <- $_rel" >> "$LOG"
 		echo 9 > /tmp/resume_slot.txt      # AUTO_RESUME_SLOT, read by minarch
+		wait_for_system
 		apply_volume
 		zero_rotate_prev_log "$_pak"
 		sh "$_pak" "$_rom" >> "$LOG" 2>&1
@@ -574,6 +593,7 @@ while : ; do
 		FAILS=0
 		CMD=$(cat /tmp/next)
 		echo "launch: $CMD" >> "$LOG"
+		wait_for_system
 		apply_volume   # a mute left behind by the menu process must not follow us into the game
 		zero_rotate_prev_log_cmd "$CMD"
 		sh -c "$CMD"

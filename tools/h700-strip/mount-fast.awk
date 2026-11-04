@@ -5,7 +5,7 @@
 # startup.sh waits for the main card itself, and mount_ready (bind.sh) still releases it if that never mounts.
 /storage\.sh "rom" "mount" 1 &/ {
 	print "# MinUI Zero fast path (boot speed 2026-11-04): the main card directly, muOS's storage.sh as the fallback"
-	print "if mkdir -p /mnt/mmc && mount -t vfat -o rw,utf8,noatime,nofail /dev/mmcblk0p6 /mnt/mmc 2>/dev/null; then"
+	print "if grep -q \" /mnt/mmc \" /proc/mounts || { mkdir -p /mnt/mmc && mount -t vfat -o rw,utf8,noatime,nofail /dev/mmcblk0p6 /mnt/mmc 2>/dev/null; }; then   # early.sh may have mounted it"
 	print "\tSET_VAR \"device\" \"storage/rom/active\" \"1\""
 	print "\tmkdir -p /mnt/mmc/ROMS"
 	print "\t( echo deadline >/sys/block/mmcblk0/queue/scheduler; echo \"write through\" >/sys/block/mmcblk0/queue/write_cache; KERNEL_TUNING mmcblk0 ) 2>/dev/null &"

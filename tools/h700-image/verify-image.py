@@ -342,6 +342,26 @@ def main():
         check('dbus not started', debugfs_mode(img, off, '/opt/muos/script/init/S30dbus') is None)
         ms = cat('/opt/muos/script/mount/start.sh').decode(errors='replace')
         check('main card mounted directly', 'MinUI Zero fast path' in ms and 'one sequence, off the boot path' in ms)
+        # MENU FIRST and late USB: early.sh starts the frontend before the muOS sysinit, startup.sh skips what it did
+        mode = debugfs_mode(img, off, '/opt/minui-zero/early.sh')
+        check('early.sh current + executable', cat('/opt/minui-zero/early.sh') == open(os.path.join(REPO, 'tools/h700-strip/early.sh'), 'rb').read()
+              and mode is not None and mode & 0o111 == 0o111)
+        check('inittab runs early.sh before the muOS sysinit',
+              '::sysinit:/opt/minui-zero/early.sh\n::sysinit:/opt/muos/script/init/sysinit' in it)
+        su_txt = cat('/opt/muos/script/system/startup.sh').decode(errors='replace')
+        check('startup.sh defers to early.sh', su_txt.count('zero-early') == 3 and 'the frontend owns the governor' in su_txt)
+        ko = cat('/opt/minui-zero/zero_late_usb.ko')
+        check('late-USB module', b'vermagic=4.9.170 SMP preempt mod_unload modversions aarch64' in ko)
+        # its symbol CRCs must be every board kernel's own, or insmod fails every boot and USB host stays off (Codex)
+        import glob as _g, symcrc
+        want = symcrc.module_versions(ko)
+        bad = []
+        for kp in sorted(set(_g.glob(os.path.join(assets, 'parts*', 'p4-kernel.img.gz')))):
+            got, _n = symcrc.crcs(symcrc.image_of(kp), sorted(want))
+            if got != want:
+                bad.append(os.path.basename(os.path.dirname(kp)))
+        check('late-USB module CRCs match every kernel', bool(want) and not bad, ', '.join(bad))
+        check('codec ready marker', b'zero-codec-ready' in cat('/opt/muos/script/system/pipewire.sh'))
         check('startup waits for the card', 'until grep -q " /mnt/mmc " /proc/mounts' in
               cat('/opt/muos/script/system/startup.sh').decode(errors='replace'))
         # the rootfs level must cover what this build's own zip needs, or a fresh image refuses its own update
