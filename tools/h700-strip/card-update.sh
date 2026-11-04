@@ -97,7 +97,13 @@ fi
 
 note() { echo "$(date '+%F %T') $1" > "$FAILED"; sync; echo "update: $1"; }
 _msg=
-[ -x "$MSG" ] && { "$MSG" -m "Updating MinUI Zero..." "Leave it on. It starts by itself." >/dev/null 2>&1 & _msg=$!; }
+# This runs before the frontend sets up the environment, so give boardpick.elf the two things it needs from it: the
+# card's lib folder (it links libmsettings.so; without it the message never loaded and an update showed a blank
+# screen, the H, 2026-11-04) and DEVICE, which platform.c reads for the panel size and rotation (unset, a CubeXX,
+# RG28XX or 34XX drew the message at the 640x480 default; Codex review 2026-11-04). DEVICE is derived exactly as
+# minui-frontend.sh does. A card with no lib folder just shows no message.
+_dev=$(sed 's/^rg35xx-//' /opt/muos/device/config/board/name 2>/dev/null || echo plus)
+[ -x "$MSG" ] && { DEVICE="$_dev" LD_LIBRARY_PATH="$SDCARD_PATH/.system/h700/lib:/usr/lib:/lib" "$MSG" -m "Updating MinUI Zero..." "Leave it on. It starts by itself." >/dev/null 2>&1 & _msg=$!; }
 done_msg() { [ -n "$_msg" ] && { kill "$_msg" 2>/dev/null; wait "$_msg" 2>/dev/null; }; }
 
 rm -rf "$STAGE"

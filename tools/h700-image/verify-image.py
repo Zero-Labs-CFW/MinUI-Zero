@@ -305,6 +305,22 @@ def main():
         hook = next((i for i, l in enumerate(su) if 'card-fsck.sh' in l and not l.lstrip().startswith('#')), None)
         mnt = next((i for i, l in enumerate(su) if l.startswith('/opt/muos/script/mount/start.sh')), None)
         check('card-fsck runs before the card mounts', hook is not None and mnt is not None and hook < mnt)
+        # the "Updating" frame card-fsck.sh shows: every board mapped to a frame of exactly its panel page
+        smap = cat('/opt/minui-zero/splash/map').decode(errors='replace').split()
+        smap = dict(zip(smap[0::2], smap[1::2]))
+        bad = []
+        for l in open(os.path.join(REPO, 'workspace/h700/boards.txt')):
+            f = l.split()
+            if not f or f[0].startswith('#') or len(f) < 11:
+                continue
+            w, h = int(f[2]), int(f[3])
+            if f[0] not in smap:
+                bad.append(f[0] + ' unmapped')
+                continue
+            n = len(cat('/opt/minui-zero/splash/' + smap[f[0]]))
+            if n != w * h * 4:
+                bad.append('%s %s is %d bytes, not %d' % (f[0], smap[f[0]], n, w * h * 4))
+        check('updating frame for every board', not bad, ', '.join(bad))
         mode = debugfs_mode(img, off, '/sbin/fsck.vfat')
         check('fsck.vfat for card-fsck', mode is not None and mode & 0o111 == 0o111)
         # the rootfs level must cover what this build's own zip needs, or a fresh image refuses its own update

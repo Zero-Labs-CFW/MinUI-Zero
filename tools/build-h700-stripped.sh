@@ -298,6 +298,17 @@ for _py in python3 python3.14 python3.13 python3.12; do
 done
 if [ -n "$PY_PIL" ]; then
 	"$PY_PIL" "$REPO/tools/h700-strip/make-splash.py" "$REPO/workspace/tg5040/install/installing.png" "$ASSETS/installing.raw" $SPLASH_GEOM
+	# The card check before a MinUI.zip install (card-fsck.sh) runs on whichever board the card was set up for, not
+	# only the Plus, so one "Updating" frame per panel page and a map from board id to frame. A Plus-sized frame
+	# written to a CubeXX or RG28XX page draws garbage (Dan saw "Installing" on an update, 2026-11-04).
+	rm -rf "$ASSETS/splash"; mkdir -p "$ASSETS/splash"
+	for _b in $(board ids); do
+		_w=$(board w "$_b"); _h=$(board h "$_b"); _r=$(board rot "$_b")
+		if [ "${_r:-0}" = 0 ]; then _g="$_w $_h"; _n="${_w}x${_h}"; else _g="$_h $_w $_r"; _n="${_h}x${_w}r${_r}"; fi
+		[ -f "$ASSETS/splash/updating-$_n.raw" ] ||
+			"$PY_PIL" "$REPO/tools/h700-strip/make-splash.py" "$REPO/workspace/tg5040/install/updating.png" "$ASSETS/splash/updating-$_n.raw" $_g
+		echo "$_b updating-$_n.raw" >> "$ASSETS/splash/map"
+	done
 elif [ "$MODE" = release ]; then
 	echo "ERROR: no python with PIL for the first-boot splash (pip install pillow)"; exit 1
 else
@@ -585,6 +596,7 @@ if [ "$DEVICE" = all ]; then
 fi
 chmod +x "$R/opt/minui-zero/expand-roms.sh"
 [ -f /a/installing.raw ] && cp /a/installing.raw "$R/opt/minui-zero/installing.raw"
+[ -d /a/splash ] && cp -R /a/splash "$R/opt/minui-zero/splash"   # card-fsck.sh: "Updating", one frame per panel page
 chmod +x "$R/opt/minui-zero/minui-frontend.sh" "$R/opt/minui-zero/card-update.sh" "$R/opt/minui-zero/card-fsck.sh"
 # NO wifi credentials baked into the image (privacy): WIPE muOS saved creds from the rdumped rootfs.
 # It bakes the builder network at /opt/muos/config/network/{ssid,pass} (net.sh no-ops on empty SSID),

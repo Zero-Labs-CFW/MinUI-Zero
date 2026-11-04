@@ -48,10 +48,14 @@ if grep -q " $PEEK " /proc/mounts; then
 fi
 [ $_zip = 1 ] || exit 0
 
-# a big card takes a while: show the install frame expand-roms.sh uses (fb0 is live before the card mounts)
-if [ -f /opt/minui-zero/installing.raw ] && [ -c /dev/fb0 ]; then
+# a big card takes a while: show "Updating" (fb0 is live before the card mounts). The frame must be the one for this
+# board's panel page (the build renders one per page and maps every board to it), read by the board muOS was set up
+# as; a board not in the map gets no frame rather than another panel's, which draws garbage.
+_b=$(cat /opt/muos/device/config/board/name 2>/dev/null)
+_f=$(awk -v b="$_b" '$1 == b || $1 == "rg35xx-" b { print $2; exit }' /opt/minui-zero/splash/map 2>/dev/null)
+if [ -n "$_f" ] && [ -f "/opt/minui-zero/splash/$_f" ] && [ -c /dev/fb0 ]; then
 	echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null
-	cat /opt/minui-zero/installing.raw > /dev/fb0 2>/dev/null
+	cat "/opt/minui-zero/splash/$_f" > /dev/fb0 2>/dev/null
 fi
 echo "$(date '+%F %T') MinUI.zip found: checking $PART" >> "$LOG" 2>/dev/null
 # -a repairs without asking and truncates only what is already unreadable: 0 = clean, 1 = repaired, else failed
