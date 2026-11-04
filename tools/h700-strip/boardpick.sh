@@ -12,7 +12,8 @@
 # RAM: boot0 decides whether the board reaches Linux at all, so the screen types are cycled under ONE boot0, the
 # universal one the image ships (the LPDDR3-primary strap-selecting build: booted LPDDR4 on the RG35XX H,
 # LPDDR3 by construction). Only the final choice writes the board's own boot0.
-# Every write goes to the SD card, never the handheld: a power cut mid-write costs a reflash, nothing more.
+# Every write goes to the SD card, never the handheld. A power cut mid-write is finished on the next boot, except
+# during a kernel write (no fallback for the kernel): that costs a reflash, nothing more.
 # Exit 0 = the model is chosen (or was already), carry on booting. Otherwise this does not return (reboot).
 
 B=/opt/minui-zero/boards
@@ -64,14 +65,19 @@ restart() {
 	exit 0
 }
 
-# write <file> <device> <sector>: write, flush, drop the cache, read back and compare
-write() {
+# same <file> <device> <sector>: the device already holds the file there
+same() {
 	_len=$(wc -c < "$1")
-	dd if="$1" of="$2" bs=512 seek="$3" conv=notrunc 2>>"$LOG" || return 1
-	sync; echo 3 > /proc/sys/vm/drop_caches
 	_want=$(md5sum < "$1" | cut -d ' ' -f 1)
 	_got=$(dd if="$2" bs=512 skip="$3" count=$(( (_len + 511) / 512 )) 2>/dev/null | head -c "$_len" | md5sum | cut -d ' ' -f 1)
-	[ "$_want" = "$_got" ] || { log "readback mismatch writing $1 to $2 at $3"; return 1; }
+	[ "$_want" = "$_got" ]
+}
+
+# write <file> <device> <sector>: write, flush, drop the cache, read back and compare
+write() {
+	dd if="$1" of="$2" bs=512 seek="$3" conv=notrunc 2>>"$LOG" || return 1
+	sync; echo 3 > /proc/sys/vm/drop_caches
+	same "$@" || { log "readback mismatch writing $1 to $2 at $3"; return 1; }
 }
 
 # install <board> [full]: the board's kernel, boot package and device files (and with "full" its own boot0).
@@ -87,8 +93,14 @@ install() {
 	gunzip -c "$_d/device.tar.gz" > /tmp/bp-device.tar && rm -rf /opt/muos/device.new && mkdir -p /opt/muos/device.new &&
 		tar -xf /tmp/bp-device.tar -C /opt/muos/device.new || { log "cannot unpack $_d/device.tar.gz"; return 1; }
 	rm -f /tmp/bp-device.tar
-	write /tmp/bp-kernel.img "$P4" 0 || return 1
+	# The kernel has no fallback: a write cut off here leaves a card that does not boot. Several boards share a
+	# kernel, so skip the write when the card already holds it.
+	same /tmp/bp-kernel.img "$P4" 0 || write /tmp/bp-kernel.img "$P4" 0 || return 1
 	rm -f /tmp/bp-kernel.img
+	# boot0 loads the boot package from 32800 and, when its checksum fails, from 24576 (both sectors are in every
+	# boot0 we ship, as a pair; 24576 is otherwise unused on the card). Write the backup first, so a write cut
+	# off in either copy leaves the other one whole.
+	write "$_d/package.fex" "$DISK" 24576 || return 1   # 12582912
 	write "$_d/package.fex" "$DISK" 32800 || return 1   # 16793600
 	if [ "$2" = full ]; then
 		write "$_d/boot0.img" "$DISK" 16 || return 1     # 8192
@@ -115,6 +127,7 @@ check_layout || { log "card layout not recognized, not picking a model"; exit 0;
 # A model installed on the last boot waits for "the screen is right" before it counts as chosen (step 3).
 PENDING=$B/pending    # the board installed, until confirmed
 UNDO=$B/undo-boot0.img  # the boot0 that was on the card before it
+UNDOING=$B/undoing    # set while the screen type is put back
 # A pick cut off before it was recorded as pending (PENDING.new left, power lost during or just after its install):
 # the card may hold all, some or none of the picked board's files, so install them again and finish the pick.
 # Left alone, the screen types would cycle under the picked board's boot0, and the next pick would save that boot0
@@ -134,30 +147,42 @@ if [ -f "$PENDING" ]; then
 	i=$(cat "$TRYING" 2>/dev/null || echo 0)
 	case "$i" in ''|*[!0-9]*) i=0 ;; esac
 	[ "$i" -lt "$NTYPES" ] || i=0
-	/opt/minui-zero/boardpick.elf -c 60 "$(label "$p")" >/dev/null
-	rc=$?
-	if [ $rc -eq 0 ]; then
-		echo "$p" > "$CHOSEN.new" && sync && mv "$CHOSEN.new" "$CHOSEN" || { log "cannot record $p as chosen"; exit 1; }
-		rm -f "$PENDING" "$UNDO" "$TRYING"; sync
-		log "confirmed: $p"
-		exit 0
-	fi
-	# Hold B or no answer (2), or the confirm screen failing under the picked board (anything else, which would
-	# otherwise repeat on every boot with the model never recorded): put the screen type back.
-	[ $rc -eq 2 ] || log "confirm screen failed (rc $rc), treating $p as not confirmed"
 	cur=$(type_line "$i" | cut -d ' ' -f 1)
-	log "not confirmed: $p; putting back screen type $i ($cur)"
+	# An undo cut off (power lost during it, or after its writes but before PENDING went): the card may hold the old
+	# screen type, so asking about $p there could record a model that is not installed. Finish the undo instead.
+	if [ -f "$UNDOING" ]; then
+		log "putting back screen type $i was cut off; finishing it"
+	else
+		/opt/minui-zero/boardpick.elf -c 60 "$(label "$p")" >/dev/null
+		rc=$?
+		if [ $rc -eq 0 ]; then
+			echo "$p" > "$CHOSEN.new" && sync && mv "$CHOSEN.new" "$CHOSEN" || { log "cannot record $p as chosen"; exit 1; }
+			rm -f "$PENDING" "$UNDO" "$TRYING"; sync
+			log "confirmed: $p"
+			exit 0
+		fi
+		# Hold B or no answer (2), or the confirm screen failing under the picked board (anything else, which would
+		# otherwise repeat on every boot with the model never recorded): put the screen type back.
+		[ $rc -eq 2 ] || log "confirm screen failed (rc $rc), treating $p as not confirmed"
+		log "not confirmed: $p; putting back screen type $i ($cur)"
+		touch "$UNDOING"; sync
+	fi
 	if [ -f "$UNDO" ] && install "$cur" && write "$UNDO" "$DISK" 16 && write "$UNDO" "$DISK" 512; then
-		rm -f "$PENDING" "$UNDO"; sync
+		rm -f "$PENDING" "$UNDO" "$UNDOING"; sync  # PENDING first: a leftover UNDOING alone is cleared below
 		restart
 	fi
 	# Part of the old screen type may be on the card now, under either boot0. Put the picked board back whole, so
 	# the card matches PENDING and the next boot asks about it again; holding START there then records what is
 	# really installed.
 	log "putting back screen type $i failed; installing $p again"
-	install "$p" full || log "ROLLBACK FAILED: the boot files on the card are mixed, it may need reflashing"
+	if install "$p" full; then
+		rm -f "$UNDOING"; sync  # the card matches PENDING again: ask about it on the next boot
+	else
+		log "ROLLBACK FAILED: the boot files on the card are mixed, it may need reflashing"
+	fi
 	exit 1
 fi
+rm -f "$UNDOING"
 
 i=$(cat "$TRYING" 2>/dev/null || echo 0)
 case "$i" in ''|*[!0-9]*) i=0 ;; esac
