@@ -53,15 +53,17 @@ fi
 # as; a board not in the map gets no frame rather than another panel's, which draws garbage.
 _b=$(cat /opt/muos/device/config/board/name 2>/dev/null)
 _f=$(awk -v b="$_b" '$1 == b || $1 == "rg35xx-" b { print $2; exit }' /opt/minui-zero/splash/map 2>/dev/null)
+_shown=
 if [ -n "$_f" ] && [ -f "/opt/minui-zero/splash/$_f" ] && [ -c /dev/fb0 ]; then
 	echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null
-	cat "/opt/minui-zero/splash/$_f" > /dev/fb0 2>/dev/null
+	cat "/opt/minui-zero/splash/$_f" > /dev/fb0 2>/dev/null && _shown=1
 fi
 echo "$(date '+%F %T') MinUI.zip found: checking $PART" >> "$LOG" 2>/dev/null
 # -a repairs without asking and truncates only what is already unreadable: 0 = clean, 1 = repaired, else failed
 fsck.vfat -a "$PART" >> "$LOG" 2>&1; _rc=$?
 case $_rc in 0) _r=clean ;; 1) _r=repaired ;; *) _r=failed ;; esac
 echo "$(date '+%F %T') fsck.vfat exit $_rc: $_r" >> "$LOG" 2>/dev/null
-echo "$_r" > "$STATE"
+# line 2 tells card-update.sh the frame is up, so it does not draw a second "Updating" screen over it
+{ echo "$_r"; [ -z "$_shown" ] || echo shown; } > "$STATE"
 sync
 exit 0

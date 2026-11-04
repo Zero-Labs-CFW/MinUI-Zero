@@ -85,7 +85,8 @@ if [ -f "$SWAP" ]; then
 fi
 
 # card-fsck.sh's verdict for this boot (no file: the check did not run). Consumed here so it never outlives a boot.
-_fsck=$(cat "$STATE_DIR/card-fsck.state" 2>/dev/null)
+_fsck=$(head -1 "$STATE_DIR/card-fsck.state" 2>/dev/null)
+_framed=; grep -qx shown "$STATE_DIR/card-fsck.state" 2>/dev/null && _framed=1
 rm -f "$STATE_DIR/card-fsck.state" 2>/dev/null
 # fsck -a keeps the broken cluster chains it salvages as FSCKnnnn.REC in the card root: same home as expand-roms.sh
 if [ "$_fsck" = repaired ] && ls "$SDCARD_PATH"/FSCK[0-9][0-9][0-9][0-9].REC >/dev/null 2>&1; then
@@ -103,8 +104,12 @@ _msg=
 # RG28XX or 34XX drew the message at the 640x480 default; Codex review 2026-11-04). DEVICE is derived exactly as
 # minui-frontend.sh does. A card with no lib folder just shows no message.
 _dev=$(sed 's/^rg35xx-//' /opt/muos/device/config/board/name 2>/dev/null || echo plus)
-[ -x "$MSG" ] && { DEVICE="$_dev" LD_LIBRARY_PATH="$SDCARD_PATH/.system/h700/lib:/usr/lib:/lib" "$MSG" -m "Updating MinUI Zero..." "Leave it on. It starts by itself." >/dev/null 2>&1 & _msg=$!; }
-done_msg() { [ -n "$_msg" ] && { kill "$_msg" 2>/dev/null; wait "$_msg" 2>/dev/null; }; }
+# ONE screen: card-fsck.sh already put the "Updating MinUI Zero..." frame up (the same art the TrimUI and Miyoo updates
+# show) and nothing draws over it until the menu, so only draw this message when it could not (Dan saw both, 2026-11-04).
+[ -z "$_framed" ] && [ -x "$MSG" ] && { DEVICE="$_dev" LD_LIBRARY_PATH="$SDCARD_PATH/.system/h700/lib:/usr/lib:/lib" "$MSG" -m "Updating MinUI Zero..." "Leave it on. It starts by itself." >/dev/null 2>&1 & _msg=$!; }
+# SIGKILL: SDL turns SIGTERM into a quit event the message never reads, so a plain kill left wait blocked forever and
+# the H sat on "Updating" after the install had finished (2026-11-04)
+done_msg() { [ -n "$_msg" ] && { kill -9 "$_msg" 2>/dev/null; wait "$_msg" 2>/dev/null; }; }
 
 rm -rf "$STAGE"
 # sizes for the free-space check below, format-checked first: a bad value in $(( )) aborts this shell. A df that

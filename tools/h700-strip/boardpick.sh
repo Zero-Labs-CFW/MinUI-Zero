@@ -71,7 +71,7 @@ restart() {
 	sleep 30
 	mount -o remount,rw /mnt/mmc 2>/dev/null  # the menu needs the card writable
 	log "no reboot after 30 s; carrying on to the menu, the next boot uses the new files"
-	[ -z "$msg" ] || { kill "$msg" 2>/dev/null; wait "$msg" 2>/dev/null; }  # the menu needs the screen
+	[ -z "$msg" ] || { kill -9 "$msg" 2>/dev/null; wait "$msg" 2>/dev/null; }  # the menu needs the screen (-9: SDL swallows SIGTERM)
 	exit 0
 }
 
@@ -261,7 +261,7 @@ if [ $rc -eq 0 ]; then
 	if echo "$pick" > "$PENDING.new" && sync && install "$pick" full && mv "$PENDING.new" "$PENDING" && sync; then
 		restart
 	fi
-	kill "$msg" 2>/dev/null; wait "$msg" 2>/dev/null
+	kill -9 "$msg" 2>/dev/null; wait "$msg" 2>/dev/null   # -9: SDL turns SIGTERM into an event the message never reads
 	log "install of $pick failed; putting back screen type $i ($cur)"
 	rm -f "$PENDING" "$PENDING.new"
 	rollback "$cur" "$UNDO" && rm -f "$UNDO"

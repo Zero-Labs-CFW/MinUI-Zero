@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include <msettings.h>
 
 #include "defines.h"
@@ -58,6 +59,10 @@ static int message(char* title, char* line) {
 	GFX_blitText(font.large, title, 0, COLOR_WHITE, screen, &(SDL_Rect){0, y, cw, title_h});
 	GFX_blitText(font.small, line, 0, COLOR_GRAY, screen, &(SDL_Rect){0, y + title_h + gap, cw, line_h});
 	GFX_flip(screen);
+	// SDL turns SIGTERM and SIGINT into quit events, which this loop never reads, so a plain kill did nothing and the
+	// shell waiting on it hung on this screen (an H after a MinUI.zip install, 2026-11-04). Put the defaults back.
+	signal(SIGTERM, SIG_DFL);
+	signal(SIGINT, SIG_DFL);
 	for (;;) sleep(60); // the reboot (or the shell's kill) ends it
 	return 0;
 }
