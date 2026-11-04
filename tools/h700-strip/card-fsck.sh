@@ -2,8 +2,9 @@
 # Repair the card's filesystem before a MinUI.zip install, so an update never writes into a damaged FAT. startup.sh
 # runs this BEFORE muOS mounts the card (beside expand-roms.sh): fsck has to run on an unmounted filesystem.
 #
-# Only on boots with a MinUI.zip on the card: a peek through a read-only mount decides, so a normal boot pays one
-# mount and nothing else. Other CFW check the card the same way (ROCKNIX, Knulli, BaseOS, muOS), and ours needed it:
+# Only on boots with a MinUI.zip on the card: a look at the card's root directory decides, read straight off the
+# partition (a few kilobytes, a few milliseconds), so a normal boot pays nothing. It used to mount the card
+# read-only to look, which cost 0.66 s on EVERY boot (profiled on the H, 2026-11-04, boot-speed work). Other CFW check the card the same way (ROCKNIX, Knulli, BaseOS, muOS), and ours needed it:
 # fsck found 17 broken cluster chains on the H's card on 2026-11-02 (expand-roms.sh, which repairs once, at first
 # boot). The result is left for card-update.sh, which runs once the card is mounted:
 #   clean / repaired: install. repaired also moves fsck's FSCKnnnn.REC fragments out of the card root.
@@ -13,7 +14,6 @@ set -u
 
 DEV=/dev/mmcblk0
 PART="${DEV}p6"
-PEEK=/tmp/zero-card-peek
 STATE=${ZERO_FSCK_STATE:-/opt/minui-zero/card-fsck.state}   # rootfs: survives anything that remounts /tmp
 LOG=/var/minui-zero-fsck.log
 
@@ -25,29 +25,38 @@ grep -q " /mnt/mmc " /proc/mounts && exit 0   # already mounted: wrong hook poin
 ROOT_DEV=$(awk '$5 == "/" {d = $3} END {print d}' /proc/self/mountinfo 2>/dev/null)
 [ -n "$ROOT_DEV" ] && [ "$ROOT_DEV" = "$(cat /sys/block/mmcblk0/mmcblk0p5/dev 2>/dev/null)" ] || exit 0
 
-mkdir -p "$PEEK" 2>/dev/null
-mount -t vfat -o ro "$PART" "$PEEK" 2>/dev/null || exit 0
-_zip=0; [ -f "$PEEK/MinUI.zip" ] && _zip=1   # vfat lookups ignore case, like the frontend's check
-# the release download as-is counts too (card-update.sh takes it as MinUI.zip)
-for _z in "$PEEK"/[Mm][Ii][Nn][Uu][Ii]-[Zz][Ee][Rr][Oo]-*[Hh]700-*.[Zz][Ii][Pp]; do [ -f "$_z" ] && _zip=1 && break; done
-# never hand the boot back with the peek still mounted: muOS mounts the same partition next (Codex review 2026-11-04).
-# A plain [ -f ] holds nothing open, so a refusal is a fluke worth a retry; a lazy unmount is the last resort.
-cd /
-for _i in 1 2 3; do
-	umount "$PEEK" 2>/dev/null
-	grep -q " $PEEK " /proc/mounts || break
-	sleep 1
-done
-if grep -q " $PEEK " /proc/mounts; then
-	umount -l "$PEEK" 2>/dev/null
-	# nothing further to try from here; say which way it went, for the log the frontend copies onto the card
-	if grep -q " $PEEK " /proc/mounts; then
-		echo "$(date '+%F %T') peek mount at $PEEK would not release, even lazily: muOS may fail to mount the card" >> "$LOG" 2>/dev/null
-	else
-		echo "$(date '+%F %T') peek mount would not release; lazily unmounted, no check this boot" >> "$LOG" 2>/dev/null
+# THE ROOT DIRECTORY, READ RAW (FAT32 only; the image and expand-roms.sh always make FAT32). Both names an update can
+# have show up there as an 8.3 entry "MINUI???ZIP": MinUI.zip is "MINUI   ZIP", and a long name such as
+# MinUI-Zero-anbernic-h700-v1.10.0-update.zip gets a short alias like "MINUI-~1ZIP" from any FAT driver. Deleted entries
+# start with 0xE5 and long-name pieces are UTF-16, so neither can match. A false match only means one unneeded fsck;
+# anything this cannot read (not FAT32, odd geometry) skips the check, as a refused mount did before.
+# the boot sector once, into RAM: seven od runs on the raw card cost 0.15 s per boot, on a copy in /tmp nothing
+BS=/tmp/zero-card-bs
+dd if="$PART" of="$BS" bs=512 count=1 2>/dev/null || exit 0
+rd() { od -An -tu"$2" -j"$1" -N"$2" "$BS" 2>/dev/null | tr -d ' '; }   # little-endian fields, little-endian CPU
+num() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; }
+_bps=$(rd 11 2); _spc=$(rd 13 1); _res=$(rd 14 2); _nfat=$(rd 16 1); _f16=$(rd 22 2); _fsz=$(rd 36 4); _clu=$(rd 44 4)
+for _v in "$_bps" "$_spc" "$_res" "$_nfat" "$_f16" "$_fsz" "$_clu"; do num "$_v" || exit 0; done
+[ "$_f16" -eq 0 ] && [ "$_bps" -ge 512 ] && [ "$_bps" -le 4096 ] && [ "$_spc" -ge 1 ] && [ "$_clu" -ge 2 ] || exit 0
+_zip=0; _n=0
+# follow the root directory's cluster chain through the first FAT to its end (Codex review 2026-11-04: a root can
+# legally span many clusters). A card root is a few dozen entries, a cluster or two; 256 clusters is megabytes of
+# entries, so a chain that long, or one that points back at itself, is a loop in a damaged FAT: check the card then,
+# within a fraction of a second, rather than walk the loop (Codex review round 2).
+_max=$(( _fsz * _bps / 4 )); [ "$_max" -gt 256 ] && _max=256
+while [ "$_clu" -ge 2 ] && [ "$_clu" -lt 268435448 ]; do
+	[ "$_n" -lt "$_max" ] || { _zip=1; break; }
+	_sec=$(( _res + _nfat * _fsz + (_clu - 2) * _spc ))
+	if dd if="$PART" bs="$_bps" skip="$_sec" count="$_spc" 2>/dev/null | tr '\000-\037\177-\377' '\n' | grep -q 'MINUI...ZIP'; then
+		_zip=1; break
 	fi
-	exit 0
-fi
+	_prev=$_clu
+	_clu=$(od -An -tu4 -j$(( _res * _bps + _clu * 4 )) -N4 "$PART" 2>/dev/null | tr -d ' ')
+	num "$_clu" || break
+	_clu=$(( _clu & 268435455 )); _n=$((_n + 1))
+	[ "$_clu" != "$_prev" ] || { _zip=1; break; }
+done
+rm -f "$BS"
 [ $_zip = 1 ] || exit 0
 
 # a big card takes a while: show "Updating" (fb0 is live before the card mounts). The frame must be the one for this
