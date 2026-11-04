@@ -1085,8 +1085,9 @@ void PLAT_blitRenderer(GFX_Renderer* renderer) {
 		// the true drawn size is src * integer scale — on the fit path minarch leaves
 		// dst_w/dst_h at DEVICE size (observed live: crop was 640x480 while the game was
 		// a 3x 480x432), and only dst_x/dst_y locate the image
-		int cw = renderer->scale >= 1 ? sw * renderer->scale : renderer->dst_w;
-		int ch = renderer->scale >= 1 ? sh * renderer->scale : renderer->dst_h;
+		// forced crop (scale 0) draws the trimmed source at 1x from dst_x/dst_y, so it is sw x sh too
+		int cw = renderer->scale >= 1 ? sw * renderer->scale : renderer->scale == 0 ? sw : renderer->dst_w;
+		int ch = renderer->scale >= 1 ? sh * renderer->scale : renderer->scale == 0 ? sh : renderer->dst_h;
 		// NO RESHAPE, EVER. The DE window is programmed ONCE at init and never touched again:
 		// that is exactly what upstream MinUI does on this same sunxi disp (trimuismart sets
 		// screen_win at init and only ever updates fb.addr per frame). Reprogramming the window

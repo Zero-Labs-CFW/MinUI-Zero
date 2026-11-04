@@ -198,6 +198,24 @@ i=$(cat "$TRYING" 2>/dev/null || echo 0)
 case "$i" in ''|*[!0-9]*) i=0 ;; esac
 [ "$i" -lt "$NTYPES" ] || i=0
 cur=$(type_line "$i" | cut -d ' ' -f 1)
+# A screen-type step cut off (TRYING.new left, power lost during or just after its install): the card may hold
+# all, some or none of that type's files, so install them again and finish the step.
+if [ -f "$TRYING.new" ]; then
+	n=$(cat "$TRYING.new")
+	case "$n" in ''|*[!0-9]*) n=$NTYPES ;; esac
+	if [ "$n" -lt "$NTYPES" ]; then
+		rep=$(type_line "$n" | cut -d ' ' -f 1)
+		log "screen type $n ($rep) was cut off; installing it again"
+		if install "$rep" && mv "$TRYING.new" "$TRYING" && sync; then
+			restart
+		fi
+		log "installing screen type $n again failed; putting back screen type $i ($cur)"
+		rm -f "$TRYING.new"; sync
+		rollback "$cur"
+		exit 1
+	fi
+	rm -f "$TRYING.new"
+fi
 # Every model, in table order, starting on the first of the screen type installed now. A list limited to that
 # type sent an H that could read the SP's screen hunting through the RG40XX ones (Dan 2026-11-03).
 set --
@@ -250,13 +268,13 @@ case $rc in
 esac
 rep=$(type_line "$next" | cut -d ' ' -f 1)
 log "$why: trying screen type $next ($rep)"
-# Record the type BEFORE writing its files: a power cut after the write must ask about the screen type that is
-# installed, and one during the write leaves a mixed set either way (reflash).
-echo "$next" > "$TRYING" && sync || { log "cannot record screen type $next, not cycling"; exit 1; }
-if install "$rep"; then
+# Record the step BEFORE writing its files (TRYING.new) and make it the installed type only once they are all on
+# the card: a power cut anywhere in between installs the step again on the next boot (above).
+echo "$next" > "$TRYING.new" && sync || { log "cannot record screen type $next, not cycling"; exit 1; }
+if install "$rep" && mv "$TRYING.new" "$TRYING" && sync; then
 	restart
 fi
 log "install of $rep failed; putting back screen type $i ($cur)"
+rm -f "$TRYING.new"; sync
 rollback "$cur"
-echo "$i" > "$TRYING"; sync
 exit 1
