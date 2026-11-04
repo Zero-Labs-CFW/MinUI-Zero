@@ -29,7 +29,7 @@ mkdir -p "$PEEK" 2>/dev/null
 mount -t vfat -o ro "$PART" "$PEEK" 2>/dev/null || exit 0
 _zip=0; [ -f "$PEEK/MinUI.zip" ] && _zip=1   # vfat lookups ignore case, like the frontend's check
 # the release download as-is counts too (card-update.sh takes it as MinUI.zip)
-for _z in "$PEEK"/[Mm][Ii][Nn][Uu][Ii]-[Zz][Ee][Rr][Oo]-[Hh]700-*.[Zz][Ii][Pp]; do [ -f "$_z" ] && _zip=1 && break; done
+for _z in "$PEEK"/[Mm][Ii][Nn][Uu][Ii]-[Zz][Ee][Rr][Oo]-*[Hh]700-*.[Zz][Ii][Pp]; do [ -f "$_z" ] && _zip=1 && break; done
 # never hand the boot back with the peek still mounted: muOS mounts the same partition next (Codex review 2026-11-04).
 # A plain [ -f ] holds nothing open, so a refusal is a fluke worth a retry; a lazy unmount is the last resort.
 cd /
