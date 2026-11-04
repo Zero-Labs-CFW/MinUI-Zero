@@ -459,6 +459,27 @@ grep -q "scaling_max_freq" "$SU" || { echo "ERROR: CPU ceiling did not land in s
 echo "  CPU ceiling 1512 MHz set at the top of startup.sh"
 sed -i "s|^HOTKEY start|true # hotkey daemon disabled (minui owns input)|" "$SU"
 
+# BOOT STAGE MARKS (2026-11-04). One line of kernel uptime per stage into /dev/shm/zero-boot (tmpfs, mounted by
+# inittab before sysinit runs; a few builtins per mark, no fork). minui-frontend.sh adds its own marks and, on a
+# dev card, writes them with the pre-kernel time (bin/bootclock) to logs/boot-stages.txt. Every anchor must match.
+cat > /tmp/zmark <<"ZM"
+read -r _zu _ </proc/uptime; echo "$_zu @" >>/dev/shm/zero-boot
+ZM
+zmark() { # <file> <anchor regex> <label> [after]: insert the mark line before (or after) the first anchor line
+	awk -v re="$2" -v lab="$3" -v aft="${4:-}" -v m="$(cat /tmp/zmark)" "BEGIN { gsub(/@/, lab, m) }
+		{ if (!d && \$0 ~ re) { if (aft != \"\") print; print m; if (aft == \"\") print; d = 1; next } print }
+		END { if (!d) exit 3 }" "$1" > "$1.z" || { echo "ERROR: boot mark $3 found no anchor in $1"; exit 1; }
+	cat "$1.z" > "$1" && rm -f "$1.z"
+}
+SI="$R/opt/muos/script/init/sysinit"
+zmark "$SI" "^for S in" "sysinit"
+zmark "$SI" "^[ \t]*case ..S. in" "\${S##*/}"   # [ \t], not [[:space:]]: the container awk lacks classes
+zmark "$SU" "^until .*mount_ready" "mount-wait"
+zmark "$SU" "^until .*mount_ready" "mounted" after
+zmark "$SU" "^sh /opt/minui-zero/minui-frontend.sh" "frontend"
+[ "$(grep -c zero-boot "$SI")" = 2 ] && [ "$(grep -c zero-boot "$SU")" = 3 ] || { echo "ERROR: boot marks did not all land"; exit 1; }
+echo "  boot stage marks in sysinit and startup.sh"
+
 # BOOT TRIM (2026-08-11). muOS keeps doing work for features this image does not ship. None of it
 # blocks the menu (it is all backgrounded) but it competes for the CPU and the ~10MB/s card during
 # the exact seconds the user is browsing and launching their first game.
@@ -694,6 +715,9 @@ done
 # night shade for programs that draw through fb0 (Tools > Files): workspace/h700/tools/nightlayer.c
 cp "$REPO/workspace/h700/tools/build/nightlayer" "$STAGE/.system/h700/bin/" || \
 	{ echo "ERROR: nightlayer missing for h700, run 'make h700-build' first"; exit 1; }
+# pre-kernel boot time for the dev-card boot receipt (minui-frontend.sh): workspace/h700/tools/bootclock.c
+cp "$REPO/workspace/h700/tools/build/bootclock" "$STAGE/.system/h700/bin/" || \
+	{ echo "ERROR: bootclock missing for h700, run 'make h700-build' first"; exit 1; }
 cp "$REPO/workspace/h700/libmsettings/libmsettings.so"  "$STAGE/.system/h700/lib/"
 # card-side libs (2026-09-17): libnl-tiny.so for hostapd (both lifted from the TrimUI firmware,
 # same aarch64 glibc; Device Sync hosts its hotspot with hostapd, wpa_supplicant AP mode dies

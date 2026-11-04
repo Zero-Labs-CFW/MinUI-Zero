@@ -7,6 +7,10 @@
 # muOS mounts the ROMS/data partition at /mnt/mmc (via /opt/muos/script/mount). Our payload lives
 # there under .system/h700, same as the piggyback/hosted-dev loop.
 
+# boot stage mark (the image build puts the same line in sysinit and startup.sh; written out below on dev cards)
+zmark() { read -r _zu _ </proc/uptime; echo "$_zu $1" >>/dev/shm/zero-boot; }
+zmark frontend-run
+
 export PLATFORM=h700
 export SDCARD_PATH=/mnt/mmc
 export SYSTEM_PATH=/mnt/mmc/.system/h700
@@ -71,6 +75,7 @@ rm -f "$SDCARD_PATH/minui-zero.log" 2>/dev/null # the old card-root copy on card
 # board's boot files, or into the next screen type when nobody answers). A failed write asks again, twice;
 # then the menu starts on what is installed rather than leaving the device stuck on a picker.
 if [ -x /opt/minui-zero/boardpick.sh ] && [ ! -f /opt/minui-zero/boards/chosen ]; then
+	zmark picker
 	# its output goes to /tmp and is copied in after: a descriptor open on the card's log would keep boardpick.sh
 	# from remounting the card read-only before it reboots (Codex 2026-11-03)
 	for _try in 1 2 3; do sh /opt/minui-zero/boardpick.sh >> /tmp/boardpick.out 2>&1 && break; done
@@ -458,6 +463,13 @@ power_off() {
 # per boot, the regression canary behind the README boot table (same line as MinUI.pak/launch.sh). Taken
 # before boot-to-game so a resumed game's play time never lands in it. Costs users nothing.
 devmode && zero_boot_receipt
+# ...and where the time went, same dev cards: the pre-kernel part (boot0, U-Boot, kernel load: bin/bootclock reads
+# the ARM counter that starts at reset) and every stage mark since, one line per boot in logs/boot-stages.txt
+if devmode; then
+	zmark menu-ready
+	_bc=$("$SYSTEM_PATH/bin/bootclock" 2>/dev/null)
+	echo "$(date +%Y-%m-%d) ${_bc:-pre ? post ? total ?} | $(awk '{ printf "%s %s  ", $2, $1 }' /dev/shm/zero-boot 2>/dev/null)" >> "$LOGS_PATH/boot-stages.txt"
+fi
 
 # BOOT STRAIGHT INTO THE GAME. MinUI already quicksaves on power-off and resumes on the next boot,
 # but the resume goes through the launcher: it starts, reads the marker, writes /tmp/next and exits,

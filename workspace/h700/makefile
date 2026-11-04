@@ -10,6 +10,7 @@
 all: boards
 	cd ./boardpick && make
 	mkdir -p ./tools/build && $(CROSS_COMPILE)gcc -O2 -Wall ./tools/nightlayer.c -o ./tools/build/nightlayer
+	$(CROSS_COMPILE)gcc -O2 -Wall -static ./tools/bootclock.c -o ./tools/build/bootclock
 
 # platform/boards.h: the board table as C, before anything compiles platform.c (workspace/makefile runs early first)
 early: boards
@@ -19,4 +20,4 @@ boards:
 
 clean:
 	cd ./boardpick && make clean
-	rm -f ./tools/build/nightlayer
+	rm -f ./tools/build/nightlayer ./tools/build/bootclock
