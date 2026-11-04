@@ -188,7 +188,8 @@ done
 # "SSID:password" line, # comments. No wifi.txt means none of this runs and the radio stays down,
 # which is the efficient default MinUI wants anyway.
 WIFI_TXT="$SDCARD_PATH/wifi.txt"
-( if [ -f "$WIFI_TXT" ]; then
+# a board with no radio (bin/board radio: the RG28XX) skips the bring-up and the monitor, as minui-frontend.sh does
+( if [ -f "$WIFI_TXT" ] && [ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" != none ]; then
 	_line=$(sed '/^#/d;/^[[:space:]]*$/d' "$WIFI_TXT" | head -1)
 	_ssid=${_line%%:*}; _psk=${_line#*:}
 	if [ -n "$_ssid" ] && [ "$_ssid" != "$_line" ]; then

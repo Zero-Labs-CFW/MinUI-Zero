@@ -37,9 +37,13 @@ wifi_state() { # prints: up <ip> | joined | down
 	fi
 }
 wifi_ssid() { sed '/^#/d;/^[[:space:]]*$/d' "$1" | head -1 | cut -d: -f1; }
+# Anbernic boards without a radio (bin/board radio; empty on the platforms that have no bin/board): none = no row,
+# missing = the driver loaded and no chip answered (the RG35XX 2024), said in the row so Off stays reachable
+RADIO=$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)
 wifi_row() { # sets WIFI_VALUES WIFI_CURRENT WIFI_DESC
 	if [ -f "$WTXT" ]; then
 		WIFI_VALUES="On|Off"; WIFI_CURRENT=On
+		[ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" = missing ] && { WIFI_DESC="No WiFi chip found on this handheld."; return; }
 		case "$(wifi_state)" in
 			up*)    WIFI_DESC="Connected to \"$(wifi_ssid "$WTXT")\", IP $(wifi_state | cut -d' ' -f2)." ;;
 			joined) WIFI_DESC="Joining \"$(wifi_ssid "$WTXT")\"..." ;;
@@ -108,7 +112,7 @@ while :; do
 	# TrimUI: a dev card on WiFi without wifi.txt gets one first, or it had no row (bin/wifi-adopt.sh; absent elsewhere,
 	# where WiFi comes from wifi.txt alone)
 	[ -f "$SYSTEM_PATH/bin/wifi-adopt.sh" ] && sh "$SYSTEM_PATH/bin/wifi-adopt.sh" 2>/dev/null
-	if [ -f "$WTXT" ] || [ -f "$WOFF" ]; then
+	if { [ -f "$WTXT" ] || [ -f "$WOFF" ]; } && [ "$RADIO" != none ]; then
 		wifi_row
 		set -- "$@" wifi "WiFi" "$WIFI_VALUES" "$WIFI_CURRENT" "$WIFI_DESC"
 	fi

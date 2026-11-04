@@ -1014,7 +1014,11 @@ Open Device Sync on the other device" "$(last_line)"
 	net ap-down >/dev/null 2>&1
 	[ "${ROLE:-}" = join ] && net wifi-off >/dev/null 2>&1
 	ROLE=""
+	# Anbernic boards without a radio (bin/board radio; empty on the platforms that have no bin/board): none is
+	# known before the radio is touched, missing only once radio_up has loaded the driver and no chip answered
+	[ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" = none ] && { tell "This handheld has no WiFi."; exit 0; }
 	radio_up
+	[ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" = missing ] && { tell "No WiFi chip found on this handheld."; exit 0; }
 	# 1) is somebody already hosting? an iw scan takes ~2 s of its own, so two passes is the ~4 s window
 	FOUND=""; i=0
 	# hosted last time: skip the ~10 s opening scan and open the hotspot at once; the partner joined us last

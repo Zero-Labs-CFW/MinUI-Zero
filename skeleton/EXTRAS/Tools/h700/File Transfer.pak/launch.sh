@@ -37,6 +37,11 @@ wifi_set_up() { [ -n "$(wifi_ip)" ] || [ -f "$SDCARD_PATH/wifi.txt" ] || [ -f "$
 need_wifi() {
 	IP=$(wifi_ip)
 	[ -n "$IP" ] && return 0
+	# Anbernic boards without a radio (bin/board radio; empty on the platforms that have no bin/board)
+	case "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" in
+		none) say.elf "This handheld has no WiFi."; return 1 ;;
+		missing) say.elf "No WiFi chip found on this handheld."; return 1 ;;
+	esac
 	if [ -f "$SDCARD_PATH/wifi.txt.off" ] && [ ! -f "$SDCARD_PATH/wifi.txt" ]; then
 		say.elf "WiFi is off.
 

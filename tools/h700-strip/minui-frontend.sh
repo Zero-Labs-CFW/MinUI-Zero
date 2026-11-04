@@ -246,7 +246,9 @@ echo "rfkill: $(for _r in /sys/class/rfkill/rfkill*; do printf '%s=%s ' "$(cat "
 # SSH: dropbear (we ship dropbearmulti; muOS's openssh is stripped), started once below.
 WIFI_TXT=/mnt/mmc/wifi.txt
 
-( if [ -f "$WIFI_TXT" ]; then
+# A board with no radio (bin/board radio: the RG28XX's device config) skips the bring-up and its monitor, which
+# would otherwise re-run a connect that can never work every 90 s for as long as the device is on.
+( if [ -f "$WIFI_TXT" ] && [ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" != none ]; then
 	# wifi.txt: "SSID:password" per line, '#' comments; first network wins. Creds are written to muOS's
 	# config at RUNTIME (never baked into the image — the build wipes them) and consumed by net.sh
 	# connect below. SSID must be BROADCAST: muOS's scan-based SSID_PRESENT + password.sh (normal-length
@@ -271,11 +273,19 @@ WIFI_TXT=/mnt/mmc/wifi.txt
 		# the device offline until the next reboot (seen live 2026-08-10). While wifi.txt is present,
 		# re-run the whole proven connect whenever wlan0 has no IPv4 on two checks in a row (~90s
 		# cadence; a connect takes ~30s, so checks never overlap a run in progress).
-		( _down=0
+		# NO CHIP: a driver that loads with no card ever answering on SDIO (bin/board radio = missing, the RG35XX
+		# 2024 on the Plus row) on three checks in a row (~2 minutes, after at least one re-run) stops the monitor
+		# for this boot: a Plus that loses its card that badly is not recovered by more connects either.
+		( _down=0; _miss=0
 		  while : ; do
 			sleep 45
 			[ -f "$WIFI_TXT" ] || continue
-			if ip -4 -o addr show wlan0 2>/dev/null | grep -q inet; then _down=0; continue; fi
+			if ip -4 -o addr show wlan0 2>/dev/null | grep -q inet; then _down=0; _miss=0; continue; fi
+			if [ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" = missing ]; then _miss=$((_miss+1)); else _miss=0; fi
+			if [ $_miss -ge 3 ]; then
+				echo "wifi monitor: no WiFi chip answered on SDIO, stopping until reboot" >> "$LOG"
+				break
+			fi
 			_down=$((_down+1))
 			if [ $_down -ge 2 ]; then
 				trim_log

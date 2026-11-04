@@ -5,6 +5,11 @@
 #   board ids                     every board id, in table order
 #   board ntypes                  how many screen types the picker cycles (highest type + 1)
 #   board group <n>               the ids of screen type <n>, space separated, in table order
+#   board radio                   yes / none / missing, exit 0 only for yes. none = the installed muOS device config
+#                                 says the board has no radio (the RG28XX). missing = the driver was loaded and no
+#                                 card answered on SDIO: the RG35XX 2024, which boots the Plus row (same boot files,
+#                                 no RTL8821CS; muOS gives it its own device with network 0). Only known after a load,
+#                                 and never while a connect is still running. BOARD_ROOT prefixes every path (tests).
 # <device> defaults to $DEVICE (the muOS board name without "rg35xx-"; the full id works too). An unknown board
 # prints nothing and exits 1, so callers keep their own default.
 T=${BOARDS_TXT:-$(dirname "$0")/../boards.txt}
@@ -13,6 +18,15 @@ case "$1" in
 	ids) awk '$1 !~ /^#/ && NF >= 11 { print $1 }' "$T" 2>/dev/null ;;
 	ntypes) awk '$1 !~ /^#/ && NF >= 11 && $2 + 1 > n { n = $2 + 1 } END { print n + 0 }' "$T" 2>/dev/null ;;
 	group) awk -v t="$2" '$1 !~ /^#/ && NF >= 11 && $2 == t { printf "%s%s", s, $1; s = " " } END { print "" }' "$T" 2>/dev/null ;;
+	radio)
+		R=${BOARD_ROOT:-}; C=$R/opt/muos/device/config
+		[ "$(cat "$C/board/network" 2>/dev/null)" = 0 ] && { echo none; exit 1; }
+		m=$(cat "$C/network/name" 2>/dev/null)
+		if [ ! -d "$R/sys/class/net/wlan0" ] && [ ! -d "$R/sys/bus/mmc/devices/mmc2:0001" ] && [ -n "$m" ] &&
+			grep -qw "^$m" "$R/proc/modules" 2>/dev/null && ! pgrep -f 'muos/script/.*network\.sh' >/dev/null 2>&1; then
+			echo missing; exit 1
+		fi
+		echo yes ;;
 	has)
 		r=$(row "${3-$DEVICE}"); [ -n "$r" ] || exit 1
 		case ",$(echo "$r" | awk '{ print $9 }')," in *",$2,"*) exit 0 ;; *) exit 1 ;; esac ;;
@@ -23,5 +37,5 @@ case "$1" in
 			if (f == "label") { s = $11; for (i = 12; i <= NF; i++) s = s " " $i; print s; exit }
 			for (i = 1; i <= n; i++) if (k[i] == f) { print $i; exit }
 		}' ;;
-	*) echo "usage: board <field>|has <flag>|ids|ntypes|group <n> [<device>]" >&2; exit 2 ;;
+	*) echo "usage: board <field>|has <flag>|ids|ntypes|group <n>|radio [<device>]" >&2; exit 2 ;;
 esac

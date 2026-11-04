@@ -7,6 +7,8 @@ SD="${SDCARD_PATH:?}"
 LOG="${LOGS_PATH:?}/launch.txt"
 
 [ -f "$SD/wifi.txt" ] || exit 0
+# a board with no radio (the RG28XX) has nothing to bring up
+[ "$(sh "$(dirname "$0")/board" radio 2>/dev/null)" = none ] && exit 0
 _line=$(sed '/^#/d;/^[[:space:]]*$/d' "$SD/wifi.txt" | head -1)
 _ssid=${_line%%:*}; _psk=${_line#*:}
 [ -n "$_ssid" ] && [ "$_ssid" != "$_line" ] || exit 0
