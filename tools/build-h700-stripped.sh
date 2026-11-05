@@ -281,6 +281,7 @@ cp "$REPO/tools/h700-strip/card-fsck.sh" "$ASSETS/card-fsck.sh"
 # fastboot.py: no initramfs, so the rootfs takes over the initramfs's jobs) and four muOS boot steps change below.
 cp "$REPO/tools/h700-strip/root-check.sh" "$REPO/tools/h700-strip/udev-bg.awk" "$REPO/tools/h700-strip/mount-fast.awk" "$ASSETS/"
 cp "$REPO/tools/h700-strip/early.sh" "$ASSETS/early.sh"
+cp "$REPO/tools/h700-strip/boot0-slot.sh" "$ASSETS/boot0-slot.sh"
 # USB host, second card and WiFi started after boot (workspace/h700/late-usb: the modules, their build, the vendor kernel config); rebuilt
 # whenever their source or build is newer than the cached .ko
 _lu="$ASSETS/late-usb/zero_late_usb.ko"; [ -f "$ASSETS/late-usb/zero_late_mmc.ko" ] || rm -f "$_lu"   # both modules come from one build
@@ -656,6 +657,12 @@ IT="$R/etc/inittab"
 grep -q "^::sysinit:/bin/mount -o remount,rw /\$" "$IT" || { echo "ERROR: inittab remount line changed"; exit 1; }
 sed -i "s|^::sysinit:/bin/mount -o remount,rw /\$|::sysinit:/opt/minui-zero/root-check.sh\n::sysinit:/bin/mount -o remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /|" "$IT"
 grep -q "^::sysinit:/opt/minui-zero/root-check.sh" "$IT" && grep -q "remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /" "$IT" || { echo "ERROR: inittab root check/remount did not land"; exit 1; }
+# OUR SPL AND DEEP SLEEP (boot0-slot.sh says how): right after the read-write remount, finish a sleep swap a power
+# loss interrupted, then acknowledge a boot through our SPL once the menu is up (background). No-ops on a card
+# without our SPL.
+cp /a/boot0-slot.sh "$R/opt/minui-zero/boot0-slot.sh" && chmod 755 "$R/opt/minui-zero/boot0-slot.sh"
+sed -i "s|^::sysinit:/bin/mount -o remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /\$|&\n::sysinit:/opt/minui-zero/boot0-slot.sh boot\n::sysinit:/bin/busybox setsid /opt/minui-zero/boot0-slot.sh ack|" "$IT"
+grep -q "^::sysinit:/opt/minui-zero/boot0-slot.sh boot\$" "$IT" && grep -q "^::sysinit:/bin/busybox setsid /opt/minui-zero/boot0-slot.sh ack\$" "$IT" || { echo "ERROR: inittab boot0-slot lines did not land"; exit 1; }
 [ -e "$R/dev/console" ] || mknod -m 600 "$R/dev/console" c 5 1
 # MENU FIRST (early.sh says how): inittab runs it after the tmpfs mounts and before the muOS sysinit
 cp /a/early.sh "$R/opt/minui-zero/early.sh"

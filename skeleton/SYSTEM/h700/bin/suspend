@@ -83,6 +83,10 @@ lid_shut() {
 }
 
 before
+# Our SPL (when a card has it) cannot resume from suspend-to-RAM: stock boot0 goes into BROM's first slot for the
+# length of the sleep and ours comes back after the wake (rootfs boot0-slot.sh; a no-op on a card without our SPL).
+# Never fatal: a failed swap leaves stock in place, which only means a slower next boot.
+[ -x /opt/minui-zero/boot0-slot.sh ] && /opt/minui-zero/boot0-slot.sh stock || true
 >&2 echo "Suspending..."
 suspend_mem
 
@@ -118,6 +122,7 @@ fi
 # that order. Backgrounded (as it was), the restore could land after SetVolume and leave the codec at the
 # baseline's 24/63; NextUI h700-rc11 found a concurrent restore also blocks the PCM reopen ~10 s on its
 # kernel (bin/suspend:47-50, 49fd0c1). Costs one alsactl run of wake latency. Runs on a failed suspend too.
+[ -x /opt/minui-zero/boot0-slot.sh ] && /opt/minui-zero/boot0-slot.sh ours || true   # our SPL back (see above)
 alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null || true
 
 # Resume the radios in the background to cut UI latency, ALWAYS, even on a failed suspend.

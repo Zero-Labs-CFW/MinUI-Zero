@@ -234,6 +234,7 @@ def main():
         for src, dst in (('workspace/h700/boards.txt', '.system/h700/boards.txt'),
                          ('skeleton/SYSTEM/h700/bin/board', '.system/h700/bin/board'),
                          ('skeleton/SYSTEM/res/zero-log.sh', '.system/res/zero-log.sh'),
+                         ('skeleton/SYSTEM/h700/bin/suspend', '.system/h700/bin/suspend'),
                          ('tools/h700-strip/minui-frontend.sh', '.system/h700/bin/minui-frontend.sh')):
             got = subprocess.run([mtype, '-i', spec, '::/' + dst], capture_output=True).stdout
             check(dst + ' current', got == open(os.path.join(REPO, src), 'rb').read(), '' if got else 'missing')
@@ -361,6 +362,13 @@ def main():
         check('startup.sh quiet window', su_txt.split('\n')[1].count('zero-menu-frame') == 1)
         check('udev waits for the menu', b'zero-menu-frame' in cat('/opt/muos/script/init/S10udev'))
         check('inittab busybox mounts', '::sysinit:/bin/mount ' not in it and it.count('::sysinit:/bin/busybox mount ') >= 5)
+        # our SPL and deep sleep: the sleep swap and the boot acknowledgment (boot0-slot.sh), right after the remount
+        mode = debugfs_mode(img, off, '/opt/minui-zero/boot0-slot.sh')
+        check('boot0-slot.sh current + executable', cat('/opt/minui-zero/boot0-slot.sh') ==
+              open(os.path.join(REPO, 'tools/h700-strip/boot0-slot.sh'), 'rb').read() and mode is not None and mode & 0o111 == 0o111)
+        check('inittab finishes a sleep swap and acknowledges our SPL',
+              'noauto_da_alloc /\n::sysinit:/opt/minui-zero/boot0-slot.sh boot\n'
+              '::sysinit:/bin/busybox setsid /opt/minui-zero/boot0-slot.sh ack\n' in it)
         check('depmod only when missing', b'only when missing' in cat('/opt/muos/script/device/module.sh'))
         zc = cat('/opt/minui-zero/zero-codec')
         check('zero-codec', zc[:4] == b'\x7fELF' and len(zc) < 16384)
