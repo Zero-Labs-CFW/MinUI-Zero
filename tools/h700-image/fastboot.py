@@ -28,8 +28,10 @@ SELECTOR_GZIP = bytes.fromhex('40f20123')                              # movw r3
 # initcall_blacklist skips three built-in vendor drivers nothing on this image uses: deeplay_encrypt (/dev/deeplayer, a
 # vendor crypto device, 35 ms), vin (camera input, 20 ms), brd (RAM block devices, 12 ms); measured -0.08 s on the H. A
 # kernel without one of them just ignores the name.
+# rootflags=inode_readahead_blks=0: ext4 reads 32 inode-table blocks (128 KB) around every cold inode lookup by
+# default; early boot looks up a few dozen scattered files, so that read 0.7 MB it never used (Plus, 2026-11-05).
 CMDLINE = (b'loglevel=1 rcupdate.rcu_expedited=1 rcupdate.rcu_normal_after_boot=1 '
-           b'initcall_blacklist=deeplay_encrypt_init,vin_init,brd_init')
+           b'initcall_blacklist=deeplay_encrypt_init,vin_init,brd_init rootflags=inode_readahead_blks=0')
 BOOT0_DEBUG = 0x34
 LATE_USB = ('ehci1-controller', 'ohci1-controller', 'ohci2-controller', 'ehci3-controller', 'ohci3-controller')
 LATE_MMC = ('sdmmc@04022000', 'sdmmc@04021000')   # second card slot (sdc2) and WiFi (sdc1); the main card is sdmmc@04020000

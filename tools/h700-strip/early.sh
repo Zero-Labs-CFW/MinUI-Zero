@@ -7,7 +7,13 @@
 # Everything here is the same work startup.sh did, in the same order, just earlier: expand-roms.sh and card-fsck.sh
 # before the mount (both need the card unmounted), the mount with storage.sh's options.
 read -r _zu _ </proc/uptime; echo "$_zu early" >>/dev/shm/zero-boot
-mkdir -p /tmp/muos /run/muos
+mkdir -p /tmp/muos /run/muos /run/zero-bb
+# BUSYBOX FIRST for what early boot runs (boot speed, 2026-11-05): grep is GNU grep and insmod is kmod here, each pulling
+# its own libraries and glibc off the card cold (measured 1.5 MB and 2.4 MB of reads on the Plus); busybox is already in
+# the page cache (it is init). Everything started below, the frontend included, inherits this PATH. mount is NOT
+# swapped: expand-roms.sh mounts with nofail, which busybox mount would hand to vfat as an unknown option.
+for _a in grep insmod; do ln -sf /bin/busybox "/run/zero-bb/$_a"; done
+export PATH="/run/zero-bb:$PATH"
 # LATE CONTROLLERS: the boot package marks some controllers "late" so the kernel skips them at start-up; a module loaded
 # here starts them. Each load is guarded by a marker written (and synced) before insmod and removed after it: a boot that
 # dies while loading leaves the marker, and the next boot skips that module once (removing the marker), so a module that
@@ -27,13 +33,10 @@ late_load() { # <module> <marker name> <log tag>
 # The second card slot and WiFi (zero_late_mmc.ko), at once and in the background: their probes only sleep, and muOS's
 # WiFi load and second card mount come later in its startup (mount-fast.awk waits for the slot).
 late_load /opt/minui-zero/zero_late_mmc.ko late-mmc-trying late-mmc </dev/null >/dev/null 2>&1 &
-# The codec state, restored now in the background so it is done (and alsa-lib is in the page cache) by the time the
-# frontend's own blocking restore runs before minui starts: that one took 0.23 s on the H cold and ~0 warm.
-alsactl -U -f /opt/muos/device/control/asound.state restore </dev/null >/dev/null 2>&1 &
 [ -x /opt/minui-zero/expand-roms.sh ] && /opt/minui-zero/expand-roms.sh
 [ -x /opt/minui-zero/card-fsck.sh ] && /opt/minui-zero/card-fsck.sh
 mkdir -p /mnt/mmc
-grep -q " /mnt/mmc " /proc/mounts || mount -t vfat -o rw,utf8,noatime,nofail /dev/mmcblk0p6 /mnt/mmc 2>/dev/null || exit 0
+grep -q " /mnt/mmc " /proc/mounts || busybox mount -t vfat -o rw,utf8,noatime /dev/mmcblk0p6 /mnt/mmc 2>/dev/null || exit 0
 read -r _zu _ </proc/uptime; echo "$_zu mounted" >>/dev/shm/zero-boot
 : >/run/zero-early
 read -r _zu _ </proc/uptime; echo "$_zu frontend" >>/dev/shm/zero-boot

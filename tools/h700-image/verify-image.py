@@ -257,6 +257,12 @@ def main():
             bad = z.testzip()
             fe = '.system/h700/bin/minui-frontend.sh'
             fe_ok = fe in names and z.read(fe) == open(os.path.join(REPO, 'tools/h700-strip/minui-frontend.sh'), 'rb').read()
+            # the lean font library the menu loads first (sdl2_ttf/build.sh): a broken one is a menu that never starts
+            tt = '.system/h700/lib/libSDL2_ttf-2.0.so.0'
+            ttb = z.read(tt) if tt in names else b''
+            import elfcheck
+            ttf_ok = (elfcheck.sound(ttb, (b'libSDL2_ttf-2.0.so.0', b'TTF_RenderUTF8_Blended')) and b'libharfbuzz' not in ttb and
+                      400000 < len(ttb) < 2000000)
             mr = '.system/h700/min-rootfs'
             if mr in names and z.read(mr).strip().isdigit():
                 zip_min_rootfs = int(z.read(mr).strip())
@@ -268,6 +274,7 @@ def main():
         check('update zip complete', not missing, ', '.join(missing))
         check('update zip has no picked model', '.system/h700/board' not in names)
         check('update zip frontend current', fe_ok)
+        check('update zip lean SDL2_ttf', ttf_ok)
         check('update zip states its min-rootfs', zip_min_rootfs is not None)
     elif opts.get('--release'):
         check('update zip present (%s)' % os.path.basename(zp), False)
@@ -327,7 +334,7 @@ def main():
         # steps taken off the boot path must stay off it
         it = cat('/etc/inittab').decode(errors='replace')
         check('inittab checks root then remounts it with options',
-              '::sysinit:/opt/minui-zero/root-check.sh\n::sysinit:/bin/mount -o remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /' in it)
+              '::sysinit:/opt/minui-zero/root-check.sh\n::sysinit:/bin/busybox mount -o remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /' in it)
         for src, dst in (('tools/h700-strip/root-check.sh', '/opt/minui-zero/root-check.sh'),):
             mode = debugfs_mode(img, off, dst)
             check('root-check.sh current + executable', cat(dst) == open(os.path.join(REPO, src), 'rb').read() and
@@ -349,7 +356,14 @@ def main():
         check('inittab runs early.sh before the muOS sysinit',
               '::sysinit:/opt/minui-zero/early.sh\n::sysinit:/opt/muos/script/init/sysinit' in it)
         su_txt = cat('/opt/muos/script/system/startup.sh').decode(errors='replace')
-        check('startup.sh defers to early.sh', su_txt.count('zero-early') == 3 and 'the frontend owns the governor' in su_txt)
+        check('startup.sh defers to early.sh', su_txt.count('zero-early') == 4 and 'the frontend owns the governor' in su_txt)
+        # quiet window: startup.sh and udev wait for the menu's first frame; busybox mounts; no per-boot depmod
+        check('startup.sh quiet window', su_txt.split('\n')[1].count('zero-menu-frame') == 1)
+        check('udev waits for the menu', b'zero-menu-frame' in cat('/opt/muos/script/init/S10udev'))
+        check('inittab busybox mounts', '::sysinit:/bin/mount ' not in it and it.count('::sysinit:/bin/busybox mount ') >= 5)
+        check('depmod only when missing', b'only when missing' in cat('/opt/muos/script/device/module.sh'))
+        zc = cat('/opt/minui-zero/zero-codec')
+        check('zero-codec', zc[:4] == b'\x7fELF' and len(zc) < 16384)
         # the late-start modules: their symbol CRCs must be every board kernel's own, or insmod fails every boot and the
         # controllers the boot package held back stay off (USB host; second card + WiFi) (Codex)
         import glob as _g, symcrc

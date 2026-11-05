@@ -1144,6 +1144,33 @@ static void h700_rot_copy(const uint16_t* src, int spitch, int W, int H, int cx,
 	}
 }
 
+// Dev-card screenshots (api.c GFX_maybeScreenshot: L2+R2+SELECT or touch /tmp/take_screenshot): vid.screen is the
+// in-RAM surface every UI draw lands in, so a copy of it is the frame on screen (games present through the renderer
+// path and are not captured here).
+SDL_Surface* PLAT_captureRendererToSurface(void) {
+	return vid.screen ? SDL_ConvertSurface(vid.screen, vid.screen->format, 0) : NULL;
+}
+
+// FIRST FRAME ON SCREEN (boot speed, 2026-11-05): the first flip of the process marks the boot log (/dev/shm/zero-boot,
+// "menu-frame", the real time the menu became visible) and drops /run/zero-menu-frame, which holds muOS's own startup
+// back until the menu is up (early.sh), so its module loads and scans do not compete with the menu for the card.
+static void first_frame_mark(void) {
+	static int done;
+	if (done) return;
+	done = 1;
+	if (access("/run/zero-menu-frame", F_OK) == 0) return;	// once per boot: a relaunch, a game or a Tool is not news
+	char up[32] = {0}, line[48];
+	int fd = open("/proc/uptime", O_RDONLY);
+	if (fd >= 0) { if (read(fd, up, sizeof(up) - 1) < 0) up[0] = 0; close(fd); }
+	char* sp = strchr(up, ' ');
+	if (sp) *sp = 0;
+	int n = snprintf(line, sizeof(line), "%s menu-frame\n", up[0] ? up : "0");
+	fd = open("/dev/shm/zero-boot", O_WRONLY | O_APPEND | O_CREAT, 0644);
+	if (fd >= 0) { if (write(fd, line, n) < 0) {} close(fd); }
+	fd = open("/run/zero-menu-frame", O_WRONLY | O_CREAT, 0644);
+	if (fd >= 0) close(fd);
+}
+
 void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	int fullframe = vid.blit != NULL; // renderer path = the game redraws its whole rect every frame
 	// MENU CLOSED (UI frame -> game frame). Every page currently holds full-surface menu chrome,
@@ -1249,6 +1276,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 		// accumulates every draw, so it always holds the complete UI image; the "partial UI redraw"
 		// rationale never applied here. Game frames get the letterbox scrub instead.
 		vid.blit = NULL;
+		first_frame_mark();
 		return;
 	}
 	fb_blit565(vid.page);
@@ -1266,6 +1294,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			       vid.fbmmap + (size_t)shown * vid.page_bytes, vid.page_bytes);
 	}
 	vid.blit = NULL;
+	first_frame_mark();
 }
 
 ///////////////////////////////

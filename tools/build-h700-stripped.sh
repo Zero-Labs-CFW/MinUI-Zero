@@ -288,6 +288,16 @@ if [ ! -f "$_lu" ] || [ -n "$(find "$REPO/workspace/h700/late-usb" "$REPO/tools/
 	sh "$REPO/workspace/h700/late-usb/build.sh" "$ASSETS/late-usb" "$ASSETS/parts/p4-kernel.img.gz" || { echo "ERROR: late-USB module build"; exit 1; }
 fi
 cp "$_lu" "$ASSETS/zero_late_usb.ko"; cp "$ASSETS/late-usb/zero_late_mmc.ko" "$ASSETS/zero_late_mmc.ko"
+# zero-codec (workspace/h700/tools/zero-codec.c): a few KB, links nothing; rebuilt every image
+docker run --rm --platform linux/amd64 -v "$REPO/workspace/h700/tools:/w" -v "$ASSETS:/a" tg5040-toolchain bash -c \
+	"/opt/aarch64-linux-gnu/bin/aarch64-linux-gnu-gcc -Os -static -nostdlib -fno-stack-protector -fno-builtin -Wall -Werror -o /a/zero-codec /w/zero-codec.c && /opt/aarch64-linux-gnu/bin/aarch64-linux-gnu-strip /a/zero-codec" ||
+	{ echo "ERROR: zero-codec build"; exit 1; }
+# lean libSDL2_ttf for the card payload (workspace/h700/sdl2_ttf/build.sh says why), cached until its script changes
+_tt="$ASSETS/sdl2_ttf/libSDL2_ttf-2.0.so.0"
+_tt_ok() { [ -f "$_tt" ] && python3 "$REPO/tools/h700-image/elfcheck.py" "$_tt" libSDL2_ttf-2.0.so.0 TTF_RenderUTF8_Blended; }
+if ! _tt_ok || [ "$REPO/workspace/h700/sdl2_ttf/build.sh" -nt "$_tt" ]; then
+	sh "$REPO/workspace/h700/sdl2_ttf/build.sh" "$ASSETS/sdl2_ttf" || { echo "ERROR: lean SDL2_ttf build"; exit 1; }
+fi
 rm -rf "$ASSETS/e2fsck"; mkdir -p "$ASSETS/e2fsck"
 python3 - "$ASSETS/parts/p4-kernel.img.gz" "$ASSETS/e2fsck" "$REPO" <<"E2PY" || { echo "ERROR: cannot take e2fsck from the stock initramfs"; exit 1; }
 import gzip, os, sys
@@ -535,6 +545,13 @@ sed -i "s|^\[ -x /opt/minui-zero/card-fsck.sh \] \&\& /opt/minui-zero/card-fsck.
 sed -i "s|^sh /opt/minui-zero/minui-frontend.sh \&\$|[ -e /run/zero-early ] \|\| sh /opt/minui-zero/minui-frontend.sh \&|" "$SU"
 sed -i "s|^echo \"performance\" >\"\$GOVERNOR\"\$|true # MinUI Zero: the frontend owns the governor (schedutil)|" "$SU"
 [ "$(grep -c "zero-early" "$SU")" = 3 ] && grep -q "the frontend owns the governor" "$SU" || { echo "ERROR: startup.sh menu-first edits did not all land"; exit 1; }
+# QUIET WINDOW (2026-11-05): on a menu-first boot all of startup.sh waits until the menu is on screen (platform.c drops
+# /run/zero-menu-frame), 3 s at most. The menu needs nothing from it (early.sh mounted the card, the frontend restores
+# the codec and owns the governor, input is evdev), while its module loads, mounts and scans read ~10 MB off the card
+# that otherwise compete with the menu for it (Plus, block_dump: the first frame moved from 2.99 s to 2.34 s with the
+# frontend WiFi gate). Line 2, right after the shebang, before anything else runs.
+sed -i "2i [ -e /run/zero-early ] \&\& { _qw=0; until [ -e /run/zero-menu-frame ] || [ \$_qw -ge 300 ]; do sleep 0.01; _qw=\$((_qw + 1)); done; read -r _zu _ </proc/uptime; echo \"\$_zu quiet-end\" >>/dev/shm/zero-boot; }   # MinUI Zero quiet window" "$SU"
+[ "$(sed -n 2p "$SU" | grep -c "zero-menu-frame")" = 1 ] || { echo "ERROR: startup.sh quiet window did not land"; exit 1; }
 # halt.sh BUG (muOS, found 2026-11-04): it appends its -o omit list to its own arguments, so killall5 got the mode word
 # ("killall5 -TERM reboot": bad option) and killed nothing, umount -ar found / busy, and every reboot through it left the
 # root journal dirty: half of the next boots replayed it (~80 ms on the H, measured). Take the mode off the list first.
@@ -584,6 +601,11 @@ sed -i "s|^\([[:space:]]*\)\[ \"\$HAS_NETWORK\" -eq 1 \] && modprobe -q \"\$NET_
 grep -q "modprobe -q \"\$NET_NAME\"\$" "$MS" && { echo "ERROR: module.sh still loads the WiFi driver at boot (anchor changed)"; exit 1; }
 grep -q "WiFi driver not loaded at boot" "$MS" || { echo "ERROR: WiFi boot-load removal did not apply (module.sh anchor changed)"; exit 1; }
 echo "  WiFi driver boot load dropped from module.sh (loads on demand)"
+# depmod -a ran at every boot (3.4 MB of cold reads on the Plus, 2026-11-05) to rebuild a modules.dep that ships in the
+# rootfs and never changes; only build it when it is missing.
+sed -i "s|^depmod -a 2>/dev/null\$|[ -f /lib/modules/\$(uname -r)/modules.dep ] \|\| depmod -a 2>/dev/null   # MinUI Zero: only when missing|" "$MS"
+grep -q "only when missing" "$MS" || { echo "ERROR: module.sh depmod guard did not land"; exit 1; }
+[ -n "$(ls "$R"/lib/modules/*/modules.dep 2>/dev/null)" ] || { echo "ERROR: rootfs has no modules.dep"; exit 1; }
 # GPU CEILING (2026-09-28). The H, Pro, SP and 40XX trees add a 756 MHz at 1.000 V GPU step past the Plus tree
 # top of 648 MHz at 0.96 V (stock trees top at 696), and nothing capped it: any GL client (the Files tool, a
 # port) could drive mali devfreq there. Same rule as the 1512 MHz CPU cap. Newer muOS (d6fe9378) treats
@@ -642,6 +664,13 @@ chmod +x "$R/opt/minui-zero/early.sh"
 grep -q "^::sysinit:/opt/muos/script/init/sysinit\$" "$IT" || { echo "ERROR: inittab muOS sysinit line changed"; exit 1; }
 sed -i "s|^::sysinit:/opt/muos/script/init/sysinit\$|::sysinit:/opt/minui-zero/early.sh\n::sysinit:/opt/muos/script/init/sysinit|" "$IT"
 grep -q "^::sysinit:/opt/minui-zero/early.sh" "$IT" || { echo "ERROR: inittab early.sh did not land"; exit 1; }
+# BUSYBOX MOUNT for the boot mounts (2026-11-05): /bin/mount is util-linux here, and its first run (proc, at the very
+# start of init) read 2.4 MB of libraries (libmount, libblkid, glibc) cold off the card, measured on the Plus with
+# block_dump; busybox is already in memory as init.
+sed -i "s|^::sysinit:/bin/mount |::sysinit:/bin/busybox mount |" "$IT"
+! grep -q "^::sysinit:/bin/mount " "$IT" && [ "$(grep -c "^::sysinit:/bin/busybox mount " "$IT")" -ge 5 ] || { echo "ERROR: inittab busybox mounts did not land"; exit 1; }
+# zero-codec (workspace/h700/tools/zero-codec.c): the codec restore without alsa-lib, see minui-frontend.sh codec_restore
+cp /a/zero-codec "$R/opt/minui-zero/zero-codec" && chmod 755 "$R/opt/minui-zero/zero-codec"
 [ -e "$R/dev/null" ] || mknod -m 666 "$R/dev/null" c 1 3
 # udev off the boot path (udev-bg.awk says why), dbus not started at all (nothing on this image talks to it: wpa_supplicant
 # runs without -u and pipewire is gone; func.sh only exports its address), and the main card mounted directly with the
@@ -744,10 +773,24 @@ cat > "$R/opt/muos/script/system/pipewire.sh" <<"PWSH"
 #!/bin/sh
 # MinUI Zero: pipewire removed; keep only the codec init startup.sh needs at boot.
 case "$1" in
-start) alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null; : >/run/zero-codec-ready ;;   # minui-frontend.sh wait_for_system
+start)
+	# the frontend restored the codec and applied the user volume (it drops zero-codec-done): nothing to do. Otherwise
+	# retry the restore and, when it works, put the saved volume back over the baseline (minui-frontend.sh
+	# apply_volume, UI 0-20 -> raw 0-63). zero-codec-ready (minui-frontend.sh wait_for_system) only on success.
+	if [ -e /run/zero-codec-done ]; then
+		: >/run/zero-codec-ready
+	elif alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null; then
+		_v=$(cat /mnt/mmc/.userdata/h700/volume 2>/dev/null)
+		case "$_v" in ""|*[!0-9]*) ;; *) [ "$_v" -gt 20 ] && _v=20
+			/opt/minui-zero/zero-codec set 0 "digital volume" $((_v * 63 / 20)) 2>/dev/null ||
+				amixer -c 0 sset "digital volume" $((_v * 63 / 20)) >/dev/null 2>&1 ;; esac
+		: >/run/zero-codec-ready
+	fi
+	;;
 esac
 exit 0
 PWSH
+sh -n "$R/opt/muos/script/system/pipewire.sh" || { echo "ERROR: generated pipewire.sh does not parse"; exit 1; }
 chmod +x "$R/opt/muos/script/system/pipewire.sh"
 
 # RELEASE GATE ON THE ARTIFACT, not on the inputs. The previous gate checked only the key we copy
@@ -820,6 +863,7 @@ cp "$REPO/workspace/h700/tools/build/nightlayer" "$STAGE/.system/h700/bin/" || \
 cp "$REPO/workspace/h700/tools/build/bootclock" "$STAGE/.system/h700/bin/" || \
 	{ echo "ERROR: bootclock missing for h700, run 'make h700-build' first"; exit 1; }
 cp "$REPO/workspace/h700/libmsettings/libmsettings.so"  "$STAGE/.system/h700/lib/"
+cp "$ASSETS/sdl2_ttf/libSDL2_ttf-2.0.so.0" "$STAGE/.system/h700/lib/"   # lean font library, first on the menu library path (sdl2_ttf/build.sh)
 # card-side libs (2026-09-17): libnl-tiny.so for hostapd (both lifted from the TrimUI firmware,
 # same aarch64 glibc; Device Sync hosts its hotspot with hostapd, wpa_supplicant AP mode dies
 # on the RTL8821CS when a client associates)

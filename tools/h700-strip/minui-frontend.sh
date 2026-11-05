@@ -220,7 +220,21 @@ rm -f "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._* 2>/dev/null
 # races minui's InitSettings (which reads the codec volume ONCE at launch). Losing that race left
 # digital volume at the power-on 0 = dead silent (found live 2026-08-06). Doing it here, blocking,
 # guarantees the codec is unmuted and at its 24 baseline before minui ever reads it.
-alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null
+# zero-codec (workspace/h700/tools/zero-codec.c, boot speed 2026-11-05) replays a snapshot of exactly what alsactl sets,
+# through /dev/snd directly: alsactl and amixer cost ~2.6 MB of cold card reads (alsa-lib, its config tree) on the
+# menu's critical path. No snapshot yet, or a driver change (zero-codec exits nonzero when a control's name no longer
+# matches): alsactl as before, then a fresh snapshot.
+ZC=/opt/minui-zero/zero-codec
+CODEC_SNAP=/opt/minui-zero/codec.snap
+# /run/zero-codec-done tells muOS's pipewire.sh (after the menu is up) that the codec is restored and the user volume
+# applied, so it must not restore the baseline over it; a failed restore leaves no marker and pipewire.sh tries again.
+codec_restore() {
+	[ -x "$ZC" ] && [ -f "$CODEC_SNAP" ] && "$ZC" restore "$CODEC_SNAP" && { : >/run/zero-codec-done; return 0; }
+	alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null || return 0   # never snapshot a failed restore
+	: >/run/zero-codec-done
+	[ -x "$ZC" ] && "$ZC" save "$CODEC_SNAP.new" && mv "$CODEC_SNAP.new" "$CODEC_SNAP"
+}
+codec_restore
 
 # Re-assert the USER's volume over that baseline, and again at every process boundary below.
 # Why this exists: the only muter is PWR_enterSleep (api.c SetRawVolume(MUTE_VOLUME_RAW) -> raw 0),
@@ -236,10 +250,11 @@ apply_volume() {
 	_ui=$(cat "$VOL_FILE" 2>/dev/null)
 	case "$_ui" in ''|*[!0-9]*) return 0 ;; esac   # ignore a garbage/partial file
 	[ "$_ui" -gt 20 ] && _ui=20
-	amixer -c 0 sset 'digital volume' $(( _ui * 63 / 20 )) >/dev/null 2>&1   # UI 0-20 -> raw 0-63
+	# UI 0-20 -> raw 0-63
+	{ [ -x "$ZC" ] && "$ZC" set 0 'digital volume' $(( _ui * 63 / 20 )); } || amixer -c 0 sset 'digital volume' $(( _ui * 63 / 20 )) >/dev/null 2>&1
 }
 apply_volume
-echo "audio: digital volume $(amixer -c 0 sget 'digital volume' 2>/dev/null | grep -oE '[0-9]+ \[' | tr -d ' [')" >> "$LOG"
+echo "audio: codec restored ($([ -f "$CODEC_SNAP" ] && echo snapshot || echo alsactl)), volume file $(cat "$VOL_FILE" 2>/dev/null)" >> "$LOG"
 
 # THE THESIS: own the governor. schedutil + our minui/minarch write the ceiling on top.
 echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
@@ -282,7 +297,10 @@ WIFI_TXT=/mnt/mmc/wifi.txt
 
 # A board with no radio (bin/board radio: the RG28XX's device config) skips the bring-up and its monitor, which
 # would otherwise re-run a connect that can never work every 90 s for as long as the device is on.
-( if [ -f "$WIFI_TXT" ] && [ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" != none ]; then
+( # quiet window (boot speed, 2026-11-05): on a menu-first boot the driver load (2.7 MB from the card) waits until the
+  # menu is on screen (platform.c drops /run/zero-menu-frame), 3 s at most
+  [ -e /run/zero-early ] && { _qw=0; until [ -e /run/zero-menu-frame ] || [ $_qw -ge 300 ]; do sleep 0.01; _qw=$((_qw + 1)); done; }
+  if [ -f "$WIFI_TXT" ] && [ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" != none ]; then
 	# wifi.txt: "SSID:password" per line, '#' comments; first network wins. Creds are written to muOS's
 	# config at RUNTIME (never baked into the image — the build wipes them) and consumed by net.sh
 	# connect below. SSID must be BROADCAST: muOS's scan-based SSID_PRESENT + password.sh (normal-length
@@ -553,6 +571,7 @@ if [ -f "$AUTO_RESUME" ]; then
 		rm -f "$AUTO_RESUME"; sync            # consume it FIRST: never resume-loop on a bad entry
 		echo "boot-to-game: $_tag <- $_rel" >> "$LOG"
 		echo 9 > /tmp/resume_slot.txt      # AUTO_RESUME_SLOT, read by minarch
+		: >/run/zero-menu-frame            # no menu this boot: release the quiet window now, the game needs startup.sh
 		wait_for_system
 		apply_volume
 		zero_rotate_prev_log "$_pak"
