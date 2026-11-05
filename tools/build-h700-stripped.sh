@@ -1018,6 +1018,12 @@ rm -f "$IMG"
 # Every board's chain, the Plus included, comes from bootchain.py above (poll-interval and the POWER-hold
 # cut, 2026-09-28). No fallback to the unpatched part: a chain that skipped the patches must not ship.
 [ -n "$BUILT_RAW" ] && [ -f "$BUILT_RAW" ] || { echo "ERROR: no patched boot chain for $DEVICE (bootchain.py did not run)"; exit 1; }
+# Single-board images boot their card's own chain for good (no picker), so it carries the fast forms the picker installs
+# on the one image (fastboot.py; the gzip kernel below too). Without them a dev image measured the stock chain.
+if [ "$DEVICE" != all ]; then
+	python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import fastboot; d = open(sys.argv[2], "rb").read(); open(sys.argv[2], "wb").write(fastboot.chain(d))' \
+		"$REPO/tools/h700-image" "$BUILT_RAW" || { echo "ERROR: fast boot chain"; exit 1; }
+fi
 cp "$BUILT_RAW" "$IMG"
 rm -f "$BUILT_RAW"   # rebuilt from the pinned assets every time: scratch once copied
 # PER-DEVICE PARTS: parts-<device>/<file> overrides the shared part. Which boards carry their own kernel and
@@ -1032,7 +1038,12 @@ unz() { gunzip -c "$1" > "$OUT_DIR/.part.tmp"; }
 unz "$(part p2-boot.img.gz)";   dd if="$OUT_DIR/.part.tmp" of="$IMG" bs=512 seek=90112  conv=notrunc status=none
 unz "$(part p3-env.img.gz)";    dd if="$OUT_DIR/.part.tmp" of="$IMG" bs=512 seek=155648 conv=notrunc status=none
 BOOTIMG_BYTES=$(gunzip -c "$(part p4-kernel.img.gz)" | head -c 48 | python3 -c 'import sys,struct;d=sys.stdin.buffer.read(48);k,_,r=struct.unpack("<III",d[8:20]);pg=struct.unpack("<I",d[36:40])[0];print(pg*(1+(k+pg-1)//pg+(r+pg-1)//pg))')
-unz "$(part p4-kernel.img.gz)"; head -c "$BOOTIMG_BYTES" "$OUT_DIR/.part.tmp" | dd of="$IMG" bs=512 seek=188416 conv=notrunc status=none
+unz "$(part p4-kernel.img.gz)"; head -c "$BOOTIMG_BYTES" "$OUT_DIR/.part.tmp" > "$OUT_DIR/.p4.tmp"
+if [ "$DEVICE" != all ]; then   # the fast kernel, as for the chain above
+	python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import fastboot; d = open(sys.argv[2], "rb").read(); open(sys.argv[2], "wb").write(fastboot.bootimg(d))' \
+		"$REPO/tools/h700-image" "$OUT_DIR/.p4.tmp" || { echo "ERROR: fast kernel"; exit 1; }
+fi
+dd if="$OUT_DIR/.p4.tmp" of="$IMG" bs=512 seek=188416 conv=notrunc status=none; rm -f "$OUT_DIR/.p4.tmp"
 dd if="$OUT_DIR/p5.img" of="$IMG" bs=512 seek=$P5_FIRST conv=notrunc status=none
 dd if="$OUT_DIR/p6.img" of="$IMG" bs=512 seek=$P6_FIRST conv=notrunc status=none
 python3 "$REPO/tools/h700-image/gpt.py" "$IMG" $TOTAL $P5_LAST $P6_FIRST $P6_LAST

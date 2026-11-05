@@ -171,6 +171,25 @@ def bootimg(orig):
     return bytes(head) + packed + bytes(pg(len(packed)) - len(packed)) + rd + bytes(pg(len(rd)) - len(rd))
 
 
+CHAIN_PKG_OFFS, CHAIN_PKG_LEN, CHAIN_BOOT0_OFFS = (12582912, 16793600), 1310720, (8192, 262144)
+
+
+def chain(raw):
+    """The fast forms in a card's first 36 MiB, for single-board images: every boot package copy there (stock cards carry
+    one, at 32800) and both boot0 copies. The one image keeps the stock chain on its card and the picker installs the
+    chosen board's fast files instead, so single-board dev images booted the slow stock kernel chain until 2026-11-05."""
+    r = bytearray(raw)
+    n = 0
+    for o in CHAIN_PKG_OFFS:
+        if r[o:o + 13] == b'sunxi-package':
+            r[o:o + CHAIN_PKG_LEN] = package(bytes(r[o:o + CHAIN_PKG_LEN]))
+            n += 1
+    assert n, 'no boot package in the chain'
+    for o in CHAIN_BOOT0_OFFS:
+        r[o:o + 65536] = boot0(bytes(r[o:o + 65536]))
+    return bytes(r)
+
+
 def is_fast(d):
     """True for a boot image this module made (gzip kernel): the stager and verifier never transform one twice."""
     return d[:8] == b'ANDROID!' and d[2048:2050] == b'\x1f\x8b'

@@ -20,6 +20,7 @@ import filecmp, gzip, io, os, shutil, struct, subprocess, sys, tarfile, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from oneimage import bootimg_len, BOARDS, LPDDR3   # the p4 trim and the board table, shared with the stager
+import fastboot   # single-board images carry the fast chain and kernel (build-h700-stripped.sh)
 REPO = os.path.dirname(os.path.dirname(HERE))
 RAW36 = 36 << 20
 BOOT0_OFFS = (8192, 262144)
@@ -87,7 +88,7 @@ def expected_chain(assets, device, tmp):
         b = open(b0, 'rb').read()
         for off in BOOT0_OFFS:
             chain[off:off + len(b)] = b
-    return bytes(chain)
+    return bytes(chain) if device == 'all' else fastboot.chain(bytes(chain))
 
 
 def debugfs(img, off, path):
@@ -218,6 +219,8 @@ def main():
                 data = g.read()
             if name.startswith('p4'):   # the build writes only the Android boot image's own length
                 data = data[:bootimg_len(data)]
+                if device != 'all':     # fast form on single-board images
+                    data = fastboot.bootimg(data)
             f.seek(seek * SECTOR)
             check(name.split('.')[0] + ' matches ' + os.path.relpath(part(assets, device, name), assets),
                   f.read(len(data)) == data)
