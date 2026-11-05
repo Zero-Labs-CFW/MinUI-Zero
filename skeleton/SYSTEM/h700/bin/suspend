@@ -121,9 +121,15 @@ fi
 # returns: PWR_exitSleep then reopens the PCM and its SetVolume(GetVolume()) re-applies the user's level, in
 # that order. Backgrounded (as it was), the restore could land after SetVolume and leave the codec at the
 # baseline's 24/63; NextUI h700-rc11 found a concurrent restore also blocks the PCM reopen ~10 s on its
-# kernel (bin/suspend:47-50, 49fd0c1). Costs one alsactl run of wake latency. Runs on a failed suspend too.
+# kernel (bin/suspend:47-50, 49fd0c1). Runs on a failed suspend too. The frontend's snapshot when it is there (no
+# alsactl load, and "tx hub mode" stays Off: that switch was the speaker pop, see minui-frontend.sh codec_restore),
+# else alsactl with the hub turned back Off.
 [ -x /opt/minui-zero/boot0-slot.sh ] && /opt/minui-zero/boot0-slot.sh ours || true   # our SPL back (see above)
-alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null || true
+_zc=/opt/minui-zero/zero-codec
+if ! { [ -x $_zc ] && [ -f /opt/minui-zero/codec.snap ] && $_zc restore /opt/minui-zero/codec.snap "tx hub mode"; }; then
+	alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null || true
+	[ -x $_zc ] && $_zc set 0 "tx hub mode" 0 2>/dev/null || true
+fi
 
 # Resume the radios in the background to cut UI latency, ALWAYS, even on a failed suspend.
 ( after & )

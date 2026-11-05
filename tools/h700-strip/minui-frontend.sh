@@ -228,9 +228,15 @@ ZC=/opt/minui-zero/zero-codec
 CODEC_SNAP=/opt/minui-zero/codec.snap
 # /run/zero-codec-done tells muOS's pipewire.sh (after the menu is up) that the codec is restored and the user volume
 # applied, so it must not restore the baseline over it; a failed restore leaves no marker and pipewire.sh tries again.
+# "tx hub mode" stays Off: muOS's asound.state turns it On, and that one switch was the speaker pop at every power-on
+# (when the restore set it) and every power-off (it was still on when the rails dropped). Found 2026-11-05 by moving
+# each restore step seconds apart while Dan listened; with it Off both pops are gone and game sound works (direct ALSA
+# does not use the hub; muOS's pipewire setup did). The snapshot never replays it; the first-boot alsactl path turns it
+# back Off before saving. A rootfs zero-codec too old for the skip list fails the fast path and alsactl runs as before.
 codec_restore() {
-	[ -x "$ZC" ] && [ -f "$CODEC_SNAP" ] && "$ZC" restore "$CODEC_SNAP" && { : >/run/zero-codec-done; return 0; }
+	[ -x "$ZC" ] && [ -f "$CODEC_SNAP" ] && "$ZC" restore "$CODEC_SNAP" "tx hub mode" && { : >/run/zero-codec-done; return 0; }
 	alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null || return 0   # never snapshot a failed restore
+	[ -x "$ZC" ] && "$ZC" set 0 "tx hub mode" 0
 	: >/run/zero-codec-done
 	[ -x "$ZC" ] && "$ZC" save "$CODEC_SNAP.new" && mv "$CODEC_SNAP.new" "$CODEC_SNAP"
 }

@@ -3,7 +3,8 @@
 // alsactl restore costs ~2.6 MB of cold card reads at boot (alsa-lib, its config tree, glibc), on the menu's critical
 // path. This tool talks to /dev/snd/controlC* directly and links nothing (raw syscalls), so it is a few KB:
 //   zero-codec save FILE     every readable+writable control of every card, by numid with its name
-//   zero-codec restore FILE  writes them back; a control whose name no longer matches its numid aborts with exit 2
+//   zero-codec restore FILE [SKIP...]  writes them back, except the controls named SKIP; a control whose name no
+//                            longer matches its numid aborts with exit 2
 //                            (driver or kernel changed: the caller falls back to alsactl and saves again)
 // The saved file is taken right after a real alsactl restore, so it holds exactly the state alsactl would set.
 #include <linux/ioctl.h>
@@ -104,7 +105,7 @@ static int do_save(const char *file) {
 	return put == want ? 0 : 1;
 }
 
-static int do_restore(const char *file) {
+static int do_restore(const char *file, char **skip, int nskip) {
 	long in = sc(SYS_openat, -100, (long)file, O_RDONLY, 0);
 	if (in < 0) return 1;
 	long got = 0;
@@ -133,13 +134,18 @@ static int do_restore(const char *file) {
 		if (sc(SYS_ioctl, fd, SNDRV_CTL_IOCTL_ELEM_INFO, (long)&info, 0) < 0 ||
 		    scmp(info.id.name, r->v.id.name, sizeof(info.id.name)) || info.id.index != r->v.id.index)
 			{ rc = 2; break; }
+		int skipped = 0;
+		for (int k = 0; k < nskip; k++)
+			if (!scmp(r->v.id.name, (const unsigned char *)skip[k], sizeof(r->v.id.name))) skipped = 1;
+		if (skipped) continue;
 		if (sc(SYS_ioctl, fd, SNDRV_CTL_IOCTL_ELEM_WRITE, (long)&r->v, 0) < 0) rc = 1;
 	}
 	for (int c = 0; c < MAX_CARDS; c++) if (fds[c] >= 0) sc(SYS_close, fds[c], 0, 0, 0);
 	return rc;
 }
 
-/* set CARD NAME VALUE: an integer control, every channel (the frontend's apply_volume: "digital volume" on card 0) */
+/* set CARD NAME VALUE: an integer or switch control, every channel (the frontend's apply_volume: "digital volume" on
+ * card 0; the speaker path switches at boot, see minui-frontend.sh codec_restore) */
 static int do_set(const char *card_s, const char *name, const char *val_s) {
 	unsigned int card = card_s[0] - '0';
 	long val = 0;
@@ -152,13 +158,25 @@ static int do_set(const char *card_s, const char *name, const char *val_s) {
 	info.id.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
 	for (int i = 0; name[i] && i < (int)sizeof(info.id.name) - 1; i++) info.id.name[i] = name[i];
 	int rc = 1;
-	if (sc(SYS_ioctl, fd, SNDRV_CTL_IOCTL_ELEM_INFO, (long)&info, 0) >= 0 && info.type == SNDRV_CTL_ELEM_TYPE_INTEGER) {
+	if (sc(SYS_ioctl, fd, SNDRV_CTL_IOCTL_ELEM_INFO, (long)&info, 0) >= 0 &&
+	    (info.type == SNDRV_CTL_ELEM_TYPE_INTEGER || info.type == SNDRV_CTL_ELEM_TYPE_BOOLEAN ||
+	     info.type == SNDRV_CTL_ELEM_TYPE_ENUMERATED)) {
 		struct snd_ctl_elem_value v;
 		mset(&v, 0, sizeof(v));
 		v.id = info.id;
-		if (val < info.value.integer.min) val = info.value.integer.min;
-		if (val > info.value.integer.max) val = info.value.integer.max;
-		for (unsigned int c = 0; c < info.count && c < 128; c++) v.value.integer.value[c] = val;
+		if (info.type == SNDRV_CTL_ELEM_TYPE_ENUMERATED) {	// VALUE is the item index ("tx hub mode" 0 = Off)
+			if (info.value.enumerated.items == 0) { sc(SYS_close, fd, 0, 0, 0); return 1; }
+			if (val >= info.value.enumerated.items) val = info.value.enumerated.items - 1;
+			for (unsigned int c = 0; c < info.count && c < 128; c++) v.value.enumerated.item[c] = val;
+		} else {
+			if (info.type == SNDRV_CTL_ELEM_TYPE_BOOLEAN) {
+				if (val > 1) val = 1;
+			} else {
+				if (val < info.value.integer.min) val = info.value.integer.min;
+				if (val > info.value.integer.max) val = info.value.integer.max;
+			}
+			for (unsigned int c = 0; c < info.count && c < 128; c++) v.value.integer.value[c] = val;
+		}
 		rc = sc(SYS_ioctl, fd, SNDRV_CTL_IOCTL_ELEM_WRITE, (long)&v, 0) < 0 ? 1 : 0;
 	}
 	sc(SYS_close, fd, 0, 0, 0);
@@ -170,9 +188,10 @@ void _start_c(long *sp) {
 	char **argv = (char **)(sp + 1);
 	if (argc == 5 && !scmp((const unsigned char *)argv[1], (const unsigned char *)"set", 4))
 		die(do_set(argv[2], argv[3], argv[4]));
+	if (argc >= 3 && !scmp((const unsigned char *)argv[1], (const unsigned char *)"restore", 8))
+		die(do_restore(argv[2], argv + 3, argc - 3));
 	if (argc != 3) die(64);
 	if (!scmp((const unsigned char *)argv[1], (const unsigned char *)"save", 5)) die(do_save(argv[2]));
-	if (!scmp((const unsigned char *)argv[1], (const unsigned char *)"restore", 8)) die(do_restore(argv[2]));
 	die(64);
 }
 
