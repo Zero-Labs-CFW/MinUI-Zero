@@ -85,8 +85,13 @@ lid_shut() {
 before
 # Our SPL (when a card has it) cannot resume from suspend-to-RAM: stock boot0 goes into BROM's first slot for the
 # length of the sleep and ours comes back after the wake (rootfs boot0-slot.sh; a no-op on a card without our SPL).
-# Never fatal: a failed swap leaves stock in place, which only means a slower next boot.
-[ -x /opt/minui-zero/boot0-slot.sh ] && /opt/minui-zero/boot0-slot.sh stock || true
+# A swap that fails leaves our SPL in place, and waking through it would cold boot and lose the session: stay awake
+# instead (radios back, nonzero to the caller, which keeps its faux sleep).
+if [ -x /opt/minui-zero/boot0-slot.sh ] && ! /opt/minui-zero/boot0-slot.sh stock; then
+	>&2 echo "Could not put stock boot0 in place for the sleep: not suspending."
+	( after & )
+	exit 1
+fi
 >&2 echo "Suspending..."
 suspend_mem
 
@@ -128,7 +133,7 @@ fi
 _zc=/opt/minui-zero/zero-codec
 if ! { [ -x $_zc ] && [ -f /opt/minui-zero/codec.snap ] && $_zc restore /opt/minui-zero/codec.snap "tx hub mode"; }; then
 	alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null || true
-	[ -x $_zc ] && $_zc set 0 "tx hub mode" 0 2>/dev/null || true
+	amixer -c 0 -q cset name="tx hub mode" 0 2>/dev/null || true   # amixer: an older rootfs zero-codec cannot set it
 fi
 
 # Resume the radios in the background to cut UI latency, ALWAYS, even on a failed suspend.

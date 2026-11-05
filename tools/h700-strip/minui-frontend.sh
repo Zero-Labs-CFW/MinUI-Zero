@@ -236,7 +236,7 @@ CODEC_SNAP=/opt/minui-zero/codec.snap
 codec_restore() {
 	[ -x "$ZC" ] && [ -f "$CODEC_SNAP" ] && "$ZC" restore "$CODEC_SNAP" "tx hub mode" && { : >/run/zero-codec-done; return 0; }
 	alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null || return 0   # never snapshot a failed restore
-	[ -x "$ZC" ] && "$ZC" set 0 "tx hub mode" 0
+	amixer -c 0 -q cset name="tx hub mode" 0 2>/dev/null   # amixer: an older rootfs zero-codec cannot set it
 	: >/run/zero-codec-done
 	[ -x "$ZC" ] && "$ZC" save "$CODEC_SNAP.new" && mv "$CODEC_SNAP.new" "$CODEC_SNAP"
 }

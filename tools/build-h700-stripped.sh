@@ -787,7 +787,7 @@ start)
 	if [ -e /run/zero-codec-done ]; then
 		: >/run/zero-codec-ready
 	elif alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null; then
-		/opt/minui-zero/zero-codec set 0 "tx hub mode" 0 2>/dev/null   # off, as the frontend keeps it (the speaker pop)
+		amixer -c 0 -q cset name="tx hub mode" 0 2>/dev/null   # off, as the frontend keeps it (the speaker pop)
 		_v=$(cat /mnt/mmc/.userdata/h700/volume 2>/dev/null)
 		case "$_v" in ""|*[!0-9]*) ;; *) [ "$_v" -gt 20 ] && _v=20
 			/opt/minui-zero/zero-codec set 0 "digital volume" $((_v * 63 / 20)) 2>/dev/null ||

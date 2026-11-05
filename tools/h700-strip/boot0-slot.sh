@@ -60,12 +60,14 @@ store)
 	dd if="$2" of=$D bs=512 seek=$STORE conv=notrunc,fsync 2>/dev/null
 	echo 3 > /proc/sys/vm/drop_caches
 	stored && cmp -s /tmp/b0-ours.bin "$2" && echo stored ;;
-stock)
-	stored || exit 0			# no valid stored SPL: nothing we could put back, leave slot 16 alone
-	slot_is /tmp/b0-ours.bin || exit 0	# slot 16 is not ours (stock already, or a restore happened)
+stock)	# nonzero = this sleep is not safe: the suspend script then stays awake (Codex review: never sleep on an SPL)
+	[ "$(rd $SLOT 1 | dd bs=1 skip=20 count=3 2>/dev/null)" = SPL ] || exit 0	# stock boot0 in slot 16: it resumes
 	rd $PIN 128 > /tmp/b0-stock.bin
 	valid_stock /tmp/b0-stock.bin || { echo "no valid pinned stock boot0"; exit 1; }
-	: > $FLAG && sync && [ -f $FLAG ] || { echo "cannot record the swap: not swapping"; exit 1; }
+	# ours comes back after the wake only when it is the stored copy; any other SPL is swapped out for good
+	if stored && slot_is /tmp/b0-ours.bin; then
+		: > $FLAG && sync && [ -f $FLAG ] || { echo "cannot record the swap"; exit 1; }
+	fi
 	put /tmp/b0-stock.bin ;;
 ours|boot)
 	[ -f $FLAG ] || exit 0			# this sleep did not swap: never put ours back
@@ -74,8 +76,12 @@ ours|boot)
 	rm -f $FLAG; sync ;;
 ack)
 	_w=0; until [ -e /run/zero-menu-frame ]; do sleep 0.2; _w=$((_w + 1)); [ $_w -ge 300 ] && exit 0; done
-	stored || exit 0
-	slot_is /tmp/b0-ours.bin || exit 0	# this boot did not come through our SPL
-	[ "$(rd 16640 1 | head -c 15)" = ZERO-ATTEMPT-V1 ] && dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null
+	# proof this boot came through our SPL: its attempt marker (set after DRAM, just before the hand-off) and slot 16
+	# holding the stored copy; the marker is cleared and read back before GP15, or the next start restores stock
+	[ "$(rd 16640 1 | head -c 15)" = ZERO-ATTEMPT-V1 ] || exit 0
+	stored && slot_is /tmp/b0-ours.bin || exit 0
+	dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null
+	echo 3 > /proc/sys/vm/drop_caches
+	[ "$(rd 16640 1 | tr -d '\000' | wc -c)" = 0 ] || exit 1
 	busybox devmem 0x0700013c 32 0 ;;
 esac
