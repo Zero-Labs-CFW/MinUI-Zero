@@ -23,7 +23,8 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends gi
   bc >/dev/null
 [ -d /c/u-boot ] || git clone -q --depth 1 --branch '"$UBOOT_TAG"' https://source.denx.de/u-boot/u-boot.git /c/u-boot
 [ "$(git -C /c/u-boot rev-parse HEAD)" = '"$UBOOT_COMMIT"' ] || { echo "ERROR: u-boot is not '"$UBOOT_TAG"' ('"$UBOOT_COMMIT"')"; exit 1; }
-[ -z "$(git -C /c/u-boot status --porcelain)" ] || { echo "ERROR: the cached u-boot has local changes: delete it"; exit 1; }
+[ -z "$(git -C /c/u-boot status --porcelain)" ] && [ -z "$(git -C /c/u-boot clean -xdn)" ] ||
+	{ echo "ERROR: the cached u-boot has local changes or build products: delete it"; exit 1; }
 rm -rf /tmp/u && cp -a /c/u-boot /tmp/u && cd /tmp/u
 git apply /c/zero-spl.patch
 : > .scmversion	# reproducible: no "-dirty" from the applied patch, and the build date is the upstream commit date

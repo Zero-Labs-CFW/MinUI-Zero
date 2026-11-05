@@ -60,7 +60,9 @@ store)
 	dd if="$2" of=$D bs=512 seek=$STORE conv=notrunc,fsync 2>/dev/null
 	stored && cmp -s /tmp/b0-ours.bin "$2" && echo stored ;;
 stock)	# nonzero = this sleep is not safe: the suspend script then stays awake (Codex review: never sleep on an SPL)
-	[ "$(rd $SLOT 1 | dd bs=1 skip=20 count=3 2>/dev/null)" = SPL ] || exit 0	# stock boot0 in slot 16: it resumes
+	rd $SLOT 1 > /tmp/b0-slot.bin
+	[ "$(wc -c < /tmp/b0-slot.bin)" = 512 ] || { echo "cannot read slot 16"; exit 1; }	# unknown is not safe
+	[ "$(dd if=/tmp/b0-slot.bin bs=1 skip=20 count=3 2>/dev/null)" = SPL ] || exit 0	# stock boot0 in slot 16: it resumes
 	rd $PIN 128 > /tmp/b0-stock.bin
 	valid_stock /tmp/b0-stock.bin || { echo "no valid pinned stock boot0"; exit 1; }
 	# ours comes back after the wake only when it is the stored copy; any other SPL is swapped out for good
@@ -70,9 +72,15 @@ stock)	# nonzero = this sleep is not safe: the suspend script then stays awake (
 	put /tmp/b0-stock.bin ;;
 ours|boot)
 	[ -f $FLAG ] || exit 0			# this sleep did not swap: never put ours back
+	# RTC GP14 nonzero = the loader's safety net has put stock back since the install (a failed attempt): a flag that
+	# outlived that (a power cut before its removal was durable) must not bring the failed loader back (Codex review)
+	if [ "$(busybox devmem 0x07000138)" != 0x00000000 ]; then
+		rm -f $FLAG && sync
+		echo "the loader's safety net restored stock since the install: not putting it back"; exit 0
+	fi
 	stored || exit 1
 	slot_is /tmp/b0-ours.bin || put /tmp/b0-ours.bin || exit 1
-	rm -f $FLAG; sync ;;
+	rm -f $FLAG && sync || exit 1 ;;
 ack)
 	# 15 min: a first boot that expands the card, a long card check or a MinUI.zip install all come before the first
 	# frame; giving up early left the attempt unacknowledged and the next start put stock back (code review)

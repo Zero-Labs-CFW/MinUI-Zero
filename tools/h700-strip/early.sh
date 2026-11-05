@@ -28,7 +28,11 @@ late_load() { # <module> <marker name> <log tag>
 	fi
 	# only the marker is made durable (fsync of that one file): a global sync here flushed everything in flight on
 	# the card in the menu's window (code review); a removal lost to a power cut costs one boot of that hardware
-	dd if=/dev/null of="/opt/minui-zero/$2" conv=fsync 2>/dev/null
+	if ! dd if=/dev/null of="/opt/minui-zero/$2" conv=fsync 2>/dev/null; then
+		# no durable marker (read-only root, card error): a module that hung this boot would hang every boot, so skip it
+		echo "$3: skipped this boot, cannot write its crash marker" >/dev/kmsg
+		return 0
+	fi
 	insmod "$1" 2>/dev/kmsg
 	rm -f "/opt/minui-zero/$2"
 }
