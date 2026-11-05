@@ -28,6 +28,15 @@ dd if=$D of=$T/stock.bin bs=512 skip=512 count=128 2>/dev/null
 [ "$(u32 $T/stock.bin 16)" = 65536 ] || { echo "backup slot length is not 64 KiB: refusing"; exit 1; }
 [ "$(dd if=$T/stock.bin bs=1 skip=20 count=3 2>/dev/null)" != "SPL" ] || { echo "backup slot holds an SPL: refusing"; exit 1; }
 egon_sum_ok $T/stock.bin || { echo "backup slot checksum bad: refusing"; exit 1; }
+# Boards this SPL is proven on only. It trains LPDDR4 (upstream anbernic_rg35xx_h700_defconfig); on an LPDDR3 board
+# (RG35XX Pro, RG40XX H/V: their stock boot0 says DRAM type 7) it would never bring DRAM up, and its safety net needs
+# DRAM before it can restore stock: a reset loop that only a card reader fixes. The board's own stock boot0 must say
+# LPDDR4 (type 8 at 0x3c) and the card must be an RG35XX H or Plus (tested 2026-11-05); other LPDDR4 boards wait for a test.
+[ "$(u32 $T/stock.bin 60)" = 8 ] || { echo "this board's boot0 is not LPDDR4 (type $(u32 $T/stock.bin 60)): refusing"; exit 1; }
+case "$(cat /mnt/mmc/.system/h700/board 2>/dev/null)" in
+h|plus) ;;
+*) echo "board '$(cat /mnt/mmc/.system/h700/board 2>/dev/null)' is not tested with this SPL (RG35XX H and Plus are): refusing"; exit 1 ;;
+esac
 want=$(md5sum < $T/stock.bin | cut -c1-32)
 for p in $PIN_A $PIN_B; do
 	dd if=$T/stock.bin of=$D bs=512 seek=$p conv=notrunc 2>/dev/null
