@@ -347,6 +347,7 @@ def main():
         check('e2fsck for root-check', mode is not None and mode & 0o111 == 0o111 and
               all(debugfs_mode(img, off, '/opt/minui-zero/e2fsck/' + l) is not None for l in
                   ('libext2fs.so.2', 'libe2p.so.2', 'libcom_err.so.2', 'libblkid.so.1', 'libuuid.so.1')))
+        check('watchdog applet for root-check (RG34XX H)', debugfs_mode(img, off, '/sbin/watchdog') is not None)
         check('console and null nodes in /dev', debugfs_mode(img, off, '/dev/console') is not None and
               debugfs_mode(img, off, '/dev/null') is not None)
         check('udev off the boot path', b'udev off the boot path' in cat('/opt/muos/script/init/S10udev'))

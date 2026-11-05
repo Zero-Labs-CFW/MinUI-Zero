@@ -22,13 +22,15 @@ export PATH="/run/zero-bb:$PATH"
 late_load() { # <module> <marker name> <log tag>
 	[ -f "$1" ] || return 0
 	if [ -e "/opt/minui-zero/$2" ]; then
-		rm -f "/opt/minui-zero/$2"; sync
+		rm -f "/opt/minui-zero/$2"
 		echo "$3: skipped this boot, the last one died while loading it" >/dev/kmsg
 		return 0
 	fi
-	: >"/opt/minui-zero/$2"; sync
+	# only the marker is made durable (fsync of that one file): a global sync here flushed everything in flight on
+	# the card in the menu's window (code review); a removal lost to a power cut costs one boot of that hardware
+	dd if=/dev/null of="/opt/minui-zero/$2" conv=fsync 2>/dev/null
 	insmod "$1" 2>/dev/kmsg
-	rm -f "/opt/minui-zero/$2"; sync
+	rm -f "/opt/minui-zero/$2"
 }
 # The second card slot and WiFi (zero_late_mmc.ko), at once and in the background: their probes only sleep, and muOS's
 # WiFi load and second card mount come later in its startup (mount-fast.awk waits for the slot).

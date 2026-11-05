@@ -18,7 +18,8 @@
 D=/dev/mmcblk0
 SLOT=16; PIN=16384; STORE=16768; STORE_N=96
 FLAG=/opt/minui-zero/.spl-sleep-swapped
-rd() { dd if=$D bs=512 skip=$1 count=$2 2>/dev/null; }
+# reads go around the page cache (iflag=direct): a readback sees the card, and nothing evicts the rest of the cache
+rd() { dd if=$D bs=512 skip=$1 count=$2 iflag=direct 2>/dev/null; }
 u32() { od -An -tu4 -j$2 -N4 "$1" | tr -d ' '; }
 # eGON checksum: sum of all 32-bit words with the checksum word read as 0x5F0A6C39 (busybox awk: %.0f, not %d)
 egon_sum_ok() {
@@ -51,14 +52,12 @@ put() { # put <image>: body first, header sector last, then verify the whole ima
 	n=$(($(wc -c < "$1") / 512))
 	dd if="$1" of=$D bs=512 skip=1 seek=$((SLOT + 1)) count=$((n - 1)) conv=notrunc,fsync 2>/dev/null || return 1
 	dd if="$1" of=$D bs=512 count=1 seek=$SLOT conv=notrunc,fsync 2>/dev/null || return 1
-	echo 3 > /proc/sys/vm/drop_caches
 	slot_is "$1"
 }
 case "$1" in
 store)
 	valid_ours "$2" || { echo "not a valid Zero SPL image: refusing"; exit 1; }
 	dd if="$2" of=$D bs=512 seek=$STORE conv=notrunc,fsync 2>/dev/null
-	echo 3 > /proc/sys/vm/drop_caches
 	stored && cmp -s /tmp/b0-ours.bin "$2" && echo stored ;;
 stock)	# nonzero = this sleep is not safe: the suspend script then stays awake (Codex review: never sleep on an SPL)
 	[ "$(rd $SLOT 1 | dd bs=1 skip=20 count=3 2>/dev/null)" = SPL ] || exit 0	# stock boot0 in slot 16: it resumes
@@ -75,13 +74,14 @@ ours|boot)
 	slot_is /tmp/b0-ours.bin || put /tmp/b0-ours.bin || exit 1
 	rm -f $FLAG; sync ;;
 ack)
-	_w=0; until [ -e /run/zero-menu-frame ]; do sleep 0.2; _w=$((_w + 1)); [ $_w -ge 300 ] && exit 0; done
+	# 15 min: a first boot that expands the card, a long card check or a MinUI.zip install all come before the first
+	# frame; giving up early left the attempt unacknowledged and the next start put stock back (code review)
+	_w=0; until [ -e /run/zero-menu-frame ]; do sleep 1; _w=$((_w + 1)); [ $_w -ge 900 ] && exit 0; done
 	# proof this boot came through our SPL: its attempt marker (set after DRAM, just before the hand-off) and slot 16
 	# holding the stored copy; the marker is cleared and read back before GP15, or the next start restores stock
 	[ "$(rd 16640 1 | head -c 15)" = ZERO-ATTEMPT-V1 ] || exit 0
 	stored && slot_is /tmp/b0-ours.bin || exit 0
 	dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null
-	echo 3 > /proc/sys/vm/drop_caches
 	[ "$(rd 16640 1 | tr -d '\000' | wc -c)" = 0 ] || exit 1
 	busybox devmem 0x0700013c 32 0 ;;
 esac

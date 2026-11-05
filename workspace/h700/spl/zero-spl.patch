@@ -43,10 +43,10 @@ index 432b1c10..4d4cf8eb 100644
  
 diff --git a/arch/arm/mach-sunxi/zero_vendor.c b/arch/arm/mach-sunxi/zero_vendor.c
 new file mode 100644
-index 00000000..70f1105d
+index 00000000..52b01f19
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,482 @@
+@@ -0,0 +1,483 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -475,7 +475,8 @@ index 00000000..70f1105d
 +			continue;
 +		}
 +		end = dst + ((size + 511) & ~511UL);
-+		if (dst < 0x40000000UL || end > 0x4fd00000UL || (dst < ZV_CHK_BUF + ZV_B0_LEN && end > ZV_TOC1_ADDR)) {
++		if (dst < 0x40000000UL || end > 0x4fd00000UL || (dst < ZV_CHK_BUF + ZV_B0_LEN && end > ZV_TOC1_ADDR) ||
++		    (dst < ZV_TLB + ZV_TLB_LEN && end > ZV_TLB)) {	/* nor over the live page tables (code review) */
 +			zv_status(15, dst);
 +			return;
 +		}

@@ -89,6 +89,7 @@ before
 # instead (radios back, nonzero to the caller, which keeps its faux sleep).
 if [ -x /opt/minui-zero/boot0-slot.sh ] && ! /opt/minui-zero/boot0-slot.sh stock; then
 	>&2 echo "Could not put stock boot0 in place for the sleep: not suspending."
+	/opt/minui-zero/boot0-slot.sh ours || true   # undo a swap that failed partway (its flag says so)
 	( after & )
 	exit 1
 fi
