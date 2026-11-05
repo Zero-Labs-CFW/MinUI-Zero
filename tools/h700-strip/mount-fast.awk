@@ -14,6 +14,16 @@
 	print "fi"
 	print "# second card, USB, then the union and bind trees over what is mounted: one sequence, off the boot path"
 	print "("
+	# the second card slot starts after init (early.sh, zero_late_mmc.ko) and muOS mounts it only here, never on a later
+	# insert: wait for the slot (2 s at most), then for a card in it to identify (3 s; an empty slot pays this, in this
+	# background sequence only); a card that does gets 5 s for its disk and 1 s more for its first partition, so
+	# storage.sh mounts the partition rather than falling back to the whole disk (Codex review 2026-11-04)
+	print "\tn=0; while [ ! -e /sys/class/mmc_host/mmc1 ] && [ $n -lt 20 ]; do sleep 0.1; n=$((n+1)); done"
+	print "\tn=0; while ! ls -d /sys/class/mmc_host/mmc1/mmc1:* >/dev/null 2>&1 && [ $n -lt 30 ]; do sleep 0.1; n=$((n+1)); done"
+	print "\tif ls -d /sys/class/mmc_host/mmc1/mmc1:* >/dev/null 2>&1; then"
+	print "\t\tn=0; while ! [ -b /dev/mmcblk1 ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n+1)); done"
+	print "\t\tn=0; while [ -b /dev/mmcblk1 ] && ! [ -b /dev/mmcblk1p1 ] && [ $n -lt 10 ]; do sleep 0.1; n=$((n+1)); done"
+	print "\tfi"
 	print "\t/opt/muos/script/mount/storage.sh \"sdcard\" \"mount\" 1"
 	print "\t/opt/muos/script/mount/storage.sh \"usb\" \"mount\" 1"
 	print "\t/opt/muos/script/mount/union.sh start"

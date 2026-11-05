@@ -8,6 +8,25 @@
 # before the mount (both need the card unmounted), the mount with storage.sh's options.
 read -r _zu _ </proc/uptime; echo "$_zu early" >>/dev/shm/zero-boot
 mkdir -p /tmp/muos /run/muos
+# LATE CONTROLLERS: the boot package marks some controllers "late" so the kernel skips them at start-up; a module loaded
+# here starts them. Each load is guarded by a marker written (and synced) before insmod and removed after it: a boot that
+# dies while loading leaves the marker, and the next boot skips that module once (removing the marker), so a module that
+# crashes a board still lets every other boot reach the menu, and a marker stranded by a power cut costs one boot of
+# that hardware, never more (Codex review 2026-11-04).
+late_load() { # <module> <marker name> <log tag>
+	[ -f "$1" ] || return 0
+	if [ -e "/opt/minui-zero/$2" ]; then
+		rm -f "/opt/minui-zero/$2"; sync
+		echo "$3: skipped this boot, the last one died while loading it" >/dev/kmsg
+		return 0
+	fi
+	: >"/opt/minui-zero/$2"; sync
+	insmod "$1" 2>/dev/kmsg
+	rm -f "/opt/minui-zero/$2"; sync
+}
+# The second card slot and WiFi (zero_late_mmc.ko), at once and in the background: their probes only sleep, and muOS's
+# WiFi load and second card mount come later in its startup (mount-fast.awk waits for the slot).
+late_load /opt/minui-zero/zero_late_mmc.ko late-mmc-trying late-mmc </dev/null >/dev/null 2>&1 &
 # The codec state, restored now in the background so it is done (and alsa-lib is in the page cache) by the time the
 # frontend's own blocking restore runs before minui starts: that one took 0.23 s on the H cold and ~0 warm.
 alsactl -U -f /opt/muos/device/control/asound.state restore </dev/null >/dev/null 2>&1 &
@@ -20,21 +39,6 @@ read -r _zu _ </proc/uptime; echo "$_zu mounted" >>/dev/shm/zero-boot
 read -r _zu _ </proc/uptime; echo "$_zu frontend" >>/dev/shm/zero-boot
 cd /
 setsid sh /opt/minui-zero/minui-frontend.sh </dev/null >/dev/null 2>&1 &
-# USB host, started after the menu instead of during the kernel's start-up (zero_late_usb.ko: the boot package marks the
-# controllers "late"). Guarded like the card frontend's tries: the marker is written before the load and removed after
-# it, so a boot that dies while loading it leaves the marker, and every boot after skips the module (USB host stays off,
-# the handheld boots) until an update replaces it, which clears the marker.
-L=/opt/minui-zero/zero_late_usb.ko
-if [ -f "$L" ]; then
-	(
-		sleep 3
-		if [ -e /opt/minui-zero/late-usb-trying ]; then
-			echo "late-usb: skipped, a boot died while loading it" >/dev/kmsg
-		else
-			: >/opt/minui-zero/late-usb-trying; sync
-			insmod "$L" 2>/dev/kmsg
-			rm -f /opt/minui-zero/late-usb-trying; sync
-		fi
-	) </dev/null >/dev/null 2>&1 &
-fi
+# USB host (zero_late_usb.ko), 3 s after the menu starts.
+( sleep 3; late_load /opt/minui-zero/zero_late_usb.ko late-usb-trying late-usb ) </dev/null >/dev/null 2>&1 &
 exit 0

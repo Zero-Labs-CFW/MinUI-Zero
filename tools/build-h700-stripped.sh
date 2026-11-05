@@ -281,13 +281,13 @@ cp "$REPO/tools/h700-strip/card-fsck.sh" "$ASSETS/card-fsck.sh"
 # fastboot.py: no initramfs, so the rootfs takes over the initramfs's jobs) and four muOS boot steps change below.
 cp "$REPO/tools/h700-strip/root-check.sh" "$REPO/tools/h700-strip/udev-bg.awk" "$REPO/tools/h700-strip/mount-fast.awk" "$ASSETS/"
 cp "$REPO/tools/h700-strip/early.sh" "$ASSETS/early.sh"
-# USB host started after the menu (workspace/h700/late-usb: the module, its build, the vendor kernel config); rebuilt
-# whenever its source or build is newer than the cached .ko
-_lu="$ASSETS/late-usb/zero_late_usb.ko"
+# USB host, second card and WiFi started after boot (workspace/h700/late-usb: the modules, their build, the vendor kernel config); rebuilt
+# whenever their source or build is newer than the cached .ko
+_lu="$ASSETS/late-usb/zero_late_usb.ko"; [ -f "$ASSETS/late-usb/zero_late_mmc.ko" ] || rm -f "$_lu"   # both modules come from one build
 if [ ! -f "$_lu" ] || [ -n "$(find "$REPO/workspace/h700/late-usb" "$REPO/tools/h700-image/symcrc.py" "$ASSETS"/parts*/p4-kernel.img.gz -newer "$_lu" -type f 2>/dev/null)" ]; then
 	sh "$REPO/workspace/h700/late-usb/build.sh" "$ASSETS/late-usb" "$ASSETS/parts/p4-kernel.img.gz" || { echo "ERROR: late-USB module build"; exit 1; }
 fi
-cp "$_lu" "$ASSETS/zero_late_usb.ko"
+cp "$_lu" "$ASSETS/zero_late_usb.ko"; cp "$ASSETS/late-usb/zero_late_mmc.ko" "$ASSETS/zero_late_mmc.ko"
 rm -rf "$ASSETS/e2fsck"; mkdir -p "$ASSETS/e2fsck"
 python3 - "$ASSETS/parts/p4-kernel.img.gz" "$ASSETS/e2fsck" "$REPO" <<"E2PY" || { echo "ERROR: cannot take e2fsck from the stock initramfs"; exit 1; }
 import gzip, os, sys
@@ -535,6 +535,13 @@ sed -i "s|^\[ -x /opt/minui-zero/card-fsck.sh \] \&\& /opt/minui-zero/card-fsck.
 sed -i "s|^sh /opt/minui-zero/minui-frontend.sh \&\$|[ -e /run/zero-early ] \|\| sh /opt/minui-zero/minui-frontend.sh \&|" "$SU"
 sed -i "s|^echo \"performance\" >\"\$GOVERNOR\"\$|true # MinUI Zero: the frontend owns the governor (schedutil)|" "$SU"
 [ "$(grep -c "zero-early" "$SU")" = 3 ] && grep -q "the frontend owns the governor" "$SU" || { echo "ERROR: startup.sh menu-first edits did not all land"; exit 1; }
+# halt.sh BUG (muOS, found 2026-11-04): it appends its -o omit list to its own arguments, so killall5 got the mode word
+# ("killall5 -TERM reboot": bad option) and killed nothing, umount -ar found / busy, and every reboot through it left the
+# root journal dirty: half of the next boots replayed it (~80 ms on the H, measured). Take the mode off the list first.
+# (Our own power-off remounts everything read-only before it calls halt.sh, so it was not affected.)
+HS="$R/opt/muos/script/system/halt.sh"
+sed -i "s|^for OMIT_PID in \\\$(pidof|HALT_MODE=\$1; shift   # MinUI Zero: the mode word reached killall5 (bad option), so nothing was killed\nfor OMIT_PID in \$(pidof|; s|^\"\\\$1\" -f\$|\"\$HALT_MODE\" -f|" "$HS"
+[ "$(grep -c HALT_MODE "$HS")" = 2 ] && ! grep -q "^\"\\\$1\" -f\$" "$HS" || { echo "ERROR: halt.sh mode fix did not land"; exit 1; }
 
 # BOOT TRIM (2026-08-11). muOS keeps doing work for features this image does not ship. None of it
 # blocks the menu (it is all backgrounded) but it competes for the CPU and the ~10MB/s card during
@@ -630,7 +637,7 @@ grep -q "^::sysinit:/opt/minui-zero/root-check.sh" "$IT" && grep -q "remount,rw,
 [ -e "$R/dev/console" ] || mknod -m 600 "$R/dev/console" c 5 1
 # MENU FIRST (early.sh says how): inittab runs it after the tmpfs mounts and before the muOS sysinit
 cp /a/early.sh "$R/opt/minui-zero/early.sh"
-cp /a/zero_late_usb.ko "$R/opt/minui-zero/zero_late_usb.ko"
+cp /a/zero_late_usb.ko /a/zero_late_mmc.ko "$R/opt/minui-zero/"
 chmod +x "$R/opt/minui-zero/early.sh"
 grep -q "^::sysinit:/opt/muos/script/init/sysinit\$" "$IT" || { echo "ERROR: inittab muOS sysinit line changed"; exit 1; }
 sed -i "s|^::sysinit:/opt/muos/script/init/sysinit\$|::sysinit:/opt/minui-zero/early.sh\n::sysinit:/opt/muos/script/init/sysinit|" "$IT"

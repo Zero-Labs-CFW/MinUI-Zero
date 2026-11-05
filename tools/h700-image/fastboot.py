@@ -32,6 +32,7 @@ CMDLINE = (b'loglevel=1 rcupdate.rcu_expedited=1 rcupdate.rcu_normal_after_boot=
            b'initcall_blacklist=deeplay_encrypt_init,vin_init,brd_init')
 BOOT0_DEBUG = 0x34
 LATE_USB = ('ehci1-controller', 'ohci1-controller', 'ohci2-controller', 'ehci3-controller', 'ohci3-controller')
+LATE_MMC = ('sdmmc@04022000', 'sdmmc@04021000')   # second card slot (sdc2) and WiFi (sdc1); the main card is sdmmc@04020000
 
 
 def word(b, o):
@@ -59,7 +60,7 @@ def _items(pkg):
 
 
 def _fdt_prop(dtb, node, prop):
-    """(offset, length) of `prop`'s value in the first node named `node` (unit address ignored)."""
+    """(offset, length) of `prop`'s value in the first node named `node` (unit address ignored unless `node` has one)."""
     magic, total, off_struct, off_strings = struct.unpack_from('>4I', dtb, 0)
     assert magic == 0xd00dfeed and total <= len(dtb), 'not a flattened device tree'
     pos, stack = off_struct, []
@@ -68,7 +69,8 @@ def _fdt_prop(dtb, node, prop):
         pos += 4
         if tok == 1:
             end = dtb.index(b'\0', pos)
-            stack.append(dtb[pos:end].decode().split('@')[0])
+            full = dtb[pos:end].decode()
+            stack.append(full if '@' in node else full.split('@')[0])
             pos = (end + 4) & ~3
         elif tok == 2:
             stack.pop()
@@ -109,6 +111,13 @@ def package(orig):
     # menu is up. "late" is any status but "okay" to the kernel, and the module only touches nodes that say exactly
     # "late". The OTG port's own controllers (ehci0/ohci0) and EHCI 2 are left alone.
     for node in LATE_USB:
+        o, ln = _fdt_prop(bytes(pkg[dstart:dstart + dsize]), node, 'status')
+        assert ln == 5 and pkg[dstart + o:dstart + o + 5] == b'okay\0', node + ' status is not okay'
+        pkg[dstart + o:dstart + o + 5] = b'late\0'
+        allowed |= set(range(dstart + o, dstart + o + 4))
+    # The second card slot and WiFi, held back the same way (~0.13 s on the H); zero_late_mmc.ko starts both from early.sh,
+    # second card first, so the hosts keep their boot numbers (mmc1, mmc2). All 11 boards have both enabled.
+    for node in LATE_MMC:
         o, ln = _fdt_prop(bytes(pkg[dstart:dstart + dsize]), node, 'status')
         assert ln == 5 and pkg[dstart + o:dstart + o + 5] == b'okay\0', node + ' status is not okay'
         pkg[dstart + o:dstart + o + 5] = b'late\0'

@@ -350,17 +350,16 @@ def main():
               '::sysinit:/opt/minui-zero/early.sh\n::sysinit:/opt/muos/script/init/sysinit' in it)
         su_txt = cat('/opt/muos/script/system/startup.sh').decode(errors='replace')
         check('startup.sh defers to early.sh', su_txt.count('zero-early') == 3 and 'the frontend owns the governor' in su_txt)
-        ko = cat('/opt/minui-zero/zero_late_usb.ko')
-        check('late-USB module', b'vermagic=4.9.170 SMP preempt mod_unload modversions aarch64' in ko)
-        # its symbol CRCs must be every board kernel's own, or insmod fails every boot and USB host stays off (Codex)
+        # the late-start modules: their symbol CRCs must be every board kernel's own, or insmod fails every boot and the
+        # controllers the boot package held back stay off (USB host; second card + WiFi) (Codex)
         import glob as _g, symcrc
-        want = symcrc.module_versions(ko)
-        bad = []
-        for kp in sorted(set(_g.glob(os.path.join(assets, 'parts*', 'p4-kernel.img.gz')))):
-            got, _n = symcrc.crcs(symcrc.image_of(kp), sorted(want))
-            if got != want:
-                bad.append(os.path.basename(os.path.dirname(kp)))
-        check('late-USB module CRCs match every kernel', bool(want) and not bad, ', '.join(bad))
+        kimgs = [symcrc.image_of(kp) for kp in sorted(set(_g.glob(os.path.join(assets, 'parts*', 'p4-kernel.img.gz'))))]
+        for mod, label in (('zero_late_usb', 'late-USB'), ('zero_late_mmc', 'late-MMC')):
+            ko = cat('/opt/minui-zero/%s.ko' % mod)
+            check(label + ' module', b'vermagic=4.9.170 SMP preempt mod_unload modversions aarch64' in ko)
+            want = symcrc.module_versions(ko) if ko[:4] == b'\x7fELF' else {}
+            bad = [str(i) for i, k in enumerate(kimgs) if symcrc.crcs(k, sorted(want))[0] != want]
+            check(label + ' module CRCs match every kernel', bool(want) and bool(kimgs) and not bad, ', '.join(bad))
         check('codec ready marker', b'zero-codec-ready' in cat('/opt/muos/script/system/pipewire.sh'))
         check('startup waits for the card', 'until grep -q " /mnt/mmc " /proc/mounts' in
               cat('/opt/muos/script/system/startup.sh').decode(errors='replace'))
