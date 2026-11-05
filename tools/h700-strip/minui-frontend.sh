@@ -485,6 +485,10 @@ save_clock() { [ "$(date +%Y)" -ge 2025 ] && date +'%F %T' > "$DATETIME_PATH" 2>
 # backstop cuts power if a remount hangs on a failing card. Then the muOS way to cut power (AXP register; plain
 # poweroff reboots), with halt.sh and poweroff -f as fallbacks. cd / first, so no cwd holds the card.
 power_off() {
+	# Speaker amp off first: PLAT_powerOff only mutes the digital volume, so the amp (codec SPK/LINEOUT switches, the
+	# device tree's pa-pin with a 100 ms delay) was still on when the rails dropped, and the speaker popped at every
+	# power-off (Dan, 2026-11-05). Give it the pin's delay before anything else.
+	amixer -c 0 -q sset SPK off 2>/dev/null; amixer -c 0 -q sset LINEOUT off 2>/dev/null; sleep 0.15
 	save_clock
 	sync
 	cd /
