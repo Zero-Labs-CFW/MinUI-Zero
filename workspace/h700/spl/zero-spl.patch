@@ -46,7 +46,7 @@ new file mode 100644
 index 00000000..219e52aa
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,600 @@
+@@ -0,0 +1,618 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -422,7 +422,17 @@ index 00000000..219e52aa
 +	struct zero_params *p = (void *)(ZL_HDR_ADDR + 2048);
 +	u32 *b = (void *)ZL_HDR_ADDR;
 +	u32 n, i, sum = 0, k, r;
-+	u8 reason, status, scratch;
++	u8 reason, status, scratch, v;
++	/* Plus AXP2202 normal-boot state, independently decoded in verify-uboot-effects.md.
++	 * Columns: register, bits cleared, bits set. Do not apply this profile to other PMICs. */
++	static const u8 power[][3] = {
++		{0x27, 0, 8}, {0x41, 0, 0x80}, {0x81, 0x0d, 0x0c},
++		{0x0b, 0x11, 1}, {0xd3, 0, 0x80},
++		{0x97, 0x1f, 0x0d}, {0x98, 0x1f, 0x0d}, {0x90, 0x30, 0x20},
++		{0x9e, 0x1f, 0x1c}, {0x91, 0, 8}, {0x19, 0, 0x10},
++		{0xc0, 2, 0}, {0x50, 0x0c, 0x10}, {0x08, 0, 3},
++		{0x5c, 0xff, 3}, {0x5d, 0xff, 0xeb},
++	};
 +
 +	if (zv_read(bd, 16896, 512, h) || memcmp(h->magic, ZL_HDR_MAGIC, 8))
 +		return;
@@ -447,6 +457,14 @@ index 00000000..219e52aa
 +		return;
 +	if (pmic_bus_read(0x20, &reason) || pmic_bus_read(0, &status) || pmic_bus_read(0xf0, &scratch))
 +		return;
++	/* Vendor's battery-absent repair and one-shot charger mode stay on the vendor path. */
++	if (!(status & 8) || ((scratch & 8) && (!reason || reason > 16 || (reason & (reason - 1)))))
++		return;
++	for (i = 0; i < ARRAY_SIZE(power); i++) {
++		if (pmic_bus_read(power[i][0], &v) ||
++		    pmic_bus_write(power[i][0], (v & ~power[i][1]) | power[i][2]))
++			return;
++	}
 +	memset(p, 0, sizeof(*p));
 +	p->magic = ZP_MAGIC; p->version = ZP_VERSION; p->size = sizeof(*p);
 +	p->flags = card ? ZP_FLAG_CARD : 0;
