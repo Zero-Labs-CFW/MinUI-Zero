@@ -148,10 +148,10 @@ index 00000000..021f8605
 +#endif
 diff --git a/arch/arm/mach-sunxi/zero_vendor.c b/arch/arm/mach-sunxi/zero_vendor.c
 new file mode 100644
-index 00000000..441e6dbe
+index 00000000..b0ee0031
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,775 @@
+@@ -0,0 +1,769 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -263,14 +263,8 @@ index 00000000..441e6dbe
 +static void __noreturn zv_reset(void)
 +{
 +#ifdef CONFIG_AXP_DCDC1_VOLT
-+	u8 v = 0;
-+	int ret = pmic_bus_init();
-+
-+	if (!ret)
-+		ret = axp_set_dcdc1(CONFIG_AXP_DCDC1_VOLT);
-+	if (!ret)
-+		ret = pmic_bus_read(0x83, &v);
-+	writel(0x5a830000 | (ret ? 0xff00 : 0) | v, (void *)(SUNXI_RTC_BASE + 0x104));	/* GP1: what the rail was set to */
++	if (!pmic_bus_init())
++		axp_set_dcdc1(CONFIG_AXP_DCDC1_VOLT);
 +#endif
 +	zv_wdog_arm(0);
 +	for (;;)
