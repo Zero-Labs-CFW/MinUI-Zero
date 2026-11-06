@@ -96,12 +96,15 @@ n=$(u32 "$SPL" 16); sz=$(wc -c < "$SPL")
 egon_sum_ok "$SPL" || { echo "$SPL: bad eGON checksum: refusing"; exit 1; }
 [ "$(has_str "$SPL" "zero: vendor hand-off")" != 0 ] || { echo "$SPL has no Zero hand-off (generic upstream SPL?): refusing"; exit 1; }
 ST=$(spl_type "$SPL"); [ -n "$ST" ] || { echo "$SPL does not say which DRAM type it trains (an older build?): refusing"; exit 1; }
-# 64-byte zero_loader_hdr: magic[8], length, entry, sum, version, reserved[10]. Validate before any card write.
+# 64-byte v2 header: magic[8], length, entry, sum, version, preflight, reserved[9]. Validate before any card write.
 if [ -n "$LOADER" ]; then
 	[ -f "$LOADER" ] || { echo "$LOADER: no such file"; exit 1; }
 	lsz=$(wc -c < "$LOADER"); ln=$(u32 "$LOADER" 8)
 	[ "$lsz" -ge 512 ] && [ "$lsz" -le $LMAX ] && [ $((lsz % 512)) = 0 ] && [ "$ln" = "$lsz" ] || { echo "$LOADER: declared length $ln, file $lsz, min 512, max $LMAX, aligned 512: refusing"; exit 1; }
-	[ "$(dd if="$LOADER" bs=1 count=8 2>/dev/null)" = ZEROLDR1 ] && [ "$(u32 "$LOADER" 12)" = 64 ] && [ "$(u32 "$LOADER" 20)" = 1 ] || { echo "$LOADER: bad loader magic, entry or version: refusing"; exit 1; }
+	[ "$(dd if="$LOADER" bs=1 count=8 2>/dev/null)" = ZEROLDR1 ] && [ "$(u32 "$LOADER" 12)" = 64 ] && [ "$(u32 "$LOADER" 20)" = 2 ] || { echo "$LOADER: bad loader magic, entry or version: refusing"; exit 1; }
+	pf=$(u32 "$LOADER" 24)
+	[ "$pf" -ge 64 ] && [ "$pf" -le $((ln - 4)) ] && [ $((pf % 4)) = 0 ] || { echo "$LOADER: invalid preflight entry: refusing"; exit 1; }
+	[ "$(dd if="$LOADER" bs=1 skip=28 count=36 2>/dev/null | tr -d '\000' | wc -c)" -eq 0 ] || { echo "$LOADER: nonzero reserved header: refusing"; exit 1; }
 	[ "$(od -An -tu4 -v "$LOADER" | awk '{for(i=1;i<=NF;i++){n++; v=(n==5)?1594518585:$i; s=(s+v)%4294967296}} END{printf "%.0f", s}')" = "$(u32 "$LOADER" 16)" ] || { echo "$LOADER: bad loader checksum: refusing"; exit 1; }
 fi
 # then the backup slot: a valid stock boot0 to pin
