@@ -43,10 +43,10 @@ index 432b1c10..4d4cf8eb 100644
  
 diff --git a/arch/arm/mach-sunxi/zero_vendor.c b/arch/arm/mach-sunxi/zero_vendor.c
 new file mode 100644
-index 00000000..247e7b9f
+index 00000000..219e52aa
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,528 @@
+@@ -0,0 +1,517 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -290,7 +290,7 @@ index 00000000..247e7b9f
 +
 +/*
 + * Breadcrumbs for the wake path (2026-11-05): GP13 = starts since the RTC lost power (top byte) | the last step
-+ * reached (low byte); GP12 = PRCM 0x250 (bits 7:0) and 0x310 (bits 15:8) as this start found them, DRAM MiB (31:16).
++ * reached (low byte); GP12 = DRAM MiB (bits 31:16).
 + */
 +#define ZV_RTC_GP13	(SUNXI_RTC_BASE + 0x134)
 +#define ZV_RTC_GP12	(SUNXI_RTC_BASE + 0x130)
@@ -333,34 +333,23 @@ index 00000000..247e7b9f
 +void zero_vendor_early(void)
 +{
 +	u32 last = readl((void *)ZV_RTC_GP15);
-+	void *const prcm = (void *)SUNXI_PRCM_BASE;
 +
 +	zv_stamp(0x12c);
 +	writel((readl((void *)ZV_RTC_GP13) & 0xff000000) + 0x01000001, (void *)ZV_RTC_GP13);
-+	writel((readl(prcm + 0x250) & 0xff) | (readl(prcm + 0x310) & 0xff) << 8, (void *)ZV_RTC_GP12);
-+	/*
-+	 * What stock boot0 does at the start of its clock setup ("set pll start", 0x222e0 in the RG35XX H boot0), every
-+	 * start: PRCM VDD_SYS power-off gating bit 4 on, then the resistor calibration block cycled (bit 1 on, bit 0
-+	 * off then on), 1 us apart. Upstream does neither. Before DRAM init, so a wake that was not swapped to stock
-+	 * boot0 finds the DRAM pads as stock would leave them.
-+	 */
-+	setbits_le32(prcm + 0x250, BIT(4));
-+	udelay(1);
-+	setbits_le32(prcm + 0x310, BIT(1));
-+	udelay(1);
-+	clrbits_le32(prcm + 0x310, BIT(0));
-+	udelay(1);
-+	setbits_le32(prcm + 0x310, BIT(0));
-+	udelay(1);
 +	if (sunxi_get_boot_device() == BOOT_DEVICE_BOARD)
 +		return;		/* FEL: nothing on the card to undo */
 +	/*
 +	 * A wake from suspend-to-RAM reboots through BROM. Stock boot0 resumes when RTC 0x1f8 bit 16 is set (DRAM kept,
-+	 * jump to the monitor's warm entry in RTC 0x1fc) and clears the register; we cannot resume (DRAM training wipes
-+	 * the sleeping system), and Linux puts stock boot0 in slot 16 for every sleep. If that swap was missed, drop the
-+	 * flag the way boot0 does and cold boot: the session is lost, but the device boots instead of looping
-+	 * (2026-11-05, RG35XX H).
++	 * jump to the monitor's warm entry in RTC 0x1fc) and clears the register; we cannot resume, and Linux puts stock
++	 * boot0 in slot 16 for every sleep. If that swap was missed, cold boot instead (the session is lost): drop the
++	 * flag, and release the DRAM pads. The monitor's suspend holds them once DRAM is in self-refresh (RTC 0x1f4 bit 0
++	 * cleared, monitor 0x48011820); stock boot0 sets the bit again in its DRAM init on both paths (0x27294 cold,
++	 * 0x24bfe resume), upstream DRAM init never does. Held, every start trained through frozen pads and hung before
++	 * DRAM came up: the bit is in the RTC domain, so neither the watchdog nor a power-off cleared it (RG35XX H,
++	 * 2026-11-05: 44 starts, all stopped before DRAM, until stock boot0 went back on the card). On every other start
++	 * the bit is already 1.
 +	 */
++	setbits_le32((void *)(SUNXI_RTC_BASE + 0x1f4), BIT(0));
 +	writel(0, (void *)(SUNXI_RTC_BASE + 0x1f8));
 +	if (last) {
 +		if (last != ZV_RESTORE)
@@ -420,7 +409,7 @@ index 00000000..247e7b9f
 +
 +	zv_stamp(0x128);
 +	zv_crumb(0x10);
-+	clrsetbits_le32((void *)ZV_RTC_GP12, 0xffff0000, (u32)(gd->ram_size >> 20) << 16);
++	writel((u32)(gd->ram_size >> 20) << 16, (void *)ZV_RTC_GP12);
 +	zv_cache_on();
 +	printf("zero: vendor hand-off\n");
 +	if (!card)
