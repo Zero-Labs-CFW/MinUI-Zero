@@ -58,8 +58,11 @@ make_bind() {
 	  dd if="$1" bs=1 skip=56 count=128 2>/dev/null; dd if=/dev/zero bs=1 count=352 2>/dev/null; } > "$3"
 	[ "$(wc -c < "$3")" -eq 512 ]
 }
+# a string in a binary: NULs to newlines first, since busybox grep -a compares line by line with strstr and a NUL before
+# the string on its "line" hides it (it never found "zero: vendor hand-off" in any build, 2026-11-06)
+has_str() { LC_ALL=C tr '\000' '\n' < "$1" | grep -c -F "$2" || :; }
 spl_type() { # 8 or 7 from the SPL's own "zero: dram lp4|lp3", empty if it says neither (or both)
-	_4=$(grep -a -c -F "zero: dram lp4" "$1" || :); _3=$(grep -a -c -F "zero: dram lp3" "$1" || :)
+	_4=$(has_str "$1" "zero: dram lp4"); _3=$(has_str "$1" "zero: dram lp3")
 	if [ "$_4" != 0 ] && [ "$_3" = 0 ]; then echo 8; elif [ "$_3" != 0 ] && [ "$_4" = 0 ]; then echo 7; fi
 }
 # The SID the SPL will read (0x03006200..0x0300620c) against the serial: vendor U-Boot prints "%03x%08x%08x" of
@@ -91,7 +94,7 @@ fi
 n=$(u32 "$SPL" 16); sz=$(wc -c < "$SPL")
 [ "$n" = "$sz" ] && [ "$n" -le $MAX ] && [ $((n % 512)) = 0 ] || { echo "$SPL: declared length $n, file $sz, max $MAX: refusing"; exit 1; }
 egon_sum_ok "$SPL" || { echo "$SPL: bad eGON checksum: refusing"; exit 1; }
-grep -a -q -F "zero: vendor hand-off" "$SPL" || { echo "$SPL has no Zero hand-off (generic upstream SPL?): refusing"; exit 1; }
+[ "$(has_str "$SPL" "zero: vendor hand-off")" != 0 ] || { echo "$SPL has no Zero hand-off (generic upstream SPL?): refusing"; exit 1; }
 ST=$(spl_type "$SPL"); [ -n "$ST" ] || { echo "$SPL does not say which DRAM type it trains (an older build?): refusing"; exit 1; }
 # 64-byte zero_loader_hdr: magic[8], length, entry, sum, version, reserved[10]. Validate before any card write.
 if [ -n "$LOADER" ]; then

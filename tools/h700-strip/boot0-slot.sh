@@ -35,7 +35,9 @@ valid_ours() {
 	n=$(u32 "$1" 16); sz=$(wc -c < "$1")
 	[ "$n" = "$sz" ] && [ "$n" -le $((STORE_N * 512)) ] && [ $((n % 512)) = 0 ] || return 1
 	egon_sum_ok "$1" || return 1
-	grep -a -q -F "zero: vendor hand-off" "$1"
+	# NULs to newlines first: busybox grep -a compares line by line with strstr, and a NUL before the string on its
+	# "line" hides it (it never found the hand-off in any build, 2026-11-06; bin/suspend runs busybox grep)
+	LC_ALL=C tr '\000' '\n' < "$1" | grep -q -F "zero: vendor hand-off"
 }
 valid_stock() {
 	[ "$(dd if="$1" bs=1 skip=4 count=8 2>/dev/null)" = eGON.BT0 ] || return 1
