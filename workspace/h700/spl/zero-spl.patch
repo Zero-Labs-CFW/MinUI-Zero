@@ -1084,3 +1084,19 @@ index 84f4e4c2..9519b41c 100644
  	if (error < 0) {
  		writel(SUNXI_MMC_GCTRL_RESET, &priv->reg->gctrl);
  		mmc_update_clk(priv);
+diff --git a/drivers/power/Kconfig b/drivers/power/Kconfig
+index 66c389d0..ccfe58e3 100644
+--- a/drivers/power/Kconfig
++++ b/drivers/power/Kconfig
+@@ -171,9 +171,10 @@ config AXP_I2C_ADDRESS
+ 
+ config AXP_DCDC1_VOLT
+ 	int "axp pmic dcdc1 voltage"
+-	depends on AXP221_POWER || AXP809_POWER || AXP818_POWER || AXP803_POWER
++	depends on AXP221_POWER || AXP809_POWER || AXP818_POWER || AXP803_POWER || AXP717_POWER
+ 	default 3300 if AXP818_POWER || MACH_SUN8I_R40 || AXP803_POWER
+ 	default 3000 if MACH_SUN6I || MACH_SUN8I || MACH_SUN9I
++	default 1100 if AXP717_POWER
+ 	help
+ 	  Set the voltage (mV) to program the axp pmic dcdc1 at, set to 0 to
+ 	  disable dcdc1. On A23 / A31 / A33 (axp221) boards dcdc1 is used for

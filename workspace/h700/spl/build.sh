@@ -36,7 +36,11 @@ make -s anbernic_rg35xx_h700_defconfig
 ./scripts/config --disable SPL_LEGACY_IMAGE_FORMAT
 # BSS in SRAM right after the SPL (it ends at 0x2c000; BROM loads 64 KiB stock boot0 here): the safety net runs before DRAM
 ./scripts/config --set-val SPL_BSS_START_ADDR 0x2c000 --set-val SPL_BSS_MAX_SIZE 0x4000
+# CPU rail (AXP717/2202 DCDC1) to 1.1 V before the SPL raises the CPU to 1008 MHz, as stock boot0 does: upstream never
+# sets it, so after a warm reset the CPU ran at 1008 MHz on the 0.9 V Linux left at idle (warm-reboot hangs, 2026-11-06)
+./scripts/config --set-val AXP_DCDC1_VOLT 1100
 make -s olddefconfig
+grep -q "^CONFIG_AXP_DCDC1_VOLT=1100$" .config || { echo "ERROR: the CPU rail (DCDC1) is not set to 1100 mV"; exit 1; }
 if grep -Eq "^CONFIG_SPL_(FIT|LOAD_FIT|HASH|OF_LIBFDT|LEGACY_IMAGE_FORMAT)=y$" .config; then
     echo "ERROR: an unused SPL image loader was selected again"; exit 1
 fi
