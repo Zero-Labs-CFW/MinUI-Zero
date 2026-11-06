@@ -72,6 +72,8 @@ static int do_save(const char *file) {
 		list.space = MAX_ELEMS;
 		list.pids = ids;
 		if (sc(SYS_ioctl, fd, SNDRV_CTL_IOCTL_ELEM_LIST, (long)&list, 0) < 0) { sc(SYS_close, fd, 0, 0, 0); continue; }
+		// more controls than we hold: no snapshot at all, never a partial one that restores "successfully" (code review)
+		if (list.count > list.used) { sc(SYS_close, fd, 0, 0, 0); return 1; }
 		for (unsigned int i = 0; i < list.used && n < MAX_CARDS * MAX_ELEMS; i++) {
 			struct snd_ctl_elem_info info;
 			mset(&info, 0, sizeof(info));

@@ -16,7 +16,7 @@
 # Writes go body first, header last, and are verified in full: a power loss mid-write leaves slot 16 with a bad
 # checksum, BROM boots the backup slot (512, always stock), and the flag (still set) finishes the job next boot.
 D=/dev/mmcblk0
-SLOT=16; PIN=16384; STORE=16768; STORE_N=96
+SLOT=16; PIN=16384; PIN_B=16512; STORE=16768; STORE_N=96
 FLAG=/opt/minui-zero/.spl-sleep-swapped
 # reads go around the page cache (iflag=direct): a readback sees the card, and nothing evicts the rest of the cache
 rd() { dd if=$D bs=512 skip=$1 count=$2 iflag=direct 2>/dev/null; }
@@ -64,7 +64,8 @@ stock)	# nonzero = this sleep is not safe: the suspend script then stays awake (
 	[ "$(wc -c < /tmp/b0-slot.bin)" = 512 ] || { echo "cannot read slot 16"; exit 1; }	# unknown is not safe
 	[ "$(dd if=/tmp/b0-slot.bin bs=1 skip=20 count=3 2>/dev/null)" = SPL ] || exit 0	# stock boot0 in slot 16: it resumes
 	rd $PIN 128 > /tmp/b0-stock.bin
-	valid_stock /tmp/b0-stock.bin || { echo "no valid pinned stock boot0"; exit 1; }
+	valid_stock /tmp/b0-stock.bin || { rd $PIN_B 128 > /tmp/b0-stock.bin; valid_stock /tmp/b0-stock.bin; } ||
+		{ echo "no valid pinned stock boot0"; exit 1; }	# the second pinned copy too (code review)
 	# ours comes back after the wake only when it is the stored copy; any other SPL is swapped out for good
 	if stored && slot_is /tmp/b0-ours.bin; then
 		: > $FLAG && sync && [ -f $FLAG ] || { echo "cannot record the swap"; exit 1; }

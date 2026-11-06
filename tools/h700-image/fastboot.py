@@ -35,6 +35,12 @@ CMDLINE = (b'loglevel=1 rcupdate.rcu_expedited=1 rcupdate.rcu_normal_after_boot=
 BOOT0_DEBUG = 0x34
 LATE_USB = ('ehci1-controller', 'ohci1-controller', 'ohci2-controller', 'ehci3-controller', 'ohci3-controller')
 LATE_MMC = ('sdmmc@04022000', 'sdmmc@04021000')   # second card slot (sdc2) and WiFi (sdc1); the main card is sdmmc@04020000
+# the compatible each late node must carry: zero_late_usb.c / zero_late_mmc.c find their nodes by it, so a board whose
+# node said anything else would keep that controller off for good (code review); checked on every board as it is staged
+LATE_COMPAT = {'ehci1-controller': b'allwinner,sunxi-ehci1', 'ohci1-controller': b'allwinner,sunxi-ohci1',
+               'ohci2-controller': b'allwinner,sunxi-ohci2', 'ehci3-controller': b'allwinner,sunxi-ehci3',
+               'ohci3-controller': b'allwinner,sunxi-ohci3', 'sdmmc@04022000': b'allwinner,sunxi-mmc-v4p6x',
+               'sdmmc@04021000': b'allwinner,sunxi-mmc-v4p1x'}
 
 
 def word(b, o):
@@ -113,6 +119,8 @@ def package(orig):
     # menu is up. "late" is any status but "okay" to the kernel, and the module only touches nodes that say exactly
     # "late". The OTG port's own controllers (ehci0/ohci0) and EHCI 2 are left alone.
     for node in LATE_USB:
+        co, cl = _fdt_prop(bytes(pkg[dstart:dstart + dsize]), node, 'compatible')
+        assert LATE_COMPAT[node] in bytes(pkg[dstart + co:dstart + co + cl]).split(b'\0'), node + ': not the compatible its module finds'
         o, ln = _fdt_prop(bytes(pkg[dstart:dstart + dsize]), node, 'status')
         assert ln == 5 and pkg[dstart + o:dstart + o + 5] == b'okay\0', node + ' status is not okay'
         pkg[dstart + o:dstart + o + 5] = b'late\0'
@@ -120,6 +128,8 @@ def package(orig):
     # The second card slot and WiFi, held back the same way (~0.13 s on the H); zero_late_mmc.ko starts both from early.sh,
     # second card first, so the hosts keep their boot numbers (mmc1, mmc2). All 11 boards have both enabled.
     for node in LATE_MMC:
+        co, cl = _fdt_prop(bytes(pkg[dstart:dstart + dsize]), node, 'compatible')
+        assert LATE_COMPAT[node] in bytes(pkg[dstart + co:dstart + co + cl]).split(b'\0'), node + ': not the compatible its module finds'
         o, ln = _fdt_prop(bytes(pkg[dstart:dstart + dsize]), node, 'status')
         assert ln == 5 and pkg[dstart + o:dstart + o + 5] == b'okay\0', node + ' status is not okay'
         pkg[dstart + o:dstart + o + 5] = b'late\0'

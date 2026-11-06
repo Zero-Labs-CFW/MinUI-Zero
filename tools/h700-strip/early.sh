@@ -42,7 +42,12 @@ late_load /opt/minui-zero/zero_late_mmc.ko late-mmc-trying late-mmc </dev/null >
 [ -x /opt/minui-zero/expand-roms.sh ] && /opt/minui-zero/expand-roms.sh
 [ -x /opt/minui-zero/card-fsck.sh ] && /opt/minui-zero/card-fsck.sh
 mkdir -p /mnt/mmc
-grep -q " /mnt/mmc " /proc/mounts || busybox mount -t vfat -o rw,utf8,noatime /dev/mmcblk0p6 /mnt/mmc 2>/dev/null || exit 0
+# No card mount here: startup.sh mounts it and starts the frontend, but nothing there loads the late USB module, so
+# start it on this path too (code review: USB host stayed off for that boot)
+grep -q " /mnt/mmc " /proc/mounts || busybox mount -t vfat -o rw,utf8,noatime /dev/mmcblk0p6 /mnt/mmc 2>/dev/null || {
+	( sleep 3; late_load /opt/minui-zero/zero_late_usb.ko late-usb-trying late-usb ) </dev/null >/dev/null 2>&1 &
+	exit 0
+}
 read -r _zu _ </proc/uptime; echo "$_zu mounted" >>/dev/shm/zero-boot
 : >/run/zero-early
 read -r _zu _ </proc/uptime; echo "$_zu frontend" >>/dev/shm/zero-boot
