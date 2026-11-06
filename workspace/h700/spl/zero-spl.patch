@@ -1,3 +1,40 @@
+diff --git a/arch/arm/lib/crt0_64.S b/arch/arm/lib/crt0_64.S
+index 3e7627aa..943b05ad 100644
+--- a/arch/arm/lib/crt0_64.S
++++ b/arch/arm/lib/crt0_64.S
+@@ -158,6 +158,10 @@ relocation_return:
+ /*
+  * Clear BSS section
+  */
++#if defined(CONFIG_XPL_BUILD) && defined(CONFIG_MACH_SUN50I_H616)
++	/* MinUI Zero: BSS is in SRAM and already cleared and in use (zero_vendor_early: the card is up before DRAM) */
++	b	clear_done
++#endif
+ 	adrp	x0, __bss_start
+ 	add	x0, x0, #:lo12:__bss_start
+ 	adrp	x1, __bss_end
+@@ -166,6 +170,7 @@ clear_loop:
+ 	str	xzr, [x0], #8
+ 	cmp	x0, x1
+ 	b.lo	clear_loop
++clear_done:
+ 
+ 	/* call board_init_r(gd_t *id, ulong dest_addr) */
+ 	mov	x0, x18				/* gd_t */
+diff --git a/arch/arm/mach-sunxi/Kconfig b/arch/arm/mach-sunxi/Kconfig
+index b0c5d3cd..222c4a18 100644
+--- a/arch/arm/mach-sunxi/Kconfig
++++ b/arch/arm/mach-sunxi/Kconfig
+@@ -303,7 +303,8 @@ config SUNXI_GEN_SUN6I
+ config SUN50I_GEN_H6
+ 	bool
+ 	select FIT
+-	select SPL_LOAD_FIT if SPL
++	# MinUI Zero H616 uses BOOT_DEVICE_BOARD and the vendor handoff, never the FIT loader.
++	select SPL_LOAD_FIT if SPL && !MACH_SUN50I_H616
+ 	select MMC_SUNXI_HAS_NEW_MODE
+ 	select SUPPORT_SPL
+ 	help
 diff --git a/arch/arm/mach-sunxi/Makefile b/arch/arm/mach-sunxi/Makefile
 index ff475d8f..74348804 100644
 --- a/arch/arm/mach-sunxi/Makefile
@@ -41,12 +78,80 @@ index 432b1c10..4d4cf8eb 100644
  	return sunxi_get_boot_device();
  }
  
+diff --git a/arch/arm/mach-sunxi/zero_params.h b/arch/arm/mach-sunxi/zero_params.h
+new file mode 100644
+index 00000000..021f8605
+--- /dev/null
++++ b/arch/arm/mach-sunxi/zero_params.h
+@@ -0,0 +1,62 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * MinUI Zero H700 stage 2 (2026-11-06): what the SPL hands our DRAM loader. The SPL jumps to the loader's entry at
++ * EL3 (AArch64, MMU and caches off) with x0 pointing at this block, in DRAM. Every address is physical. The same
++ * header is compiled into the SPL (arch/arm/mach-sunxi/zero_params.h) and into the loader: keep them identical.
++ */
++#ifndef ZERO_PARAMS_H
++#define ZERO_PARAMS_H
++
++#define ZP_MAGIC	0x5a504152u	/* "ZPAR" */
++#define ZP_VERSION	1u
++
++/* DRAM map shared by the SPL and the loader (1 GiB from 0x40000000; the SPL's own heap, BSS and page tables sit at
++ * 0x4f000000 and up and die with it) */
++#define ZL_LOAD_ADDR	0x4c000000ull	/* loader image (64-byte header first), 1 MiB region incl. its stack */
++#define ZL_LOAD_MAX	0x00100000ull
++#define ZL_KGZ_ADDR	0x45000000ull	/* compressed kernel as stored in boot.img (vendor U-Boot's own boot.img address) */
++#define ZL_KGZ_MAX	0x02000000ull	/* 32 MiB */
++#define ZL_FDT_MAX	0x00080000ull	/* room the loader has to grow the package dtb (built in place at its load address) */
++#define ZL_HDR_ADDR	0x44f00000ull	/* the 2048-byte boot.img header */
++
++/* loader image header (64 bytes, at ZL_LOAD_ADDR); the SPL refuses the loader unless magic, length and sum match */
++#define ZL_HDR_MAGIC	"ZEROLDR1"	/* 8 bytes */
++#define ZL_HDR_LEN	64
++#define ZL_SUM_STAMP	0x5f0a6c39u	/* the sum field counts as this, like eGON */
++struct zero_loader_hdr {
++	char magic[8];
++	unsigned int length;		/* whole image incl. this header, multiple of 512, <= ZL_LOAD_MAX - 64 KiB */
++	unsigned int entry;		/* offset of the entry point from the image start (64) */
++	unsigned int sum;		/* sum of every 32-bit word of the image, this field read as ZL_SUM_STAMP */
++	unsigned int version;		/* 1 */
++	unsigned int reserved[10];
++};
++
++#define ZP_FLAG_CARD	(1u << 0)	/* booted from the card (not FEL) */
++
++struct zero_params {
++	unsigned int magic;
++	unsigned int version;
++	unsigned int size;		/* sizeof(struct zero_params) */
++	unsigned int flags;		/* ZP_FLAG_* */
++	unsigned long long monitor;	/* vendor monitor run address; its head: +0x14 entry, +0x24 block, +0x30 words, +0xb0 fdt */
++	unsigned long long uboot;	/* vendor U-Boot run address from the package (0x4a000000); nothing is loaded there */
++	unsigned long long dtb, dtb_len;	/* package dtb as read (raw bytes, at the address where the FDT is also built) */
++	unsigned long long dtbo, dtbo_len;	/* package dtbo as read, dtbo_len 0 if none */
++	unsigned long long bootimg_hdr;		/* the 2048-byte boot.img header */
++	unsigned long long kernel_gz, kernel_gz_len;	/* compressed kernel exactly as stored */
++	unsigned long long ramdisk, ramdisk_len;	/* ramdisk as stored (the Zero image ships a 512-byte dummy) */
++	unsigned long long kernel_addr;	/* inflate to here (boot.img kernel_addr) */
++	unsigned long long kernel_max;	/* room there */
++	unsigned long long fdt_max;	/* room to grow the dtb in place */
++	unsigned int dram_mib;
++	unsigned int toc1_len;
++	unsigned int dram_words[32];	/* stock boot0 +0x38, the trained values the monitor needs for resume */
++	unsigned char board_block[8];	/* stock boot0 +0xf0 */
++	unsigned int spl_us[4];		/* SPL timing, microseconds since reset: start, DRAM up, card ready, all reads done */
++	unsigned int card_khz;
++	unsigned int bus_width;
++	unsigned int pmic_boot_regs;	/* AXP2202 reg 0x20 | reg 0x00 << 8 | reg 0xf0 << 16; all reads succeeded */
++};
++
++#endif
 diff --git a/arch/arm/mach-sunxi/zero_vendor.c b/arch/arm/mach-sunxi/zero_vendor.c
 new file mode 100644
-index 00000000..219e52aa
+index 00000000..becdfebe
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,637 @@
+@@ -0,0 +1,758 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -112,7 +217,7 @@ index 00000000..219e52aa
 +#define ZV_TOC1_MAX	(4 << 20)
 +#define ZV_ITEM_SIZE	368
 +#define ZV_PIN_BUF	0x43800000UL	/* 64 KiB: the validated pinned boot0 */
-+#define ZV_CHK_BUF	0x43820000UL	/* 64 KiB: readback */
++#define ZV_CHK_BUF	0x43820000UL	/* 64 KiB, then the MMC DMA descriptors (2 KiB, sunxi_mmc.c zdma_des) */
 +#define ZV_STAMP	0x5f0a6c39
 +#define ZV_RESTORE	0x5a56ffffU
 +#define ZV_MARK_MAGIC	"ZERO-ATTEMPT-V1"
@@ -194,19 +299,75 @@ index 00000000..219e52aa
 +	return -ENOENT;
 +}
 +
-+/* one BROM slot, header last: the old header is invalidated first, so a power cut mid-way leaves a slot BROM skips */
-+static int zv_put_slot(struct blk_desc *bd, ulong slot, const u8 *img)
++/*
++ * The safety net runs before DRAM (2026-11-05, universal SPL): a board whose DRAM init fails must still get its stock
++ * boot0 back by itself, and the old restore needed DRAM. So the card is read and written here through two 2 KiB SRAM
++ * buffers (BSS lives in SRAM on this SoC, see zero_vendor_early), under the MMC driver's DMA threshold: the CPU path.
++ */
++#define ZV_CHUNK	4	/* sectors per transfer */
++static u8 zv_buf[ZV_CHUNK * 512] __aligned(64), zv_chk[ZV_CHUNK * 512] __aligned(64);
++
++static u32 zv_sum_chunk(ulong s, u32 sum)
 +{
-+	static u8 zero[512] __aligned(64);
-+	u8 *chk = (u8 *)ZV_CHK_BUF;
++	u32 i;
++
++	for (i = 0; i < sizeof(zv_buf); i += 4)
++		sum += (!s && i == 12) ? ZV_STAMP : *(const u32 *)(zv_buf + i);
++	return sum;
++}
++
++/* a pinned stock boot0, streamed: eGON magic, exactly 64 KiB, not an SPL, a valid checksum */
++static int zv_pin_ok(struct blk_desc *bd, ulong pin)
++{
++	u32 sum = 0, want = 0;
++	ulong s;
++
++	for (s = 0; s < ZV_B0_SECTORS; s += ZV_CHUNK) {
++		if (zv_read(bd, pin + s, sizeof(zv_buf), zv_buf))
++			return 0;
++		if (!s) {
++			if (memcmp(zv_buf + 4, "eGON.BT0", 8) || *(const u32 *)(zv_buf + 16) != ZV_B0_LEN ||
++			    !memcmp(zv_buf + 0x14, "SPL", 3))
++				return 0;
++			want = *(const u32 *)(zv_buf + 12);
++		}
++		sum = zv_sum_chunk(s, sum);
++	}
++	return sum == want;
++}
++
++/*
++ * One BROM slot from a validated pin, header last: the old header is invalidated first, so a power cut mid-way leaves
++ * a slot BROM skips. Each body chunk is read back, and the body copied must still sum to the pin's checksum before the
++ * header goes down.
++ */
++static int zv_put_slot(struct blk_desc *bd, ulong slot, ulong pin)
++{
++	u32 sum, want = 0, skip;
++	ulong s;
 +	int tries;
 +
 +	for (tries = 0; tries < 3; tries++) {
-+		if (zv_write(bd, slot, 1, zero) ||
-+		    zv_write(bd, slot + 1, ZV_B0_SECTORS - 1, img + 512) ||
-+		    zv_read(bd, slot + 1, ZV_B0_LEN - 512, chk + 512) || memcmp(chk + 512, img + 512, ZV_B0_LEN - 512))
++		memset(zv_chk, 0, 512);
++		if (zv_write(bd, slot, 1, zv_chk))
 +			continue;
-+		if (zv_write(bd, slot, 1, img) || zv_read(bd, slot, ZV_B0_LEN, chk) || memcmp(chk, img, ZV_B0_LEN))
++		sum = 0;
++		for (s = 0; s < ZV_B0_SECTORS; s += ZV_CHUNK) {
++			if (zv_read(bd, pin + s, sizeof(zv_buf), zv_buf))
++				break;
++			if (!s)
++				want = *(const u32 *)(zv_buf + 12);
++			sum = zv_sum_chunk(s, sum);
++			skip = s ? 0 : 1;	/* the header sector goes last */
++			if (zv_write(bd, slot + s + skip, ZV_CHUNK - skip, zv_buf + skip * 512) ||
++			    zv_read(bd, slot + s + skip, (ZV_CHUNK - skip) * 512, zv_chk) ||
++			    memcmp(zv_chk, zv_buf + skip * 512, (ZV_CHUNK - skip) * 512))
++				break;
++		}
++		if (s < ZV_B0_SECTORS || sum != want)
++			continue;
++		if (zv_read(bd, pin, 512, zv_buf) || *(const u32 *)(zv_buf + 12) != want ||
++		    zv_write(bd, slot, 1, zv_buf) || zv_read(bd, slot, 512, zv_chk) || memcmp(zv_chk, zv_buf, 512))
 +			continue;
 +		return 0;
 +	}
@@ -301,13 +462,14 @@ index 00000000..219e52aa
 +	clrsetbits_le32((void *)ZV_RTC_GP13, 0xff, step);
 +}
 +
-+/* restore the pinned stock boot0 to the backup slot, then the primary, then clear the markers and reset */
++/* restore the pinned stock boot0 to the backup slot, then the primary, then clear the markers and reset; no DRAM */
 +static void __noreturn zv_restore(struct blk_desc *bd)
 +{
-+	u8 *pin = (u8 *)ZV_PIN_BUF;
++	ulong pin;
 +
 +	zv_crumb(0x30);
-+	if (zv_load_pin(bd, pin)) {
++	pin = zv_pin_ok(bd, ZV_PIN_A) ? ZV_PIN_A : zv_pin_ok(bd, ZV_PIN_B) ? ZV_PIN_B : 0;
++	if (!pin) {
 +		/* nothing trustworthy to restore from: never touch a BROM slot; stay pending, try again next start */
 +		zv_crumb(0x3e);
 +		writel(0x5a56fffe, (void *)ZV_RTC_GP14);
@@ -330,12 +492,81 @@ index 00000000..219e52aa
 +	zv_reset();
 +}
 +
++/*
++ * The card, brought up once: before DRAM by zero_vendor_early (card boots), else by the hand-off (FEL). Kept in BSS,
++ * which survives to the hand-off because crt0 skips its late BSS clear on this SoC.
++ */
++static struct blk_desc *zv_bd;
++static u32 zv_mmc_err;		/* zv_status step and detail of a failed bring-up */
++static int zv_marked;		/* the attempt marker is on the card for this start */
++
++static struct blk_desc *zv_mmc_up(void)
++{
++	struct mmc *mmc;
++	int ret;
++
++	if (zv_bd)
++		return zv_bd;
++	/*
++	 * Before DRAM the only heap is the early arena above gd, and with SPL_STACK_R + SYS_MALLOC_SIMPLE spl_init() leaves
++	 * its limit at 0 (the DRAM heap set up by spl_relocate_stack_gd is meant to be the first): every calloc failed, the
++	 * card never registered, and the hand-off could not register it either (Plus, 2026-11-06: a start loop). The
++	 * arena stays valid after the move to DRAM, and so does the card's struct in it.
++	 */
++	if (!gd->malloc_limit)
++		gd->malloc_limit = CONFIG_VAL(SYS_MALLOC_F_LEN);
++	ret = mmc_initialize(NULL);
++	if (ret) {
++		zv_mmc_err = 2 | (u32)ret << 8;
++		return NULL;
++	}
++	mmc = find_mmc_device(0);
++	if (!mmc && !board_mmc_init(NULL))	/* mmc_initialize() probes once: a failed early try must not end the retry */
++		mmc = find_mmc_device(0);
++	if (!mmc) {
++		zv_mmc_err = 3;
++		return NULL;
++	}
++	ret = mmc_init(mmc);
++	if (ret) {
++		/*
++		 * A card that fails high-speed init here would fail it on every start, before the safety net can restore
++		 * stock: slot 16 would keep a valid SPL forever (Codex review 2026-11-05). BROM just read us from this card
++		 * at its own default speed, so retry without high speed before giving up.
++		 */
++		struct mmc_config *cfg = (struct mmc_config *)mmc->cfg;
++
++		cfg->host_caps &= ~(MMC_MODE_HS | MMC_MODE_HS_52MHz);
++		cfg->f_max = 25000000;
++		mmc->has_init = 0;
++		ret = mmc_init(mmc);
++	}
++	if (ret) {
++		zv_mmc_err = 4 | (u32)ret << 8;
++		return NULL;
++	}
++	zv_stamp(0x120);
++	zv_crumb(0x20);
++	/* timing diagnostics (GP4): negotiated card clock in kHz, bus width in the top byte */
++	writel((mmc->bus_width << 24) | (mmc->clock / 1000), (void *)(SUNXI_RTC_BASE + 0x110));
++	zv_bd = mmc_get_blk_desc(mmc);
++	return zv_bd;
++}
++
 +u32 sunxi_get_boot_device(void);
++
++extern char __bss_start[], __bss_end[];
 +
 +void zero_vendor_early(void)
 +{
-+	u32 last = readl((void *)ZV_RTC_GP15);
++	u32 last = readl((void *)ZV_RTC_GP15), prev = readl((void *)ZV_RTC_GP13) & 0xff;
++	struct blk_desc *bd;
 +
++	/*
++	 * BSS is in SRAM here (SPL_BSS_START_ADDR, build.sh) and crt0 does not clear it on this SoC, so clear it now, before
++	 * anything uses it. Nothing earlier in board_init_f touches BSS: upstream keeps it in DRAM, which is not up yet.
++	 */
++	memset(__bss_start, 0, __bss_end - __bss_start);
 +	zv_stamp(0x12c);
 +	writel((readl((void *)ZV_RTC_GP13) & 0xff000000) + 0x01000001, (void *)ZV_RTC_GP13);
 +	if (sunxi_get_boot_device() == BOOT_DEVICE_BOARD)
@@ -361,6 +592,28 @@ index 00000000..219e52aa
 +		writel(0x5a560001, (void *)ZV_RTC_GP15);
 +	}
 +	zv_wdog_arm(0x7);	/* 8 s: a hang anywhere before the hand-off resets back here */
++	/*
++	 * Before PMIC and DRAM: a pending restore (RTC flag, or the on-card marker an unacknowledged start left, which
++	 * survives a power cut that clears the RTC) puts stock boot0 back now; otherwise the marker goes down for this
++	 * start, so a DRAM init that hangs or fails is undone on the next one (watchdog), with no DRAM needed.
++	 * If the last start died inside this card work (its crumb still 0x02, 0x20, or 0x30-0x3f but not 0x34, a finished
++	 * restore), skip it once: the hand-off does the same work after DRAM, the path every earlier release took, so a
++	 * hang here cannot loop forever.
++	 */
++	if (prev == 0x02 || prev == 0x20 || ((prev & 0xf0) == 0x30 && prev != 0x34)) {
++		zv_crumb(0x06);
++		return;
++	}
++	zv_crumb(0x02);
++	bd = zv_mmc_up();
++	if (!bd) {
++		zv_crumb(0x05);		/* no card before DRAM: the hand-off tries again and reports it */
++		return;
++	}
++	if (readl((void *)ZV_RTC_GP15) == ZV_RESTORE || zv_marker_get(bd))
++		zv_restore(bd);
++	zv_marked = !zv_marker_set(bd, 1);
++	zv_crumb(0x0e);			/* card work done: DRAM next */
 +}
 +
 +#ifdef ZV_TRACE
@@ -518,11 +771,9 @@ index 00000000..219e52aa
 +{
 +	u8 *pin = (u8 *)ZV_PIN_BUF;
 +	int card = sunxi_get_boot_device() != BOOT_DEVICE_BOARD;
-+	struct mmc *mmc;
 +	struct blk_desc *bd;
 +	ulong pkg = ZV_TOC1_ADDR, uboot = 0, monitor = 0;
 +	u32 count, len, i, dtb_len = 0, dtbo_len = 0;
-+	int ret;
 +
 +	zv_stamp(0x128);
 +	zv_crumb(0x10);
@@ -531,41 +782,16 @@ index 00000000..219e52aa
 +	printf("zero: vendor hand-off\n");
 +	if (!card)
 +		zv_wdog_arm(0x7);	/* FEL test runs: a hang still resets */
-+	ret = mmc_initialize(NULL);
-+	if (ret) {
-+		zv_status(2, ret);
++	bd = zv_mmc_up();
++	if (!bd) {
++		zv_status(zv_mmc_err & 0xff, (int)zv_mmc_err >> 8);
 +		return;
 +	}
-+	mmc = find_mmc_device(0);
-+	if (!mmc) {
-+		zv_status(3, 0);
-+		return;
++	if (card && !zv_marked) {	/* the card did not come up before DRAM: do the early card work here */
++		if (readl((void *)ZV_RTC_GP15) == ZV_RESTORE || zv_marker_get(bd))
++			zv_restore(bd);
++		zv_marked = !zv_marker_set(bd, 1);
 +	}
-+	ret = mmc_init(mmc);
-+	if (ret) {
-+		/*
-+		 * A card that fails high-speed init here would fail it on every start, before the safety net can restore
-+		 * stock: slot 16 would keep a valid SPL forever (Codex review 2026-11-05). BROM just read us from this card
-+		 * at its own default speed, so retry without high speed before giving up.
-+		 */
-+		struct mmc_config *cfg = (struct mmc_config *)mmc->cfg;
-+
-+		cfg->host_caps &= ~(MMC_MODE_HS | MMC_MODE_HS_52MHz);
-+		cfg->f_max = 25000000;
-+		mmc->has_init = 0;
-+		ret = mmc_init(mmc);
-+	}
-+	if (ret) {
-+		zv_status(4, ret);
-+		return;
-+	}
-+	bd = mmc_get_blk_desc(mmc);
-+	zv_stamp(0x120);
-+	zv_crumb(0x20);
-+	/* timing diagnostics (GP4): negotiated card clock in kHz, bus width in the top byte */
-+	writel((mmc->bus_width << 24) | (mmc->clock / 1000), (void *)(SUNXI_RTC_BASE + 0x110));
-+	if (card && (readl((void *)ZV_RTC_GP15) == ZV_RESTORE || zv_marker_get(bd)))
-+		zv_restore(bd);
 +	zv_status(10, 0);
 +	if (ZV_STOP == 10)
 +		return;
@@ -574,7 +800,7 @@ index 00000000..219e52aa
 +		zv_status(5, 0);
 +		return;
 +	}
-+	if (card && zv_marker_set(bd, 1)) {
++	if (card && !zv_marked) {	/* written before DRAM (zero_vendor_early) */
 +		zv_status(6, 0);
 +		return;
 +	}
@@ -627,7 +853,7 @@ index 00000000..219e52aa
 +			continue;
 +		}
 +		end = dst + ((size + 511) & ~511UL);
-+		if (dst < 0x40000000UL || end > 0x4fd00000UL || (dst < ZV_CHK_BUF + ZV_B0_LEN && end > ZV_TOC1_ADDR) ||
++		if (dst < 0x40000000UL || end > 0x4fd00000UL || (dst < ZV_CHK_BUF + ZV_B0_LEN + 0x800 && end > ZV_TOC1_ADDR) ||
 +		    (dst < ZV_TLB + ZV_TLB_LEN && end > ZV_TLB)) {	/* nor over the live page tables (code review) */
 +			zv_status(15, dst);
 +			return;
@@ -705,7 +931,7 @@ index 3d1afec7..9763ce14 100644
  		status_led_init();
  
 diff --git a/drivers/mmc/sunxi_mmc.c b/drivers/mmc/sunxi_mmc.c
-index 84f4e4c2..34f7aae9 100644
+index 84f4e4c2..9519b41c 100644
 --- a/drivers/mmc/sunxi_mmc.c
 +++ b/drivers/mmc/sunxi_mmc.c
 @@ -19,6 +19,7 @@
@@ -716,7 +942,7 @@ index 84f4e4c2..34f7aae9 100644
  #include <reset.h>
  #include <asm/gpio.h>
  #include <asm/io.h>
-@@ -343,10 +344,93 @@ static int mmc_rint_wait(struct sunxi_mmc_priv *priv, struct mmc *mmc,
+@@ -343,10 +344,94 @@ static int mmc_rint_wait(struct sunxi_mmc_priv *priv, struct mmc *mmc,
  	return 0;
  }
  
@@ -744,7 +970,8 @@ index 84f4e4c2..34f7aae9 100644
 +	u32 next;
 +};
 +
-+static struct zdma_des zdma_des[ZDMA_MAX_DESC] __aligned(64);
++/* in DRAM, not BSS: BSS is in SRAM on the H616 SPL, and this DMA only ever runs once DRAM is up (reads into DRAM) */
++#define zdma_des	((struct zdma_des *)0x43830000UL)
 +
 +static int zdma_usable(struct mmc_data *data)
 +{
@@ -810,7 +1037,7 @@ index 84f4e4c2..34f7aae9 100644
  	unsigned int cmdval = SUNXI_MMC_CMD_START;
  	unsigned int timeout_msecs;
  	int error = 0;
-@@ -401,8 +485,10 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
+@@ -401,8 +486,10 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
  
  		bytecnt = data->blocksize * data->blocks;
  		debug("trans data %d bytes\n", bytecnt);
@@ -822,7 +1049,7 @@ index 84f4e4c2..34f7aae9 100644
  		if (ret) {
  			error = readl(&priv->reg->rint) &
  				SUNXI_MMC_RINT_INTERRUPT_ERROR_BIT;
-@@ -418,6 +504,8 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
+@@ -418,6 +505,8 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
  
  	if (data) {
  		timeout_msecs = 120;
@@ -831,7 +1058,7 @@ index 84f4e4c2..34f7aae9 100644
  		debug("cacl timeout %x msec\n", timeout_msecs);
  		error = mmc_rint_wait(priv, mmc, timeout_msecs,
  				      data->blocks > 1 ?
-@@ -426,6 +514,16 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
+@@ -426,6 +515,16 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
  				      "data");
  		if (error)
  			goto out;
@@ -848,7 +1075,7 @@ index 84f4e4c2..34f7aae9 100644
  	}
  
  	if (cmd->resp_type & MMC_RSP_BUSY) {
-@@ -455,6 +553,8 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
+@@ -455,6 +554,8 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
  		debug("mmc resp 0x%08x\n", cmd->response[0]);
  	}
  out:
@@ -857,85 +1084,3 @@ index 84f4e4c2..34f7aae9 100644
  	if (error < 0) {
  		writel(SUNXI_MMC_GCTRL_RESET, &priv->reg->gctrl);
  		mmc_update_clk(priv);
-diff --git a/arch/arm/mach-sunxi/zero_params.h b/arch/arm/mach-sunxi/zero_params.h
-new file mode 100644
-index 00000000..021f8605
---- /dev/null
-+++ b/arch/arm/mach-sunxi/zero_params.h
-@@ -0,0 +1,62 @@
-+/* SPDX-License-Identifier: GPL-2.0+ */
-+/*
-+ * MinUI Zero H700 stage 2 (2026-11-06): what the SPL hands our DRAM loader. The SPL jumps to the loader's entry at
-+ * EL3 (AArch64, MMU and caches off) with x0 pointing at this block, in DRAM. Every address is physical. The same
-+ * header is compiled into the SPL (arch/arm/mach-sunxi/zero_params.h) and into the loader: keep them identical.
-+ */
-+#ifndef ZERO_PARAMS_H
-+#define ZERO_PARAMS_H
-+
-+#define ZP_MAGIC	0x5a504152u	/* "ZPAR" */
-+#define ZP_VERSION	1u
-+
-+/* DRAM map shared by the SPL and the loader (1 GiB from 0x40000000; the SPL's own heap, BSS and page tables sit at
-+ * 0x4f000000 and up and die with it) */
-+#define ZL_LOAD_ADDR	0x4c000000ull	/* loader image (64-byte header first), 1 MiB region incl. its stack */
-+#define ZL_LOAD_MAX	0x00100000ull
-+#define ZL_KGZ_ADDR	0x45000000ull	/* compressed kernel as stored in boot.img (vendor U-Boot's own boot.img address) */
-+#define ZL_KGZ_MAX	0x02000000ull	/* 32 MiB */
-+#define ZL_FDT_MAX	0x00080000ull	/* room the loader has to grow the package dtb (built in place at its load address) */
-+#define ZL_HDR_ADDR	0x44f00000ull	/* the 2048-byte boot.img header */
-+
-+/* loader image header (64 bytes, at ZL_LOAD_ADDR); the SPL refuses the loader unless magic, length and sum match */
-+#define ZL_HDR_MAGIC	"ZEROLDR1"	/* 8 bytes */
-+#define ZL_HDR_LEN	64
-+#define ZL_SUM_STAMP	0x5f0a6c39u	/* the sum field counts as this, like eGON */
-+struct zero_loader_hdr {
-+	char magic[8];
-+	unsigned int length;		/* whole image incl. this header, multiple of 512, <= ZL_LOAD_MAX - 64 KiB */
-+	unsigned int entry;		/* offset of the entry point from the image start (64) */
-+	unsigned int sum;		/* sum of every 32-bit word of the image, this field read as ZL_SUM_STAMP */
-+	unsigned int version;		/* 1 */
-+	unsigned int reserved[10];
-+};
-+
-+#define ZP_FLAG_CARD	(1u << 0)	/* booted from the card (not FEL) */
-+
-+struct zero_params {
-+	unsigned int magic;
-+	unsigned int version;
-+	unsigned int size;		/* sizeof(struct zero_params) */
-+	unsigned int flags;		/* ZP_FLAG_* */
-+	unsigned long long monitor;	/* vendor monitor run address; its head: +0x14 entry, +0x24 block, +0x30 words, +0xb0 fdt */
-+	unsigned long long uboot;	/* vendor U-Boot run address from the package (0x4a000000); nothing is loaded there */
-+	unsigned long long dtb, dtb_len;	/* package dtb as read (raw bytes, at the address where the FDT is also built) */
-+	unsigned long long dtbo, dtbo_len;	/* package dtbo as read, dtbo_len 0 if none */
-+	unsigned long long bootimg_hdr;		/* the 2048-byte boot.img header */
-+	unsigned long long kernel_gz, kernel_gz_len;	/* compressed kernel exactly as stored */
-+	unsigned long long ramdisk, ramdisk_len;	/* ramdisk as stored (the Zero image ships a 512-byte dummy) */
-+	unsigned long long kernel_addr;	/* inflate to here (boot.img kernel_addr) */
-+	unsigned long long kernel_max;	/* room there */
-+	unsigned long long fdt_max;	/* room to grow the dtb in place */
-+	unsigned int dram_mib;
-+	unsigned int toc1_len;
-+	unsigned int dram_words[32];	/* stock boot0 +0x38, the trained values the monitor needs for resume */
-+	unsigned char board_block[8];	/* stock boot0 +0xf0 */
-+	unsigned int spl_us[4];		/* SPL timing, microseconds since reset: start, DRAM up, card ready, all reads done */
-+	unsigned int card_khz;
-+	unsigned int bus_width;
-+	unsigned int pmic_boot_regs;	/* AXP2202 reg 0x20 | reg 0x00 << 8 | reg 0xf0 << 16; all reads succeeded */
-+};
-+
-+#endif
-diff --git a/arch/arm/mach-sunxi/Kconfig b/arch/arm/mach-sunxi/Kconfig
-index b0c5d3cd..222c4a18 100644
---- a/arch/arm/mach-sunxi/Kconfig
-+++ b/arch/arm/mach-sunxi/Kconfig
-@@ -303,7 +303,8 @@ config SUNXI_GEN_SUN6I
- config SUN50I_GEN_H6
- 	bool
- 	select FIT
--	select SPL_LOAD_FIT if SPL
-+	# MinUI Zero H616 uses BOOT_DEVICE_BOARD and the vendor handoff, never the FIT loader.
-+	select SPL_LOAD_FIT if SPL && !MACH_SUN50I_H616
- 	select MMC_SUNXI_HAS_NEW_MODE
- 	select SUPPORT_SPL
- 	help

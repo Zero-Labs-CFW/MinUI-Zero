@@ -7,7 +7,7 @@
 #                                      + on-card marker at 16640) that puts stock back if a boot never acknowledges
 #   board.c hooks                      spl_board_load_image / zero_vendor_early on H616-family builds only
 #   drivers/mmc/sunxi_mmc.c            DMA (IDMAC) for large SPL reads, retry without high speed on a failed init
-# Config: anbernic_rg35xx_h700_defconfig + CONFIG_SPL_MMC_WRITE (the safety net writes the card).
+# Config: anbernic_rg35xx_h700_defconfig + CONFIG_SPL_MMC_WRITE (the safety net writes the card) + BSS in SRAM.
 # Install on a device with zero-install.sh; Linux side: tools/h700-strip/boot0-slot.sh (deep sleep swap, boot ack).
 #   sh workspace/h700/spl/build.sh [cache dir]      -> <cache dir>/zero-spl.bin
 set -e
@@ -34,6 +34,8 @@ make -s anbernic_rg35xx_h700_defconfig
 # H616 boots only the vendor chain, not FIT; keep SRAM for recovery and stage2 guards.
 ./scripts/config --disable SPL_FIT --disable SPL_LOAD_FIT --disable SPL_HASH --disable SPL_OF_LIBFDT
 ./scripts/config --disable SPL_LEGACY_IMAGE_FORMAT
+# BSS in SRAM right after the SPL (it ends at 0x2c000; BROM loads 64 KiB stock boot0 here): the safety net runs before DRAM
+./scripts/config --set-val SPL_BSS_START_ADDR 0x2c000 --set-val SPL_BSS_MAX_SIZE 0x4000
 make -s olddefconfig
 if grep -Eq "^CONFIG_SPL_(FIT|LOAD_FIT|HASH|OF_LIBFDT|LEGACY_IMAGE_FORMAT)=y$" .config; then
     echo "ERROR: an unused SPL image loader was selected again"; exit 1
