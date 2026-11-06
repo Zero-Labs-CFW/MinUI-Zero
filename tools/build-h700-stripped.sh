@@ -312,6 +312,19 @@ echo "$ROOTFS_LEVEL" > "$ASSETS/rootfs-level"
 if [ "$DEVICE" = all ]; then
 	cp "$REPO/tools/h700-strip/boardpick.sh" "$ASSETS/boardpick.sh"
 	cp "$REPO/workspace/h700/boardpick/build/h700/boardpick.elf" "$ASSETS/boardpick.elf" || { echo "ERROR: no boardpick.elf, run make h700-build"; exit 1; }
+	# FAST BOOT LOADER (2026-11-06): both SPL builds (LPDDR4, LPDDR3) from the committed sources, by build.sh with all
+	# its checks (docker debian:bookworm arm64; the first build clones U-Boot v2026.10 into $ASSETS/spl/u-boot), cached
+	# in $ASSETS/spl until zero-spl.patch or build.sh change (sources.md5; verify-image.py checks the same sum). On the
+	# device, spl-auto.sh installs the right one with zero-install.sh where it qualifies (boot0-slot.sh ack runs it).
+	_spl="$ASSETS/spl"
+	_spl_sum=$(cat "$REPO/workspace/h700/spl/zero-spl.patch" "$REPO/workspace/h700/spl/build.sh" | md5 -q)
+	if [ ! -f "$_spl/zero-spl.bin" ] || [ ! -f "$_spl/zero-spl-lp3.bin" ] || [ "$(cat "$_spl/sources.md5" 2>/dev/null)" != "$_spl_sum" ]; then
+		rm -f "$_spl/sources.md5" "$_spl/zero-spl.bin" "$_spl/zero-spl-lp3.bin"
+		sh "$REPO/workspace/h700/spl/build.sh" "$_spl" || { echo "ERROR: SPL build"; exit 1; }
+		echo "$_spl_sum" > "$_spl/sources.md5"
+	fi
+	cp "$REPO/workspace/h700/spl/zero-install.sh" "$ASSETS/zero-install.sh"
+	cp "$REPO/tools/h700-strip/spl-auto.sh" "$ASSETS/spl-auto.sh"
 fi
 # First-boot "Installing MinUI Zero..." frame for expand-roms.sh (raw fb page, panel-sized).
 rm -f "$ASSETS/installing.raw"
@@ -701,6 +714,11 @@ if [ "$DEVICE" = all ]; then
 	cp /a/boardpick.elf "$R/opt/minui-zero/boardpick.elf"
 	chmod +x "$R/opt/minui-zero/boardpick.sh" "$R/opt/minui-zero/boardpick.elf"
 	echo "  one image: boards staged ($(ls "$R/opt/minui-zero/boards" | tr "\n" " ")), picker installed"
+	# the fast boot loader and its installer (spl-auto.sh, run by boot0-slot.sh ack, says where and when)
+	mkdir -p "$R/opt/minui-zero/spl"
+	cp /a/spl/zero-spl.bin /a/spl/zero-spl-lp3.bin /a/zero-install.sh "$R/opt/minui-zero/spl/"
+	cp /a/spl-auto.sh "$R/opt/minui-zero/spl-auto.sh" && chmod 755 "$R/opt/minui-zero/spl-auto.sh"
+	rm -f "$R/opt/minui-zero/spl-state"
 fi
 chmod +x "$R/opt/minui-zero/expand-roms.sh"
 [ -f /a/installing.raw ] && cp /a/installing.raw "$R/opt/minui-zero/installing.raw"

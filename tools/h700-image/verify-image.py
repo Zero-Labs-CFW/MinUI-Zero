@@ -12,10 +12,11 @@ Checks, each against bytes rebuilt from the pinned assets rather than a remember
   p2 p3 p4     the boot, env and kernel partitions equal the board's parts
   payload      .system/version.txt names the expected version (mtools); a release carries no devmode.txt
   rootfs       (docker debugfs) root locked, dropbear key-only, muOS lid.sh and boot-time WiFi off, GPU
-               ceiling, no baked ssh key on a release, and the /opt/muos/device overlay is this board's
+               ceiling, no baked ssh key on a release, and the /opt/muos/device overlay is this board's; on the one
+               image, both SPL builds of the committed sources and their installers (spl-auto.sh, zero-install.sh)
 Replaces the per-release scratch verify-images.py / verify-rootfs.py copies in .notes.
 """
-import filecmp, gzip, io, os, shutil, struct, subprocess, sys, tarfile, tempfile, zlib
+import filecmp, gzip, hashlib, io, os, shutil, struct, subprocess, sys, tarfile, tempfile, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -89,6 +90,20 @@ def expected_chain(assets, device, tmp):
         for off in BOOT0_OFFS:
             chain[off:off + len(b)] = b
     return bytes(chain) if device == 'all' else fastboot.chain(bytes(chain))
+
+
+def spl_ok(b, t):
+    """One of our SPL builds as zero-install.sh accepts it: eGON + "SPL", declared length = size <= 48 KiB in whole
+    sectors, a good checksum, our hand-off, and exactly its own DRAM type string (t: b'lp4' or b'lp3')."""
+    if len(b) < 512 or b[4:12] != b'eGON.BT0' or b[20:23] != b'SPL':
+        return False
+    n = struct.unpack('<I', b[16:20])[0]
+    if n != len(b) or n > 49152 or n % 512:
+        return False
+    y = bytearray(b); y[12:16] = struct.pack('<I', 0x5F0A6C39)
+    other = b'lp3' if t == b'lp4' else b'lp4'
+    return (sum(struct.unpack('<%dI' % (n // 4), bytes(y))) & 0xffffffff == struct.unpack('<I', b[12:16])[0] and
+            b'zero: vendor hand-off' in b and b'zero: dram ' + t in b and b'zero: dram ' + other not in b)
 
 
 def debugfs(img, off, path):
@@ -412,6 +427,30 @@ def main():
             # the frontend and the picker test these by existence, so check existence, not contents
             for n in ('chosen', 'chosen.new', 'trying', 'pending', 'pending.new', 'undo-boot0.img'):
                 check('no boards/' + n + ' yet', debugfs_mode(img, off, '/opt/minui-zero/boards/' + n) is None)
+            # the fast boot loader: both builds, from these sources (the build's cache carries their sum), and the
+            # scripts that install it once the model is known (spl-auto.sh, run by boot0-slot.sh ack)
+            spl_src = os.path.join(REPO, 'workspace', 'h700', 'spl')
+            want_sum = hashlib.md5(open(os.path.join(spl_src, 'zero-spl.patch'), 'rb').read() +
+                                   open(os.path.join(spl_src, 'build.sh'), 'rb').read()).hexdigest()
+            spl_cache = os.path.join(assets, 'spl')
+            try:
+                have_sum = open(os.path.join(spl_cache, 'sources.md5')).read().strip()
+            except OSError:
+                have_sum = ''
+            check('SPL builds are of these sources', have_sum == want_sum, have_sum or 'no build cache')
+            for name, t in (('zero-spl.bin', b'lp4'), ('zero-spl-lp3.bin', b'lp3')):
+                have = cat('/opt/minui-zero/spl/' + name)
+                built = os.path.join(spl_cache, name)
+                check('SPL ' + name + ' well-formed', spl_ok(have, t), '%d bytes' % len(have))
+                check('SPL ' + name + ' is the build', os.path.isfile(built) and have == open(built, 'rb').read())
+            for src, dst, x in (('workspace/h700/spl/zero-install.sh', '/opt/minui-zero/spl/zero-install.sh', False),
+                                ('tools/h700-strip/spl-auto.sh', '/opt/minui-zero/spl-auto.sh', True)):
+                mode = debugfs_mode(img, off, dst)
+                check(os.path.basename(dst) + ' current' + (' + executable' if x else ''),
+                      cat(dst) == open(os.path.join(REPO, src), 'rb').read() and mode is not None and
+                      (not x or mode & 0o111 == 0o111))
+            check('ack runs spl-auto.sh', b'sh /opt/minui-zero/spl-auto.sh' in cat('/opt/minui-zero/boot0-slot.sh'))
+            check('no spl-state yet', debugfs_mode(img, off, '/opt/minui-zero/spl-state') is None)
             with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(img))) as tmp:
                 have = rdump(img, off, '/opt/minui-zero/boards', tmp)
                 os.makedirs(os.path.join(tmp, 'dev'))

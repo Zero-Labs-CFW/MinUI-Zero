@@ -9,7 +9,11 @@
 #   boot0-slot.sh boot             at boot: finish an interrupted swap (same rule as ours)
 #   boot0-slot.sh ack              background, at boot: once the menu (or a resumed game) is on screen, acknowledge a
 #                                  boot through our SPL (RTC GP15 and the on-card marker at 16640), so its safety net
-#                                  keeps it installed; an unacknowledged attempt is put back to stock on the next start
+#                                  keeps it installed; an unacknowledged attempt is put back to stock on the next start;
+#                                  then, in the same background process, spl-auto.sh (the one image: installs our SPL
+#                                  where it qualifies, takes it off when the card asks)
+#   boot0-slot.sh remove           take our SPL off for good (spl-auto.sh, fast-boot-off.txt): this unit's pinned stock
+#                                  boot0 into slot 16, the stored copy, the attempt marker and GP15 cleared
 # A card without our SPL (every card today) has nothing stored at 16768: every action is then a no-op.
 # The flag file is the proof that a sleep swapped our SPL out: without it, ours does nothing, so a sleep can never
 # re-enable an SPL that the SPL's own safety net removed after a failed boot (Codex review 2026-11-05).
@@ -58,12 +62,15 @@ put() { # put <image>: body first, header sector last, then verify the whole ima
 	dd if="$1" of=$D bs=512 count=1 seek=$SLOT conv=notrunc,fsync 2>/dev/null || return 1
 	slot_is "$1"
 }
+# set by spl-auto.sh while it installs or removes our SPL: a sleep then would swap a half-written slot 16
+BUSY=/run/zero-spl-busy
 case "$1" in
 store)
 	valid_ours "$2" || { echo "not a valid Zero SPL image: refusing"; exit 1; }
 	dd if="$2" of=$D bs=512 seek=$STORE conv=notrunc,fsync 2>/dev/null
 	stored && cmp -s /tmp/b0-ours.bin "$2" && echo stored ;;
 stock)	# nonzero = this sleep is not safe: the suspend script then stays awake (Codex review: never sleep on an SPL)
+	[ ! -e $BUSY ] || { echo "our SPL is being installed or removed"; exit 1; }
 	rd $SLOT 1 > /tmp/b0-slot.bin
 	[ "$(wc -c < /tmp/b0-slot.bin)" = 512 ] || { echo "cannot read slot 16"; exit 1; }	# unknown is not safe
 	[ "$(dd if=/tmp/b0-slot.bin bs=1 skip=20 count=3 2>/dev/null)" = SPL ] || exit 0	# stock boot0 in slot 16: it resumes
@@ -86,15 +93,38 @@ ours|boot)
 	stored || exit 1
 	slot_is /tmp/b0-ours.bin || put /tmp/b0-ours.bin || exit 1
 	rm -f $FLAG && sync || exit 1 ;;
+remove)	# for good, unlike a sleep swap: nothing is left that could put ours back (no flag, nothing stored)
+	rm -f $FLAG && sync || exit 1
+	rd $SLOT 1 > /tmp/b0-slot.bin
+	[ "$(wc -c < /tmp/b0-slot.bin)" = 512 ] || { echo "cannot read slot 16"; exit 1; }
+	if [ "$(dd if=/tmp/b0-slot.bin bs=1 skip=20 count=3 2>/dev/null)" = SPL ]; then
+		# the pins (this unit's own stock boot0, from the install), else the backup slot BROM would fall back to
+		rd $PIN 128 > /tmp/b0-stock.bin
+		valid_stock /tmp/b0-stock.bin || { rd $PIN_B 128 > /tmp/b0-stock.bin; valid_stock /tmp/b0-stock.bin; } ||
+			{ rd 512 128 > /tmp/b0-stock.bin; valid_stock /tmp/b0-stock.bin; } || { echo "no valid stock boot0 to put back"; exit 1; }
+		put /tmp/b0-stock.bin || { echo "putting stock boot0 back in slot 16 failed"; exit 1; }
+	fi
+	dd if=/dev/zero of=$D bs=512 seek=$STORE count=1 conv=notrunc,fsync 2>/dev/null
+	dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null
+	[ "$(rd $STORE 1 | tr -d '\000' | wc -c)" = 0 ] && [ "$(rd 16640 1 | tr -d '\000' | wc -c)" = 0 ] ||
+		{ echo "clearing the stored copy or the attempt marker failed"; exit 1; }
+	busybox devmem 0x0700013c 32 0
+	echo "removed: stock boot0 in slot 16, nothing stored" ;;
 ack)
 	# 15 min: a first boot that expands the card, a long card check or a MinUI.zip install all come before the first
 	# frame; giving up early left the attempt unacknowledged and the next start put stock back (code review)
 	_w=0; until [ -e /run/zero-menu-frame ]; do sleep 1; _w=$((_w + 1)); [ $_w -ge 900 ] && exit 0; done
-	# proof this boot came through our SPL: its attempt marker (set after DRAM, just before the hand-off) and slot 16
-	# holding the stored copy; the marker is cleared and read back before GP15, or the next start restores stock
-	[ "$(rd 16640 1 | head -c 15)" = ZERO-ATTEMPT-V1 ] || exit 0
-	stored && slot_is /tmp/b0-ours.bin || exit 0
-	dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null
-	[ "$(rd 16640 1 | tr -d '\000' | wc -c)" = 0 ] || exit 1
-	busybox devmem 0x0700013c 32 0 ;;
+	ack_boot() {
+		# proof this boot came through our SPL: its attempt marker (set after DRAM, just before the hand-off) and slot
+		# 16 holding the stored copy; the marker is cleared and read back before GP15, or the next start restores stock
+		[ "$(rd 16640 1 | head -c 15)" = ZERO-ATTEMPT-V1 ] || return 0
+		stored && slot_is /tmp/b0-ours.bin || return 0
+		dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null
+		[ "$(rd 16640 1 | tr -d '\000' | wc -c)" = 0 ] || return 1
+		busybox devmem 0x0700013c 32 0
+	}
+	ack_boot; _r=$?
+	# the one image: install or take off our SPL (spl-auto.sh says when); after the ack, off the boot path
+	[ ! -f /opt/minui-zero/spl-auto.sh ] || sh /opt/minui-zero/spl-auto.sh
+	exit $_r ;;
 esac
