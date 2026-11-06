@@ -46,7 +46,7 @@ new file mode 100644
 index 00000000..219e52aa
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,517 @@
+@@ -0,0 +1,600 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -93,6 +93,8 @@ index 00000000..219e52aa
 +#include <linux/delay.h>
 +#include <linux/string.h>
 +#include <time.h>
++#include "zero_params.h"
++#include <asm/arch/pmic_bus.h>
 +
 +DECLARE_GLOBAL_DATA_PTR;
 +
@@ -397,6 +399,84 @@ index 00000000..219e52aa
 +}
 +#endif
 +
++/* Reads stay within the IDMAC command limit, including the gzip kernel. */
++static int zv_read_large(struct blk_desc *bd, ulong sector, ulong bytes, void *dst)
++{
++	while (bytes) {
++		ulong n = min(bytes, 4UL << 20);
++
++		if (zv_read(bd, sector, n, dst))
++			return -EIO;
++		sector += (n + 511) / 512;
++		dst = (u8 *)dst + n;
++		bytes -= n;
++	}
++	return 0;
++}
++
++/* Invalid/absent loaders leave the stage-1 chain intact. All destinations are fixed, not card-controlled. */
++static void zv_stage2(struct blk_desc *bd, ulong monitor, ulong uboot, u32 toc_len, const u8 *pin, int card,
++		      u32 dtb_len, u32 dtbo_len)
++{
++	struct zero_loader_hdr *h = (void *)ZL_LOAD_ADDR;
++	struct zero_params *p = (void *)(ZL_HDR_ADDR + 2048);
++	u32 *b = (void *)ZL_HDR_ADDR;
++	u32 n, i, sum = 0, k, r;
++	u8 reason, status, scratch;
++
++	if (zv_read(bd, 16896, 512, h) || memcmp(h->magic, ZL_HDR_MAGIC, 8))
++		return;
++	n = h->length;
++	if (n < 512 || n > ZL_LOAD_MAX - 65536 || (n & 511) || h->entry != ZL_HDR_LEN ||
++	    h->version != ZP_VERSION || zv_read_large(bd, 16896, n, h))
++		return;
++	for (i = 0; i < n / 4; i++)
++		sum += i == 4 ? ZL_SUM_STAMP : ((u32 *)h)[i];
++	if (sum != h->sum || h->length != n || h->entry != ZL_HDR_LEN || h->version != ZP_VERSION ||
++	    memcmp(h->magic, ZL_HDR_MAGIC, 8) || monitor != 0x48000000 || uboot != 0x4a000000 ||
++	    dtb_len < 40 || dtb_len > ZL_FDT_MAX)
++		return;
++	/* Android v0 header. Refuse layouts outside the qualified Plus memory map. */
++	if (zv_read(bd, 188416, 2048, b) || memcmp(b, "ANDROID!", 8) || b[9] != 2048 ||
++	    b[3] != 0x40080000 || b[5] != 0x42000000 || b[6])
++		return;
++	k = b[2]; r = b[4];
++	if (!k || k > ZL_KGZ_MAX || r > 0x100000 ||
++	    zv_read_large(bd, 188420, k, (void *)ZL_KGZ_ADDR) ||
++	    (r && zv_read_large(bd, 188420 + ((k + 2047) & ~2047U) / 512, r, (void *)0x42000000)))
++		return;
++	if (pmic_bus_read(0x20, &reason) || pmic_bus_read(0, &status) || pmic_bus_read(0xf0, &scratch))
++		return;
++	memset(p, 0, sizeof(*p));
++	p->magic = ZP_MAGIC; p->version = ZP_VERSION; p->size = sizeof(*p);
++	p->flags = card ? ZP_FLAG_CARD : 0;
++	p->monitor = monitor; p->uboot = uboot;
++	p->dtb = uboot + 0x200000; p->dtb_len = dtb_len;
++	p->dtbo = uboot + 0x100000; p->dtbo_len = dtbo_len;
++	p->bootimg_hdr = ZL_HDR_ADDR;
++	p->kernel_gz = ZL_KGZ_ADDR; p->kernel_gz_len = k;
++	p->ramdisk = 0x42000000; p->ramdisk_len = r;
++	p->kernel_addr = 0x40080000; p->kernel_max = 0x42000000 - 0x40080000;
++	p->fdt_max = ZL_FDT_MAX; p->dram_mib = gd->ram_size >> 20; p->toc1_len = toc_len;
++	memcpy(p->dram_words, pin + 0x38, 128);
++	memcpy(p->board_block, pin + 0xf0, 8);
++	p->spl_us[0] = rd32(SUNXI_RTC_BASE + 0x12c);
++	p->spl_us[1] = rd32(SUNXI_RTC_BASE + 0x128);
++	p->spl_us[2] = rd32(SUNXI_RTC_BASE + 0x120);
++	zv_stamp(0x10c);
++	p->spl_us[3] = rd32(SUNXI_RTC_BASE + 0x10c);
++	p->card_khz = rd32(SUNXI_RTC_BASE + 0x110) & 0xffffff;
++	p->bus_width = rd32(SUNXI_RTC_BASE + 0x110) >> 24;
++	p->pmic_boot_regs = reason | (u32)status << 8 | (u32)scratch << 16;
++	zv_plls_on();
++	flush_dcache_all();
++	dcache_disable();
++	invalidate_icache_all();
++	asm volatile("dsb sy; isb" ::: "memory");
++	((void (*)(struct zero_params *))(ulong)(ZL_LOAD_ADDR + ZL_HDR_LEN))(p);
++	zv_reset();
++}
++
 +void zero_vendor_boot(void)
 +{
 +	u8 *pin = (u8 *)ZV_PIN_BUF;
@@ -404,7 +484,7 @@ index 00000000..219e52aa
 +	struct mmc *mmc;
 +	struct blk_desc *bd;
 +	ulong pkg = ZV_TOC1_ADDR, uboot = 0, monitor = 0;
-+	u32 count, len, i;
++	u32 count, len, i, dtb_len = 0, dtbo_len = 0;
 +	int ret;
 +
 +	zv_stamp(0x128);
@@ -502,8 +582,10 @@ index 00000000..219e52aa
 +				monitor = dst;
 +		} else if (!strcmp(name, "dtbo") && uboot) {
 +			dst = uboot + 0x100000;
++			dtbo_len = size;
 +		} else if (!strcmp(name, "dtb") && uboot) {
 +			dst = uboot + 0x200000;
++			dtb_len = size;
 +		} else {
 +			continue;
 +		}
@@ -527,6 +609,7 @@ index 00000000..219e52aa
 +		zv_status(8, count);
 +		return;
 +	}
++	zv_stage2(bd, monitor, uboot, len, pin, card, dtb_len, dtbo_len);
 +	memcpy((void *)(uboot + 0x30), pin + 0x38, 0x80);
 +	writel(readl((void *)(uboot + 0x8c)) | BIT(31), (void *)(uboot + 0x8c));	/* no boot0 write-back, see top */
 +	writel(1, (void *)(uboot + 0xe4));			/* booted from the SD card (boot media 0) */
@@ -737,3 +820,71 @@ index 84f4e4c2..34f7aae9 100644
  	if (error < 0) {
  		writel(SUNXI_MMC_GCTRL_RESET, &priv->reg->gctrl);
  		mmc_update_clk(priv);
+diff --git a/arch/arm/mach-sunxi/zero_params.h b/arch/arm/mach-sunxi/zero_params.h
+new file mode 100644
+index 00000000..021f8605
+--- /dev/null
++++ b/arch/arm/mach-sunxi/zero_params.h
+@@ -0,0 +1,62 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * MinUI Zero H700 stage 2 (2026-11-06): what the SPL hands our DRAM loader. The SPL jumps to the loader's entry at
++ * EL3 (AArch64, MMU and caches off) with x0 pointing at this block, in DRAM. Every address is physical. The same
++ * header is compiled into the SPL (arch/arm/mach-sunxi/zero_params.h) and into the loader: keep them identical.
++ */
++#ifndef ZERO_PARAMS_H
++#define ZERO_PARAMS_H
++
++#define ZP_MAGIC	0x5a504152u	/* "ZPAR" */
++#define ZP_VERSION	1u
++
++/* DRAM map shared by the SPL and the loader (1 GiB from 0x40000000; the SPL's own heap, BSS and page tables sit at
++ * 0x4f000000 and up and die with it) */
++#define ZL_LOAD_ADDR	0x4c000000ull	/* loader image (64-byte header first), 1 MiB region incl. its stack */
++#define ZL_LOAD_MAX	0x00100000ull
++#define ZL_KGZ_ADDR	0x45000000ull	/* compressed kernel as stored in boot.img (vendor U-Boot's own boot.img address) */
++#define ZL_KGZ_MAX	0x02000000ull	/* 32 MiB */
++#define ZL_FDT_MAX	0x00080000ull	/* room the loader has to grow the package dtb (built in place at its load address) */
++#define ZL_HDR_ADDR	0x44f00000ull	/* the 2048-byte boot.img header */
++
++/* loader image header (64 bytes, at ZL_LOAD_ADDR); the SPL refuses the loader unless magic, length and sum match */
++#define ZL_HDR_MAGIC	"ZEROLDR1"	/* 8 bytes */
++#define ZL_HDR_LEN	64
++#define ZL_SUM_STAMP	0x5f0a6c39u	/* the sum field counts as this, like eGON */
++struct zero_loader_hdr {
++	char magic[8];
++	unsigned int length;		/* whole image incl. this header, multiple of 512, <= ZL_LOAD_MAX - 64 KiB */
++	unsigned int entry;		/* offset of the entry point from the image start (64) */
++	unsigned int sum;		/* sum of every 32-bit word of the image, this field read as ZL_SUM_STAMP */
++	unsigned int version;		/* 1 */
++	unsigned int reserved[10];
++};
++
++#define ZP_FLAG_CARD	(1u << 0)	/* booted from the card (not FEL) */
++
++struct zero_params {
++	unsigned int magic;
++	unsigned int version;
++	unsigned int size;		/* sizeof(struct zero_params) */
++	unsigned int flags;		/* ZP_FLAG_* */
++	unsigned long long monitor;	/* vendor monitor run address; its head: +0x14 entry, +0x24 block, +0x30 words, +0xb0 fdt */
++	unsigned long long uboot;	/* vendor U-Boot run address from the package (0x4a000000); nothing is loaded there */
++	unsigned long long dtb, dtb_len;	/* package dtb as read (raw bytes, at the address where the FDT is also built) */
++	unsigned long long dtbo, dtbo_len;	/* package dtbo as read, dtbo_len 0 if none */
++	unsigned long long bootimg_hdr;		/* the 2048-byte boot.img header */
++	unsigned long long kernel_gz, kernel_gz_len;	/* compressed kernel exactly as stored */
++	unsigned long long ramdisk, ramdisk_len;	/* ramdisk as stored (the Zero image ships a 512-byte dummy) */
++	unsigned long long kernel_addr;	/* inflate to here (boot.img kernel_addr) */
++	unsigned long long kernel_max;	/* room there */
++	unsigned long long fdt_max;	/* room to grow the dtb in place */
++	unsigned int dram_mib;
++	unsigned int toc1_len;
++	unsigned int dram_words[32];	/* stock boot0 +0x38, the trained values the monitor needs for resume */
++	unsigned char board_block[8];	/* stock boot0 +0xf0 */
++	unsigned int spl_us[4];		/* SPL timing, microseconds since reset: start, DRAM up, card ready, all reads done */
++	unsigned int card_khz;
++	unsigned int bus_width;
++	unsigned int pmic_boot_regs;	/* AXP2202 reg 0x20 | reg 0x00 << 8 | reg 0xf0 << 16; all reads succeeded */
++};
++
++#endif
