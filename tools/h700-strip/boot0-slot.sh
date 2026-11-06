@@ -16,6 +16,8 @@
 # Writes go body first, header last, and are verified in full: a power loss mid-write leaves slot 16 with a bad
 # checksum, BROM boots the backup slot (512, always stock), and the flag (still set) finishes the job next boot.
 D=/dev/mmcblk0
+# the suspend script closes stdin (exec 0<&-): busybox od then still prints the value but also an error and exits 1
+exec 0</dev/null
 SLOT=16; PIN=16384; PIN_B=16512; STORE=16768; STORE_N=96
 FLAG=/opt/minui-zero/.spl-sleep-swapped
 # reads go around the page cache (iflag=direct): a readback sees the card, and nothing evicts the rest of the cache
