@@ -46,7 +46,7 @@ new file mode 100644
 index 00000000..219e52aa
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,618 @@
+@@ -0,0 +1,637 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -414,6 +414,23 @@ index 00000000..219e52aa
 +	return 0;
 +}
 +
++/* Vendor 4a03cd6c repairs ratio0 or ratio>60 at <=3499mV. Its low-voltage limit is3450mV.
++ * Be stricter than its median-of-three: any suspect sample leaves policy/repair to vendor U-Boot. */
++static int zv_stage2_battery_ok(void)
++{
++	u8 ratio, hi, lo;
++	u32 i;
++
++	if (pmic_bus_read(0xa4, &ratio) || !ratio || ratio > 100)
++		return 0;
++	for (i = 0; i < 3; i++) {
++		if (pmic_bus_read(0xc4, &hi) || pmic_bus_read(0xc5, &lo) ||
++		    (((hi & 0x3f) << 8) | lo) < 3500)
++			return 0;
++	}
++	return 1;
++}
++
 +/* Invalid/absent loaders leave the stage-1 chain intact. All destinations are fixed, not card-controlled. */
 +static void zv_stage2(struct blk_desc *bd, ulong monitor, ulong uboot, u32 toc_len, const u8 *pin, int card,
 +		      u32 dtb_len, u32 dtbo_len)
@@ -459,6 +476,8 @@ index 00000000..219e52aa
 +		return;
 +	/* Vendor's battery-absent repair and one-shot charger mode stay on the vendor path. */
 +	if (!(status & 8) || ((scratch & 8) && (!reason || reason > 16 || (reason & (reason - 1)))))
++		return;
++	if (!zv_stage2_battery_ok())
 +		return;
 +	for (i = 0; i < ARRAY_SIZE(power); i++) {
 +		if (pmic_bus_read(power[i][0], &v) ||
@@ -906,3 +925,17 @@ index 00000000..021f8605
 +};
 +
 +#endif
+diff --git a/arch/arm/mach-sunxi/Kconfig b/arch/arm/mach-sunxi/Kconfig
+index b0c5d3cd..222c4a18 100644
+--- a/arch/arm/mach-sunxi/Kconfig
++++ b/arch/arm/mach-sunxi/Kconfig
+@@ -303,7 +303,8 @@ config SUNXI_GEN_SUN6I
+ config SUN50I_GEN_H6
+ 	bool
+ 	select FIT
+-	select SPL_LOAD_FIT if SPL
++	# MinUI Zero H616 uses BOOT_DEVICE_BOARD and the vendor handoff, never the FIT loader.
++	select SPL_LOAD_FIT if SPL && !MACH_SUN50I_H616
+ 	select MMC_SUNXI_HAS_NEW_MODE
+ 	select SUPPORT_SPL
+ 	help

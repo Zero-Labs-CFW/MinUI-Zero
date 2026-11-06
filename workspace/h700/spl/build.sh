@@ -31,7 +31,13 @@ git apply /c/zero-spl.patch
 export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
 make -s anbernic_rg35xx_h700_defconfig
 ./scripts/config --enable SPL_MMC_WRITE
+# H616 boots only the vendor chain, not FIT; keep SRAM for recovery and stage2 guards.
+./scripts/config --disable SPL_FIT --disable SPL_LOAD_FIT --disable SPL_HASH --disable SPL_OF_LIBFDT
+./scripts/config --disable SPL_LEGACY_IMAGE_FORMAT
 make -s olddefconfig
+if grep -Eq "^CONFIG_SPL_(FIT|LOAD_FIT|HASH|OF_LIBFDT|LEGACY_IMAGE_FORMAT)=y$" .config; then
+    echo "ERROR: an unused SPL image loader was selected again"; exit 1
+fi
 make -s -j"$(nproc)" spl/sunxi-spl.bin > /tmp/b.log 2>&1 || { tail -30 /tmp/b.log; exit 1; }
 ! grep -E "warning|error" /tmp/b.log || { echo "ERROR: build warnings"; exit 1; }
 S=spl/sunxi-spl.bin
