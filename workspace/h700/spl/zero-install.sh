@@ -16,7 +16,7 @@
 #   sh zero-install.sh --check <boot0> <spl.bin> <serial> <binding out>   (host tests: the verdict, no card access)
 set -e
 case $# in
-1|2|5) ;;
+1|2|5|6) ;;
 *) echo "usage: zero-install.sh <spl.bin> [loader.bin]"; exit 1 ;;
 esac
 SPL=$1; LOADER=${2-}
@@ -51,7 +51,8 @@ le32() { printf '%b' "$(printf '\\0%03o\\0%03o\\0%03o\\0%03o' $(($1 & 255)) $(($
 # the unit binding (zero_dram_check.h): magic, SID word 1 >> 20, word 2, word 3 (the serial's 3+8+8 hex digits), 0,
 # the 32 DRAM words of boot0 $1; $2 the serial, $3 the 512-byte output
 make_bind() {
-	echo "$2" | grep -Eq '^[0-9a-f]{19}$' && [ "$2" != 0000000000000000000 ] || return 1
+	case "$2" in *[!0123456789abcdef]*|'') return 1 ;; esac		# one serial, lower-case hex only (no second line)
+	[ ${#2} = 19 ] && [ "$2" != 0000000000000000000 ] || return 1
 	{ printf 'ZERO-BIND-V1\000\000\000\000'
 	  le32 $((0x$(echo "$2" | cut -c1-3))); le32 $((0x$(echo "$2" | cut -c4-11))); le32 $((0x$(echo "$2" | cut -c12-19))); le32 0
 	  dd if="$1" bs=1 skip=56 count=128 2>/dev/null; dd if=/dev/zero bs=1 count=352 2>/dev/null; } > "$3"
@@ -61,6 +62,22 @@ spl_type() { # 8 or 7 from the SPL's own "zero: dram lp4|lp3", empty if it says 
 	_4=$(grep -a -c -F "zero: dram lp4" "$1" || :); _3=$(grep -a -c -F "zero: dram lp3" "$1" || :)
 	if [ "$_4" != 0 ] && [ "$_3" = 0 ]; then echo 8; elif [ "$_3" != 0 ] && [ "$_4" = 0 ]; then echo 7; fi
 }
+# The SID the SPL will read (0x03006200..0x0300620c) against the serial: vendor U-Boot prints "%03x%08x%08x" of
+# word 1 >> 20, word 2, word 3 (0x4a00500c), but only when the env has no snum of its own, so the two can differ.
+# Matching on the RG35XX H (9c001070c710c901e52) and Plus (6c0010716544c921c12), read 2026-11-06. Also stock's PHY-map
+# rule on word 0 (zero_dram_check.h). Prints 0, or the SPL's reason: 3 serial is not this SID, 4 PHY map 0.
+sid_check() { # <serial> <word0> <word1> <word2> <word3> (any shell number form)
+	[ "$(printf '%03x%08x%08x' $(($3 >> 20)) $(($4)) $(($5)))" = "$1" ] || { echo 3; return; }
+	w=$(($2 & 65535))
+	if [ $((w & 0xfbff)) = $((0x5000)) ] || [ $((w & 0xfeff)) = $((0x5c00)) ] || [ $((w & 0xf7ff)) = $((0x2000)) ]; then
+		echo 4; return
+	fi
+	echo 0
+}
+if [ "$1" = --sid-check ]; then
+	[ $# = 6 ] || { echo "usage: zero-install.sh --sid-check <serial> <sid0> <sid1> <sid2> <sid3>"; exit 1; }
+	sid_check "$2" "$3" "$4" "$5" "$6"; exit 0
+fi
 if [ "$1" = --check ]; then
 	[ $# = 5 ] || { echo "usage: zero-install.sh --check <boot0> <spl.bin> <serial> <binding out>"; exit 1; }
 	st=$(spl_type "$3"); [ -n "$st" ] || { echo "notype"; exit 1; }
@@ -101,6 +118,18 @@ if [ "$(dd if=$T/slot16.bin bs=1 skip=20 count=3 2>/dev/null)" != SPL ]; then
 fi
 sn=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^androidboot.serialno=//p')
 make_bind $T/stock.bin "$sn" $T/bind.bin || { echo "no usable SID serial in /proc/cmdline ('$sn'): refusing"; exit 1; }
+sid0=$(busybox devmem 0x03006200 32) && sid1=$(busybox devmem 0x03006204 32) && sid2=$(busybox devmem 0x03006208 32) &&
+	sid3=$(busybox devmem 0x0300620c 32) || { echo "cannot read the SID: refusing"; exit 1; }
+case "$(sid_check "$sn" "$sid0" "$sid1" "$sid2" "$sid3")" in
+0) ;;
+3) echo "the serial ($sn) is not this chip's SID ($sid1 $sid2 $sid3; an snum in the U-Boot env?): refusing"; exit 1 ;;
+*) echo "stock boot0 wires this chip with PHY map 0 (SID $sid0); our builds are map 1: refusing"; exit 1 ;;
+esac
+# a boot0 copied from the image (board picker) carries the image's trained words, not this unit's: boot stock first
+for f in /opt/minui-zero/boards/*/boot0.img; do
+	[ -f "$f" ] || continue
+	! cmp -s "$f" $T/stock.bin || { echo "the backup slot holds the shipped $f, not this unit's own: boot stock once, then retry"; exit 1; }
+done
 board=$(cat /mnt/mmc/.system/h700/board 2>/dev/null) || board=
 r=$(dram_check $T/stock.bin $ST)
 if [ "${ZERO_SPL_KEYTEST-}" = 1 ]; then
@@ -155,5 +184,5 @@ dd if="$SPL" of=$D bs=512 count=1 seek=16 conv=notrunc 2>/dev/null
 sync; echo 3 > /proc/sys/vm/drop_caches
 [ "$(dd if=$D bs=512 skip=16 count=$((n / 512)) 2>/dev/null | md5sum | cut -c1-32)" = "$(md5sum < "$SPL" | cut -c1-32)" ] || { echo "SPL READBACK FAILED"; exit 1; }
 rm -f /opt/minui-zero/.spl-sleep-swapped
-busybox devmem 0x07000138 32 0; busybox devmem 0x0700013c 32 0
+busybox devmem 0x07000134 32 0; busybox devmem 0x07000138 32 0; busybox devmem 0x0700013c 32 0	# crumbs + validated record, GP14, GP15
 echo "installed: stock $want pinned at $PIN_A and $PIN_B, bound to this unit at $BIND, SPL (DRAM type $ST) in slot 16 and kept at $STORE, backup slot 512 untouched, markers clear"

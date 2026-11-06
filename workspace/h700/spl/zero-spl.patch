@@ -129,10 +129,10 @@ index 42a0550e..ce8df7e8 100644
  
 diff --git a/arch/arm/mach-sunxi/zero_dram_check.h b/arch/arm/mach-sunxi/zero_dram_check.h
 new file mode 100644
-index 00000000..d6414696
+index 00000000..2ef4b956
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_dram_check.h
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,112 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * MinUI Zero: which H700 units an SPL build may train (universal SPL, 2026-11-06). Pure C, no U-Boot headers: the same
@@ -176,6 +176,7 @@ index 00000000..d6414696
 +enum {
 +	ZDC_OK = 0,
 +	ZDC_NO_BIND = 1,	/* no binding sector: never installed by this installer */
++	ZDC_BIND_IO = 2,	/* the binding sector could not be read (after retries) */
 +	ZDC_OTHER_UNIT = 3,	/* SID differs: the card (and its pinned boot0) belongs to another unit */
 +	ZDC_PHY_MAP0 = 4,	/* stock boot0 would use PHY address map 0 on this chip; both builds are map 1 */
 +	ZDC_CLOCK = 5,
@@ -187,8 +188,8 @@ index 00000000..d6414696
 +	ZDC_UNTRAINED = 11,	/* LPDDR3 with zero delays: never trained by stock, nothing to train with */
 +	ZDC_PIN_DIFFERS = 12,	/* (after DRAM) the pinned boot0's words are not the bound ones */
 +	ZDC_SIZE_DIFFERS = 13,	/* (after DRAM) detected size is not the one stock recorded */
-+	ZDC_PMIC = 14,		/* no PMIC at 0x34 answering the way stock boot0 identifies its AXP2202 */
-+	ZDC_NO_CARD = 16,	/* (LPDDR3 build) the card did not come up before DRAM: nothing validated */
++	ZDC_PMIC = 14,		/* the PMIC at 0x34 answers, but not the way stock boot0 identifies its AXP2202 */
++	ZDC_PMIC_IO = 15,	/* no answer from 0x34 on two consecutive starts (each after retries) */
 +};
 +
 +/* the mode registers upstream hardcodes (dram_timings/h616_lpddr{3,4}*.c init[] writes), words 8-21 */
@@ -241,6 +242,124 @@ index 00000000..d6414696
 +	if (type == ZDC_LPDDR3 && (!w[28] || !w[29] || !(w[26] >> 16 & 0xff)))
 +		return ZDC_UNTRAINED;
 +	return ZDC_OK;
++}
++
++#endif
+diff --git a/arch/arm/mach-sunxi/zero_early.h b/arch/arm/mach-sunxi/zero_early.h
+new file mode 100644
+index 00000000..b3f23b95
+--- /dev/null
++++ b/arch/arm/mach-sunxi/zero_early.h
+@@ -0,0 +1,112 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * MinUI Zero: the card-boot safety net's decisions before PMIC and DRAM (zero_vendor_early), as one function the host
++ * tests compile and run unchanged (.notes/2026-11-06-universal/tests/early_harness.c). The includer defines the
++ * zvo_* operations first: zero_vendor.c with the real card, RTC and PMIC; the harness with recorded fakes.
++ *
++ * Invariants (review of d9a409f2, 2026-11-06):
++ *  - PMIC writes and DRAM happen only after this start's binding and PMIC checks passed (ZV_EARLY_CHECKED), or, in the
++ *    LPDDR4 build only, on a fallback start (the card work died last time, or the card is not up yet) of a unit whose
++ *    RTC records a passing check by this build type, whose PMIC identified on this start, and with no refusal pending.
++ *  - A refusal is sticky (GP15 ZV_REFUSE, on-card marker) until its restore finishes, and its reason in GP14 stays.
++ *  - The PMIC is identified read-only before anything that can reset; zv_reset writes DCDC1 only to an identified
++ *    PMIC (zv_pmic_ok), which keeps c101c7b6 (rail first, then the reset into stock) on the H/Plus AXP2202.
++ *  - A bus error is not a refusal: the first one resets and retries with the pending state unchanged; only a second
++ *    consecutive one refuses (stock then has to cope with the same bus).
++ */
++#ifndef ZERO_EARLY_H
++#define ZERO_EARLY_H
++
++#define ZV_RESTORE	0x5a56ffffU	/* GP15: an unacknowledged attempt, restore stock next start */
++#define ZV_REFUSE	0x5a56fffdU	/* GP15: this build refused the unit; restore pending, never PMIC/DRAM before it */
++#define ZV_ATTEMPT	0x5a560001U	/* GP15: this start is an attempt */
++
++/* GP13 = start count (31:24) | validated record (23:16) | PMIC note (15:8) | crumb (7:0). The record is set when this unit
++ * passed the binding and PMIC checks for this build type, cleared by a refusal, and lost with the RTC: missing means
++ * "never validated", which only takes the fallbacks away. */
++#define ZV_VALID(t)	(0xa0 | (t))
++#define ZV_PMIC_NOTE(r)	(0xc0 | (r))	/* GP13 15:8: this start's PMIC identification (0xc0 ok, 0xc1 other, 0xc2 silent) */
++
++enum { ZV_PMIC_OK, ZV_PMIC_OTHER, ZV_PMIC_BUSERR };
++enum { ZV_EARLY_CHECKED = 1, ZV_EARLY_FALLBACK = 2 };
++
++static int zv_pmic_ok;		/* the PMIC identified as stock's AXP2202 on this start: zv_reset may set DCDC1 */
++
++/* the operations, defined by the includer after this header */
++static void zvo_gp14(u32 v);
++static void zvo_gp15(u32 v);
++static void zvo_wdog(void);
++static int zvo_pmic_id(void);		/* ZV_PMIC_*, read-only */
++static void zvo_crumb(u32 c);
++static void zvo_reset(void) __attribute__((noreturn));		/* DCDC1 first if zv_pmic_ok */
++static int zvo_card_up(void);
++static int zvo_pending(void);		/* GP15 ZV_RESTORE/ZV_REFUSE, or the on-card attempt marker */
++static void zvo_restore(void) __attribute__((noreturn));
++static int zvo_bind_check(void);	/* zero_dram_check.h reason, ZDC_BIND_IO after retries */
++static void zvo_refuse(int reason) __attribute__((noreturn));
++static void zvo_valid_set(u32 v);
++static void zvo_pmic_note(u32 v);
++static void zvo_trained(void);
++static void zvo_marker_on(void);
++
++static inline int zv_skip_crumb(u32 prev)	/* the last start died inside the early card work */
++{
++	return prev == 0x02 || prev == 0x20 || ((prev & 0xf0) == 0x30 && prev != 0x34);
++}
++
++/* last: GP15 at entry; prev: GP13's crumb at entry; valid: GP13's record at entry. Returns how DRAM may proceed. */
++static int zv_early_flow(u32 last, u32 prev, u32 valid)
++{
++	int pmic, r, fallback;
++
++	if (last == ZV_REFUSE) {
++		/* a refusal whose restore did not finish: GP14 keeps the reason, GP15 stays a refusal */
++	} else if (last) {
++		if (last != ZV_RESTORE)
++			zvo_gp14(last);		/* where the last attempt stopped */
++		zvo_gp15(ZV_RESTORE);
++	} else {
++		zvo_gp15(ZV_ATTEMPT);
++	}
++	zvo_wdog();				/* 8 s: a hang anywhere before the hand-off resets back here */
++	pmic = zvo_pmic_id();			/* read-only, retried */
++	zv_pmic_ok = pmic == ZV_PMIC_OK;
++	zvo_pmic_note(ZV_PMIC_NOTE(pmic));
++	if (pmic == ZV_PMIC_BUSERR && prev != 0x07) {
++		zvo_crumb(0x07);
++		zvo_gp15(last);			/* not an attempt: the same state again after the reset */
++		zvo_reset();
++	}
++	fallback = ZV_TYPE == ZDC_LPDDR4 && last != ZV_REFUSE && zv_pmic_ok && valid == ZV_VALID(ZV_TYPE);
++	/*
++	 * If the last start died inside this card work (its crumb still 0x02, 0x20, or 0x30-0x3f but not 0x34, a finished
++	 * restore), skip it once: the hand-off does the same work after DRAM, so a hang here cannot loop forever. Only as
++	 * a fallback (above): the LPDDR3 build, a unit never validated and a refused one loop instead.
++	 */
++	if (fallback && zv_skip_crumb(prev)) {
++		zvo_crumb(0x06);
++		return ZV_EARLY_FALLBACK;
++	}
++	zvo_crumb(0x02);
++	if (!zvo_card_up()) {
++		zvo_crumb(0x05);
++		if (fallback)
++			return ZV_EARLY_FALLBACK;	/* the hand-off tries again after DRAM, then checks */
++		zvo_gp15(last);			/* retry; card trouble alone never uninstalls */
++		zvo_reset();
++	}
++	if (zvo_pending())
++		zvo_restore();
++	r = zvo_bind_check();
++	if (!r && pmic != ZV_PMIC_OK)
++		r = pmic == ZV_PMIC_BUSERR ? ZDC_PMIC_IO : ZDC_PMIC;
++	if (r)
++		zvo_refuse(r);
++	zvo_valid_set(ZV_VALID(ZV_TYPE));
++	zvo_trained();
++	zvo_marker_on();
++	zvo_crumb(0x0e);			/* card work done: DRAM next */
++	return ZV_EARLY_CHECKED;
 +}
 +
 +#endif
@@ -314,10 +433,10 @@ index 00000000..021f8605
 +#endif
 diff --git a/arch/arm/mach-sunxi/zero_vendor.c b/arch/arm/mach-sunxi/zero_vendor.c
 new file mode 100644
-index 00000000..ebf3111b
+index 00000000..a9a0996d
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,876 @@
+@@ -0,0 +1,864 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -396,9 +515,7 @@ index 00000000..ebf3111b
 +#define ZV_PIN_BUF	0x43800000UL	/* 64 KiB: the validated pinned boot0 */
 +#define ZV_CHK_BUF	0x43820000UL	/* 64 KiB, then the MMC DMA descriptors (2 KiB, sunxi_mmc.c zdma_des) */
 +#define ZV_STAMP	0x5f0a6c39
-+#define ZV_RESTORE	0x5a56ffffU
 +#define ZV_MARK_MAGIC	"ZERO-ATTEMPT-V1"
-+#define ZV_REFUSE	0x5a56fffdU	/* GP15: this build refused the unit; restore pending, never skip to DRAM */
 +
 +#ifdef CONFIG_SUNXI_DRAM_H616_LPDDR3
 +#define ZV_TYPE		ZDC_LPDDR3
@@ -408,6 +525,7 @@ index 00000000..ebf3111b
 +#define ZV_TYPE		ZDC_LPDDR4
 +#define ZV_DRAM_ID	"zero: dram lp4"
 +#endif
++#include "zero_early.h"	/* the early flow; zv_pmic_ok */
 +/* the build trains exactly the set the check accepts */
 +#if CONFIG_DRAM_CLK != ZDC_CLK || CONFIG_DRAM_SUNXI_DX_ODT != ZDC_DX_ODT(ZV_TYPE) || \
 +    CONFIG_DRAM_SUNXI_DX_DRI != ZDC_DX_DRI(ZV_TYPE) || CONFIG_DRAM_SUNXI_CA_DRI != ZDC_CA_DRI(ZV_TYPE) || \
@@ -453,12 +571,10 @@ index 00000000..ebf3111b
 + * restore whose reset into stock boot0 hung, dark, until a 10 s power hold (RG35XX H, 2026-11-06). Set the rail first,
 + * as our own start does.
 + */
-+static int zv_pmic_bad;		/* the PMIC did not identify as stock's AXP2202: never write it */
-+
 +static void __noreturn zv_reset(void)
 +{
 +#ifdef CONFIG_AXP_DCDC1_VOLT
-+	if (!zv_pmic_bad && !pmic_bus_init())
++	if (zv_pmic_ok && !pmic_bus_init())
 +		axp_set_dcdc1(CONFIG_AXP_DCDC1_VOLT);
 +#endif
 +	zv_wdog_arm(0);
@@ -678,7 +794,8 @@ index 00000000..ebf3111b
 +	if (!pin) {
 +		/* nothing trustworthy to restore from: never touch a BROM slot; stay pending, try again next start */
 +		zv_crumb(0x3e);
-+		writel(0x5a56fffe, (void *)ZV_RTC_GP14);
++		if (readl((void *)ZV_RTC_GP15) != ZV_REFUSE)	/* a refusal keeps its reason */
++			writel(0x5a56fffe, (void *)ZV_RTC_GP14);
 +		zv_reset();
 +	}
 +	zv_crumb(0x31);
@@ -705,11 +822,14 @@ index 00000000..ebf3111b
 +	return v == ZV_RESTORE || v == ZV_REFUSE;
 +}
 +
-+/* this build may not run on this unit: say why, and put its stock boot0 back (sticky until that succeeds) */
++/* this build may not run on this unit: say why, and put its stock boot0 back (sticky until that succeeds, also on the
++ * card: the attempt marker survives an RTC loss mid-restore); the validated record goes */
 +static void __noreturn zv_refuse(struct blk_desc *bd, int reason)
 +{
 +	writel(0x5a56fd00 | reason, (void *)ZV_RTC_GP14);
 +	writel(ZV_REFUSE, (void *)ZV_RTC_GP15);
++	clrbits_le32((void *)ZV_RTC_GP13, 0x00ff0000);
++	zv_marker_set(bd, 1);
 +	zv_restore(bd);
 +}
 +
@@ -722,8 +842,9 @@ index 00000000..ebf3111b
 +	u32 sid[4], i;
 +	int r;
 +
-+	if (zv_read(bd, ZDC_BIND_SECTOR, 512, zv_buf))
-+		return ZDC_NO_BIND;
++	for (i = 0; zv_read(bd, ZDC_BIND_SECTOR, 512, zv_buf); i++)	/* a read error is not "never installed" */
++		if (i == 2)
++			return ZDC_BIND_IO;
 +	for (i = 0; i < 4; i++)
 +		sid[i] = readl((void *)(ulong)(SUNXI_SID_BASE + 4 * i));
 +	r = zdc_check((const u32 *)zv_buf, ZV_TYPE, sid);
@@ -734,17 +855,19 @@ index 00000000..ebf3111b
 +	return r;
 +}
 +
-+/* stock boot0 drives the PMIC at 0x34 only when its register 0x0e reads 2 (H boot0 0x2a5b4, "PMU: AXP2202"); the
-+ * SPL's DCDC writes are for that chip, so anything else is never written (not even zv_reset's DCDC1) */
-+static int zv_pmic_check(void)
++/* stock boot0 drives the PMIC at 0x34 only when its register 0x0e reads 2 (H boot0 0x2a5b4, "PMU: AXP2202"; read 0x02
++ * from Linux on the RG35XX H and Plus, 2026-11-06). Read-only; a bus error is retried, then reported as such. */
++static int zv_pmic_id(void)
 +{
 +	u8 v;
++	int i;
 +
-+	if (pmic_bus_init() || pmic_bus_read(0x0e, &v) || v != 2) {
-+		zv_pmic_bad = 1;
-+		return ZDC_PMIC;
++	for (i = 0; i < 3; i++) {
++		if (!pmic_bus_init() && !pmic_bus_read(0x0e, &v))
++			return v == 2 ? ZV_PMIC_OK : ZV_PMIC_OTHER;
++		udelay(1000);
 +	}
-+	return 0;
++	return ZV_PMIC_BUSERR;
 +}
 +
 +/*
@@ -812,11 +935,31 @@ index 00000000..ebf3111b
 +
 +extern char __bss_start[], __bss_end[];
 +
++/* zv_early_flow's operations (zero_early.h) */
++static struct blk_desc *zv_early_bd;
++static void zvo_gp14(u32 v) { writel(v, (void *)ZV_RTC_GP14); }
++static void zvo_gp15(u32 v) { writel(v, (void *)ZV_RTC_GP15); }
++static void zvo_wdog(void) { zv_wdog_arm(0x7); }
++static int zvo_pmic_id(void) { return zv_pmic_id(); }
++static void zvo_crumb(u32 c) { zv_crumb(c); }
++static void __noreturn zvo_reset(void) { zv_reset(); }
++static int zvo_card_up(void) { return !!(zv_early_bd = zv_mmc_up()); }
++static int zvo_pending(void) { return zv_pending() || zv_marker_get(zv_early_bd); }
++static void __noreturn zvo_restore(void) { zv_restore(zv_early_bd); }
++static int zvo_bind_check(void) { return zv_bind_check(zv_early_bd); }
++static void __noreturn zvo_refuse(int r) { zv_refuse(zv_early_bd, r); }
++static void zvo_valid_set(u32 v) { clrsetbits_le32((void *)ZV_RTC_GP13, 0x00ff0000, v << 16); }
++static void zvo_pmic_note(u32 v) { clrsetbits_le32((void *)ZV_RTC_GP13, 0x0000ff00, v << 8); }
++static void zvo_marker_on(void) { zv_marked = !zv_marker_set(zv_early_bd, 1); }
++static void zvo_trained(void)
++{
++#ifdef CONFIG_SUNXI_DRAM_H616_LPDDR3
++	zero_dram_trained(zv_bind_words[26], zv_bind_words[28], zv_bind_words[29]);
++#endif
++}
 +void zero_vendor_early(void)
 +{
-+	u32 last = readl((void *)ZV_RTC_GP15), prev = readl((void *)ZV_RTC_GP13) & 0xff;
-+	struct blk_desc *bd;
-+	int r;
++	u32 last = readl((void *)ZV_RTC_GP15), gp13 = readl((void *)ZV_RTC_GP13);
 +
 +	/*
 +	 * BSS is in SRAM here (SPL_BSS_START_ADDR, build.sh) and crt0 does not clear it on this SoC, so clear it now, before
@@ -824,9 +967,12 @@ index 00000000..ebf3111b
 +	 */
 +	memset(__bss_start, 0, __bss_end - __bss_start);
 +	zv_stamp(0x12c);
-+	writel((readl((void *)ZV_RTC_GP13) & 0xff000000) + 0x01000001, (void *)ZV_RTC_GP13);
-+	if (sunxi_get_boot_device() == BOOT_DEVICE_BOARD)
++	/* start count + 1, crumb 1; the validated record (23:16) stays */
++	writel(((gp13 & 0xff000000) + 0x01000000) | (gp13 & 0x00ff0000) | 1, (void *)ZV_RTC_GP13);
++	if (sunxi_get_boot_device() == BOOT_DEVICE_BOARD) {
++		zv_pmic_ok = zv_pmic_id() == ZV_PMIC_OK;	/* zv_reset's DCDC1, as on a card boot */
 +		return;		/* FEL: nothing on the card to undo */
++	}
 +	/*
 +	 * A wake from suspend-to-RAM reboots through BROM. Stock boot0 resumes when RTC 0x1f8 bit 16 is set (DRAM kept,
 +	 * jump to the monitor's warm entry in RTC 0x1fc) and clears the register; we cannot resume, and Linux puts stock
@@ -840,52 +986,13 @@ index 00000000..ebf3111b
 +	 */
 +	setbits_le32((void *)(SUNXI_RTC_BASE + 0x1f4), BIT(0));
 +	writel(0, (void *)(SUNXI_RTC_BASE + 0x1f8));
-+	if (last == ZV_REFUSE) {
-+		/* a refusal whose restore did not finish: GP14 keeps the reason, GP15 stays a refusal */
-+	} else if (last) {
-+		if (last != ZV_RESTORE)
-+			writel(last, (void *)ZV_RTC_GP14);	/* where the last attempt stopped */
-+		writel(ZV_RESTORE, (void *)ZV_RTC_GP15);
-+	} else {
-+		writel(0x5a560001, (void *)ZV_RTC_GP15);
-+	}
-+	zv_wdog_arm(0x7);	/* 8 s: a hang anywhere before the hand-off resets back here */
 +	/*
-+	 * Before PMIC and DRAM: a pending restore (RTC flag, or the on-card marker an unacknowledged start left, which
-+	 * survives a power cut that clears the RTC) puts stock boot0 back now; otherwise the marker goes down for this
-+	 * start, so a DRAM init that hangs or fails is undone on the next one (watchdog), with no DRAM needed.
-+	 * If the last start died inside this card work (its crumb still 0x02, 0x20, or 0x30-0x3f but not 0x34, a finished
-+	 * restore), skip it once: the hand-off does the same work after DRAM, the path every earlier release took, so a
-+	 * hang here cannot loop forever.
-+	 * Never after a refusal (that start must not reach DRAM), and never in the LPDDR3 build, which may set its DRAM
-+	 * rail and train only after the binding passed: a hang there loops, without ever touching the PMIC or DRAM.
++	 * Before PMIC and DRAM (zero_early.h): a pending restore (RTC flag, or the on-card marker an unacknowledged start
++	 * left, which survives a power cut that clears the RTC) puts stock boot0 back now; otherwise the binding and the
++	 * PMIC are checked, and the marker goes down for this start, so a DRAM init that hangs or fails is undone on the
++	 * next one (watchdog), with no DRAM needed.
 +	 */
-+	if (last != ZV_REFUSE && ZV_TYPE == ZDC_LPDDR4 &&
-+	    (prev == 0x02 || prev == 0x20 || ((prev & 0xf0) == 0x30 && prev != 0x34))) {
-+		zv_crumb(0x06);
-+		return;
-+	}
-+	zv_crumb(0x02);
-+	bd = zv_mmc_up();
-+	if (!bd) {
-+		zv_crumb(0x05);		/* no card before DRAM: the hand-off tries again and reports it */
-+		if (ZV_TYPE == ZDC_LPDDR4)
-+			return;
-+		writel(0x5a56fd00 | ZDC_NO_CARD, (void *)ZV_RTC_GP14);
-+		zv_reset();		/* still pending (GP15): the next start restores stock if the card comes up */
-+	}
-+	if (zv_pending() || zv_marker_get(bd))
-+		zv_restore(bd);
-+	r = zv_bind_check(bd);
-+	if (!r)
-+		r = zv_pmic_check();
-+	if (r)
-+		zv_refuse(bd, r);
-+#ifdef CONFIG_SUNXI_DRAM_H616_LPDDR3
-+	zero_dram_trained(zv_bind_words[26], zv_bind_words[28], zv_bind_words[29]);
-+#endif
-+	zv_marked = !zv_marker_set(bd, 1);
-+	zv_crumb(0x0e);			/* card work done: DRAM next */
++	zv_early_flow(last, gp13 & 0xff, gp13 >> 16 & 0xff);
 +}
 +
 +#ifdef ZV_TRACE
