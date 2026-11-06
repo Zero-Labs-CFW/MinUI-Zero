@@ -148,10 +148,10 @@ index 00000000..021f8605
 +#endif
 diff --git a/arch/arm/mach-sunxi/zero_vendor.c b/arch/arm/mach-sunxi/zero_vendor.c
 new file mode 100644
-index 00000000..becdfebe
+index 00000000..441e6dbe
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,758 @@
+@@ -0,0 +1,775 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -200,6 +200,7 @@ index 00000000..becdfebe
 +#include <time.h>
 +#include "zero_params.h"
 +#include <asm/arch/pmic_bus.h>
++#include <axp_pmic.h>
 +
 +DECLARE_GLOBAL_DATA_PTR;
 +
@@ -253,8 +254,24 @@ index 00000000..becdfebe
 +	writel(WDT_CTRL_KEY | WDT_CTRL_RESTART, &zv_wdog()->ctl);
 +}
 +
++/*
++ * After a restore, the next start is stock boot0, which raises the CPU to 1008 MHz before it sets the CPU rail, and a
++ * watchdog reset keeps the rail: from before PMIC init that is the 0.9 V Linux left at idle. The likely cause of a
++ * restore whose reset into stock boot0 hung, dark, until a 10 s power hold (RG35XX H, 2026-11-06). Set the rail first,
++ * as our own start does.
++ */
 +static void __noreturn zv_reset(void)
 +{
++#ifdef CONFIG_AXP_DCDC1_VOLT
++	u8 v = 0;
++	int ret = pmic_bus_init();
++
++	if (!ret)
++		ret = axp_set_dcdc1(CONFIG_AXP_DCDC1_VOLT);
++	if (!ret)
++		ret = pmic_bus_read(0x83, &v);
++	writel(0x5a830000 | (ret ? 0xff00 : 0) | v, (void *)(SUNXI_RTC_BASE + 0x104));	/* GP1: what the rail was set to */
++#endif
 +	zv_wdog_arm(0);
 +	for (;;)
 +		;
@@ -1100,3 +1117,29 @@ index 66c389d0..ccfe58e3 100644
  	help
  	  Set the voltage (mV) to program the axp pmic dcdc1 at, set to 0 to
  	  disable dcdc1. On A23 / A31 / A33 (axp221) boards dcdc1 is used for
+diff --git a/drivers/power/axp_spl.c b/drivers/power/axp_spl.c
+index 0162ef5e..27424fbc 100644
+--- a/drivers/power/axp_spl.c
++++ b/drivers/power/axp_spl.c
+@@ -140,7 +140,21 @@ static int axp_set_dcdc(int dcdc_num, unsigned int mvolt)
+ 	if (mvolt == 0)
+ 		return pmic_bus_clrbits(reg->enable_reg, reg->enable_mask);
+ 
++#ifdef CONFIG_AXP717_POWER
++	{
++		/*
++		 * MinUI Zero (H700, AXP717/2202): change only the voltage field. The register's other bit (bit 7) was set
++		 * after a stock boot on the RG35XX H and Linux kept it; a whole-byte write cleared it (2026-11-06).
++		 */
++		u8 v;
++
++		ret = pmic_bus_read(reg->volt_reg, &v);
++		if (!ret)
++			ret = pmic_bus_write(reg->volt_reg, (v & ~reg->volt_mask) | axp_mvolt_to_cfg(mvolt, reg));
++	}
++#else
+ 	ret = pmic_bus_write(reg->volt_reg, axp_mvolt_to_cfg(mvolt, reg));
++#endif
+ 	if (ret)
+ 		return ret;
+ 

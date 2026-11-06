@@ -29,6 +29,10 @@ echo "root-check: e2fsck exit $rc" >/dev/kmsg 2>/dev/null
 # 0 = clean, 1 = repaired, 2 = repaired and a restart is needed, 4+ = left errors (boot on: the old initramfs did too)
 if [ $((rc & 3)) -ne 0 ]; then
 	sync
+	# as boardpick.sh's restart: the CPU rail at full voltage for the warm reset, and the SoC watchdog (8 s) in case
+	# the reset never comes (reboot hangs, 2026-11-06)
+	echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
+	busybox devmem 0x030090b4 32 1; busybox devmem 0x030090b8 32 0x71; busybox devmem 0x030090b0 32 0x14af
 	reboot -f
 fi
 exit 0
