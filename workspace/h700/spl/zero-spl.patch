@@ -440,10 +440,10 @@ index 00000000..9d988e26
 +#endif
 diff --git a/arch/arm/mach-sunxi/zero_vendor.c b/arch/arm/mach-sunxi/zero_vendor.c
 new file mode 100644
-index 00000000..74c6fe9d
+index 00000000..1d521539
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,900 @@
+@@ -0,0 +1,907 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -1079,6 +1079,7 @@ index 00000000..74c6fe9d
 +	u32 *b = (void *)ZL_HDR_ADDR;
 +	u32 n, i, sum = 0, k, r, profile;
 +	u8 reason, status, scratch, v;
++	int had_icache;
 +	/* Plus AXP2202 normal-boot state, independently decoded in verify-uboot-effects.md.
 +	 * Columns: register, bits cleared, bits set. Do not apply this profile to other PMICs. */
 +	static const u8 power[][3] = {
@@ -1147,7 +1148,12 @@ index 00000000..74c6fe9d
 +	flush_dcache_all();
 +	invalidate_icache_all();
 +	asm volatile("dsb sy; isb" ::: "memory");
++	/* The SPL itself runs from SRAM with I-cache off; executing SHA from uncached DRAM is slow. */
++	had_icache = icache_status();
++	icache_enable();
 +	profile = ((u32 (*)(const struct zero_params *))(ulong)(ZL_LOAD_ADDR + h->preflight))(p);
++	if (!had_icache)
++		icache_disable();
 +	if (profile != 1 && profile != 2) {
 +		/* Separate from universal-SPL fdXX refusal/restore: this returns to intact vendor U-Boot. */
 +		writel(0x5a56fc01, (void *)ZV_RTC_GP14);
@@ -1165,6 +1171,7 @@ index 00000000..74c6fe9d
 +	zv_plls_on();
 +	flush_dcache_all();
 +	dcache_disable();
++	icache_disable();
 +	invalidate_icache_all();
 +	asm volatile("dsb sy; isb" ::: "memory");
 +	((void (*)(struct zero_params *))(ulong)(ZL_LOAD_ADDR + ZL_HDR_LEN))(p);
