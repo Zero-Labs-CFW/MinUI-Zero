@@ -6,7 +6,8 @@
 # our hand-off inside. (Codex review 2026-11-05: the generic upstream SPL and the 800 KB u-boot-sunxi-with-spl.bin
 # both passed the old magic-only check; the second would have overwritten the backup slot at sector 512.)
 #   sh zero-install.sh /tmp/zero-spl.bin [/tmp/zero-loader.bin]
-# Stage2 development is limited to Plus. Omitting the loader disables it by clearing its first sector.
+# Stage2: Plus development path; LPDDR4 H requires ZERO_STAGE2_TRIAL=1 for an attended bench trial.
+# Other boards still refuse. Omitting the loader disables it by clearing its first sector.
 # Universal SPL (2026-11-06): two builds, one per DRAM type (zero-spl.bin LPDDR4, zero-spl-lp3.bin LPDDR3; the SPL says
 # which with "zero: dram lp4|lp3"). This unit's own stock boot0 (backup slot) must describe exactly what that build
 # trains (dram_check: the rules of the SPL's zero_dram_check.h), and the SPL is bound to this unit: a binding sector at
@@ -25,6 +26,13 @@ D=/dev/mmcblk0
 PIN_A=16384; PIN_B=16512; MARK=16640; BIND=16641; STORE=16768; MAX=49152
 LSTORE=16896; LMAX=983040 # at most 1920 sectors, ending at 18816 (exclusive), below sector 19000
 u32() { od -An -tu4 -j$2 -N4 "$1" | tr -d ' '; }
+stage2_board_ok() {
+	case "${1-}:${2-}" in
+	plus:7|plus:8) return 0 ;;
+	h:8) [ "${ZERO_STAGE2_TRIAL-}" = 1 ] ;;
+	*) return 1 ;;
+	esac
+}
 egon_sum_ok() {
 	[ "$(od -An -tu4 -v "$1" | awk '{for(i=1;i<=NF;i++){n++; v=(n==4)?1594518585:$i; s=(s+v)%4294967296}} END{printf "%.0f", s}')" = "$(u32 "$1" 12)" ]
 }
@@ -152,7 +160,10 @@ else
 	   echo "TRIAL: board '$board', DRAM type $ST: not qualified, the safety net is all there is" ;;
 	esac
 fi
-[ -z "$LOADER" ] || [ "$board" = plus ] || { echo "stage2 development is limited to RG35XX Plus: refusing"; exit 1; }
+if [ -n "$LOADER" ]; then
+	stage2_board_ok "$board" "$ST" || { echo "stage2 needs RG35XX Plus, or LPDDR4 H with ZERO_STAGE2_TRIAL=1: refusing"; exit 1; }
+	[ "$board" != h ] || echo "TRIAL: stage2 on LPDDR4 RG35XX H; this is not hardware qualification"
+fi
 want=$(md5sum < $T/stock.bin | cut -c1-32)
 for p in $PIN_A $PIN_B; do
 	dd if=$T/stock.bin of=$D bs=512 seek=$p conv=notrunc 2>/dev/null
