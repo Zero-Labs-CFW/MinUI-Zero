@@ -450,6 +450,14 @@ def main():
                       cat(dst) == open(os.path.join(REPO, src), 'rb').read() and mode is not None and
                       (not x or mode & 0o111 == 0o111))
             check('ack runs spl-auto.sh', b'sh /opt/minui-zero/spl-auto.sh' in cat('/opt/minui-zero/boot0-slot.sh'))
+            loader_cache = os.path.join(assets, 'loader')
+            for name in ('zero-loader.bin', 'build-id', 'boot-health'):
+                built = os.path.join(loader_cache, name)
+                have = cat('/opt/minui-zero/loader/' + name)
+                check('stage2 payload ' + name + ' is the build', os.path.isfile(built) and have == open(built, 'rb').read())
+            mode = debugfs_mode(img, off, '/opt/minui-zero/loader/boot-health')
+            check('stage2 health executable', mode is not None and mode & 0o111 == 0o111)
+            check('stage2 does not auto-enable', b'"$spl" 2>&1' in cat('/opt/minui-zero/spl-auto.sh'))
             check('no spl-state yet', debugfs_mode(img, off, '/opt/minui-zero/spl-state') is None)
             with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(img))) as tmp:
                 have = rdump(img, off, '/opt/minui-zero/boards', tmp)

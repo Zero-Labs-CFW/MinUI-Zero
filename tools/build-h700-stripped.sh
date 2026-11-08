@@ -325,6 +325,9 @@ if [ "$DEVICE" = all ]; then
 	fi
 	cp "$REPO/workspace/h700/spl/zero-install.sh" "$ASSETS/zero-install.sh"
 	cp "$REPO/tools/h700-strip/spl-auto.sh" "$ASSETS/spl-auto.sh"
+	# Stage2 is packaged for guarded qualification only. spl-auto still installs SPL-only;
+	# carrying this payload must never enable stage2 on a board or DRAM type by itself.
+	sh "$REPO/workspace/h700/loader/build.sh" "$ASSETS/loader" || { echo 'ERROR: stage2 loader build'; exit 1; }
 fi
 # First-boot "Installing MinUI Zero..." frame for expand-roms.sh (raw fb page, panel-sized).
 rm -f "$ASSETS/installing.raw"
@@ -718,6 +721,9 @@ if [ "$DEVICE" = all ]; then
 	mkdir -p "$R/opt/minui-zero/spl"
 	cp /a/spl/zero-spl.bin /a/spl/zero-spl-lp3.bin /a/zero-install.sh "$R/opt/minui-zero/spl/"
 	cp /a/spl-auto.sh "$R/opt/minui-zero/spl-auto.sh" && chmod 755 "$R/opt/minui-zero/spl-auto.sh"
+	mkdir -p "$R/opt/minui-zero/loader"
+	cp /a/loader/zero-loader.bin /a/loader/build-id /a/loader/boot-health "$R/opt/minui-zero/loader/"
+	chmod 755 "$R/opt/minui-zero/loader/boot-health"
 	rm -f "$R/opt/minui-zero/spl-state"
 fi
 chmod +x "$R/opt/minui-zero/expand-roms.sh"

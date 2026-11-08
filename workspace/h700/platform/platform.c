@@ -1158,9 +1158,12 @@ static void first_frame_mark(void) {
 	static int done;
 	if (done) return;
 	done = 1;
+	// Unlike the quiet-window marker, only a completed PLAT_flip emits this receipt.
+	int fd = open("/run/zero-display-frame", O_WRONLY | O_CREAT, 0644);
+	if (fd >= 0) close(fd);
 	if (access("/run/zero-menu-frame", F_OK) == 0) return;	// once per boot: a relaunch, a game or a Tool is not news
 	char up[32] = {0}, line[48];
-	int fd = open("/proc/uptime", O_RDONLY);
+	fd = open("/proc/uptime", O_RDONLY);
 	if (fd >= 0) { if (read(fd, up, sizeof(up) - 1) < 0) up[0] = 0; close(fd); }
 	char* sp = strchr(up, ' ');
 	if (sp) *sp = 0;

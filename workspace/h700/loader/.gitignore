@@ -1,0 +1,5 @@
+/obj/
+/build/
+/zero-loader.bin
+__pycache__/
+*.pyc

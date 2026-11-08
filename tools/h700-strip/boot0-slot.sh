@@ -24,6 +24,21 @@ D=/dev/mmcblk0
 exec 0</dev/null
 SLOT=16; PIN=16384; PIN_B=16512; STORE=16768; STORE_N=96
 FLAG=/opt/minui-zero/.spl-sleep-swapped
+stage2_health_ok() {
+	# Stage1 is unchanged. Stage2 must provide matching producer/consumer evidence.
+	case "$1" in 0x5A560045|0x5a560045) _stage2=1 ;; *) _stage2=0 ;; esac
+	if [ "$_stage2" = 1 ] || [ -e "$2" ]; then
+		[ -x "$3" ] || return 1
+		# Auto-resume releases the quiet window before the core draws. Wait for its real frame.
+		_health_wait=0
+		until "$3"; do
+			_health_wait=$((_health_wait + 1)); [ $_health_wait -ge 15 ] && return 1
+			sleep 1
+		done
+	else
+		return 0
+	fi
+}
 # reads go around the page cache (iflag=direct): a readback sees the card, and nothing evicts the rest of the cache
 rd() { dd if=$D bs=512 skip=$1 count=$2 iflag=direct 2>/dev/null; }
 u32() { od -An -tu4 -j$2 -N4 "$1" | tr -d ' '; }
@@ -119,6 +134,11 @@ ack)
 		# 16 holding the stored copy; the marker is cleared and read back before GP15, or the next start restores stock
 		[ "$(rd 16640 1 | head -c 15)" = ZERO-ATTEMPT-V1 ] || return 0
 		stored && slot_is /tmp/b0-ours.bin || return 0
+		_stage_mark=$(busybox devmem 0x0700013c) || return 1
+		stage2_health_ok "$_stage_mark" /sys/firmware/devicetree/base/chosen/zero,loader \
+			/opt/minui-zero/loader/boot-health || {
+			echo 'stage2 health refused: keeping recovery markers' >&2; return 1;
+		}
 		dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null
 		[ "$(rd 16640 1 | tr -d '\000' | wc -c)" = 0 ] || return 1
 		busybox devmem 0x0700013c 32 0

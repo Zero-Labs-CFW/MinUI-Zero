@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "upstream": "5508406582f6f7120dce0c4b3059819a41788db2",
+  "profiles": [
+    {
+      "id": 1, "board": "plus", "ram_mib": 1024,
+      "qualification": "development-only",
+      "panel_rule": "strap-pull",
+      "lengths": [1536, 107520, 1048576, 137714, 3072, 2048, 7244333, 512],
+      "sha256": "2766be31771085a019854f63ee8f88cbd74e99ec73f7f5343e6c44882b3a4151"
+    },
+    {
+      "id": 2, "board": "h", "ram_mib": 1024,
+      "qualification": "host-only",
+      "panel_rule": "strap-pull",
+      "lengths": [1536, 107520, 1048576, 138325, 3072, 2048, 7023217, 512],
+      "sha256": "43b1136747a0854fc1ee8e2e3a721d2c1b48c743dfd2481f57e1f928ed4de54b"
+    }
+  ]
+}
