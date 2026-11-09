@@ -19,6 +19,10 @@
 # re-enable an SPL that the SPL's own safety net removed after a failed boot (Codex review 2026-11-05).
 # Writes go body first, header last, and are verified in full: a power loss mid-write leaves slot 16 with a bad
 # checksum, BROM boots the backup slot (512, always stock), and the flag (still set) finishes the job next boot.
+if [ "${1-}" = stage2-contract ]; then
+	echo zero-stage2-health-v1
+	exit 0
+fi
 D=/dev/mmcblk0
 # the suspend script closes stdin (exec 0<&-): busybox od then still prints the value but also an error and exits 1
 exec 0</dev/null

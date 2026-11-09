@@ -109,7 +109,7 @@ def protocol(rows):
 
 
 def snapshot(binary, artifacts):
-    names = ("profile.c", "profile.h", "zero_params.h", "profiles.inc", "lib/sha256.c", "lib/sha256.h",
+    names = ("profile.c", "profile.h", "zero_params.h", "profiles.inc", "profiles.json", "tools/profiles.py", "lib/sha256.c", "lib/sha256.h",
              "tools/genprofiles.py", "test/profile_test.py", "test/profile_host.c")
     paths = [LOADER / name for name in names]
     result = {str(p.relative_to(LOADER)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
@@ -158,11 +158,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fixtures', type=Path, required=True)
     parser.add_argument('--artifacts', type=Path)
+    parser.add_argument('--packaged', type=Path, help='also test exact Plus/H boards-stage artifacts')
     parser.add_argument("--docker", action="store_true", help="run in existing zero-h700-build, offline/read-only")
     parser.add_argument("--binary", action="store_true", help="also execute actual loader binary (Linux AArch64)")
     parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
     args = parser.parse_args()
     if args.docker:
+        if args.packaged:
+            parser.error('use an explicit Docker mount for --packaged artifacts')
         command = ["docker", "run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
                    "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=256m",
                    "-v", f"{LOADER}:/work:ro", '-v', f'{args.fixtures.resolve()}:/fixtures:ro',
@@ -181,6 +184,11 @@ def main():
     before = snapshot(args.binary, artifacts)
     rows = gen.load_profiles(ROOT)
     gen.validate_public(rows)
+    cases = [('captured', rows)]
+    if args.packaged:
+        packaged = gen.load_packaged(args.packaged.resolve())
+        gen.validate_public(packaged)
+        cases.append(('packaged (RAM requirement only, not a unit measurement)', packaged))
     subprocess.run([sys.executable, '-I', LOADER / 'tools/profiles.py', '--check'], check=True)
     print("PASS all cohort manifest size/SHA256 checks; measured RAM; deterministic profiles.inc", flush=True)
     generator_negative_tests(gen)
@@ -201,7 +209,9 @@ def main():
         leaks = 0 if sys.platform == "darwin" else 1
         env = dict(os.environ, ASAN_OPTIONS=f"detect_leaks={leaks}:halt_on_error=1",
                    UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1")
-        subprocess.run(command, input=protocol(rows), env=env, check=True)
+        for label, fixtures in cases:
+            print('Testing ' + label, flush=True)
+            subprocess.run(command, input=protocol(fixtures), env=env, check=True)
     if snapshot(args.binary, artifacts) != before:
         raise AssertionError("tested sources/image changed during run; rerun on a stable snapshot")
     print("PASS stable source" + ("/actual-image" if args.binary else "") + " snapshot; ASan/UBSan clean", flush=True)

@@ -8,6 +8,7 @@ for TOC header/table, monitor, U-Boot, DTB, DTBO, boot header, gzip, ramdisk.
 import argparse
 from dataclasses import dataclass
 import hashlib
+import gzip
 import json
 from pathlib import Path
 import struct
@@ -130,13 +131,54 @@ def load_profiles(root):
     return tuple(load_cohort(root, *cohort) for cohort in COHORTS)
 
 
+def load_packaged(root):
+    """Artifact compatibility only: RAM is the profile's requirement, not a unit measurement."""
+    rows = []
+    for ident, name, _ in COHORTS:
+        directory = root / ('rg35xx-' + name)
+        package = (directory / 'package.fex').read_bytes()
+        require(len(package) >= 64 and package[:13] == b'sunxi-package', 'bad packaged TOC')
+        count, total = u32(package, 32), u32(package, 36)
+        require(0 < count <= 16 and total <= len(package), 'bad packaged TOC bounds')
+        table = span(package, 0, 64 + count * 368, 'packaged table')
+        items = {}
+        for i in range(count):
+            item = table[64 + i * 368:64 + (i + 1) * 368]
+            require(b'\0' in item[:64], 'unterminated packaged role')
+            role = item[:64].split(b'\0', 1)[0].decode('ascii')
+            require(role in PART_NAMES[1:5] and role not in items, 'duplicate/unknown packaged role')
+            offset, length = u32(item, 64), u32(item, 68)
+            require(offset >= len(table) and not offset % 512 and length > 0, 'bad packaged role span')
+            items[role] = span(package[:total], offset, length, role)
+        require(set(items) == set(PART_NAMES[1:5]), 'missing packaged role')
+        kernel_name = (directory / 'kernel').read_text().strip()
+        require(Path(kernel_name).name == kernel_name and kernel_name not in ('', '.', '..'), 'unsafe kernel name')
+        boot = gzip.decompress((root / 'kernels' / kernel_name).read_bytes())
+        header = span(boot, 0, 2048, 'packaged header')
+        require(header[:8] == b'ANDROID!' and u32(header, 36) == 2048, 'bad packaged Android header')
+        ks, rs = u32(header, 8), u32(header, 16)
+        require(0 < ks <= 32 << 20 and 0 < rs <= 1 << 20, 'bad packaged payload size')
+        parts = (table, items['monitor'], items['u-boot'], items['dtb'], items['dtbo'], header,
+                 span(boot, 2048, ks, 'packaged gzip'),
+                 span(boot, 2048 + ((ks + 2047) // 2048) * 2048, rs, 'packaged ramdisk'))
+        rows.append(Cohort(ident, name, directory.name, 1024, parts,
+                           hashlib.sha256(package).hexdigest(), hashlib.sha256(boot).hexdigest(),
+                           '', '', 'packaged-artifact-only; unit RAM unmeasured'))
+    return tuple(rows)
+
+
 def validate_public(rows):
     public = json.loads((ROOT / 'profiles.json').read_text())['profiles']
     require(len(public) == len(rows), 'public profile count differs')
     for row, item in zip(rows, public):
-        require((row.id, row.name, row.ram_mib, row.lengths, row.digest.hex()) ==
-                (item['id'], item['board'], item['ram_mib'], tuple(item['lengths']), item['sha256']),
+        hashes = [item['sha256']] + [v['sha256'] for v in item.get('variants', [])]
+        require((row.id, row.name, row.ram_mib, row.lengths) ==
+                (item['id'], item['board'], item['ram_mib'], tuple(item['lengths'])) and row.digest.hex() in hashes,
                 'capture differs from reviewed public profile')
+        for variant in item.get('variants', []):
+            if row.digest.hex() == variant['sha256']:
+                require(hashlib.sha256(row.parts[5]).hexdigest() == variant['boot_header_sha256'],
+                        'variant header differs from reviewed identity')
 
 
 def render(profiles):
@@ -162,13 +204,16 @@ def render(profiles):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fixtures", type=Path, required=True, help="saved cohort root; never a device")
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--fixtures", type=Path, help="saved cohort root; never a device")
+    inputs.add_argument("--packaged", type=Path, help="boards-stage artifact compatibility; NOT measured unit RAM")
     args = parser.parse_args()
-    rows = load_profiles(args.fixtures.resolve())
+    rows = load_profiles(args.fixtures.resolve()) if args.fixtures else load_packaged(args.packaged.resolve())
     validate_public(rows)
     for row in rows:
-        print(f"ID {row.id} {row.name}: measured RAM {row.ram_mib} MiB, lengths {row.lengths}, SHA256 {row.digest.hex()}")
-    print("PASS captured cohort manifests match reviewed public identities; no allowlist writes")
+        ram_kind = 'measured RAM' if args.fixtures else 'required RAM (not measured)'
+        print(f"ID {row.id} {row.name}: {ram_kind} {row.ram_mib} MiB, lengths {row.lengths}, SHA256 {row.digest.hex()}")
+    print("PASS inputs match reviewed public identities; no allowlist writes")
 
 
 if __name__ == "__main__":

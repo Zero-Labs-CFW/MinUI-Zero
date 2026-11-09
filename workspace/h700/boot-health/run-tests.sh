@@ -12,6 +12,7 @@ CC=${CC:-cc}
 "$CC" -std=c99 -Wall -Wextra -Werror -pedantic ${CFLAGS:-} \
     "$HERE/boot_health_test.c" "$HERE/boot_health.c" -o "$TMP/boot-health-test"
 "$TMP/boot-health-test" "$TMP"
+[ "$("$TMP/boot-health" --contract)" = zero-stage2-health-v1 ]
 if "$TMP/boot-health" --bypass 1 >/dev/null 2>&1; then
     echo "boot-health: unknown option accepted" >&2
     exit 1

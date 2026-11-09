@@ -14,7 +14,14 @@
       "qualification": "host-only",
       "panel_rule": "strap-pull",
       "lengths": [1536, 107520, 1048576, 138325, 3072, 2048, 7023217, 512],
-      "sha256": "43b1136747a0854fc1ee8e2e3a721d2c1b48c743dfd2481f57e1f928ed4de54b"
+      "sha256": "43b1136747a0854fc1ee8e2e3a721d2c1b48c743dfd2481f57e1f928ed4de54b",
+      "variants": [
+        {
+          "name": "image-rootflags-inode-readahead-0",
+          "sha256": "a97274a5dcbec80ad50e64f0f983e539a2922021ad1d4b87db2fc9e505c48f6b",
+          "boot_header_sha256": "f5c3275e7207ad632ec3e91049e9e5b6c913aef33af9931cd8fccdbdff6f6d73"
+        }
+      ]
     }
   ]
 }

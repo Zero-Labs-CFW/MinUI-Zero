@@ -682,7 +682,6 @@ static int disp_commit(int page) {
 	// so a separate DISP_LAYER_SET_CONFIG was reset to 255 by the next frame (Plus, 2026-10-07). Byte 2 of
 	// dword 1 is alpha_value (disp_pack). 255 unless a night step is active; no extra ioctl.
 	vid.lraw.dwords[1] = (vid.lraw.dwords[1] & 0xFF00FFFFu) | ((uint32_t)GetNightAlpha() << 16);
-	disp_shown = page;
 	// unsigned long args: the sunxi disp_ioctl copies FOUR LONGS from userspace. uint32_t
 	// worked for MyMinUI's 32-bit builds but truncated our 64-bit pointer (dmesg "para err").
 	unsigned long args[4];
@@ -692,10 +691,11 @@ static int disp_commit(int page) {
 	args[0] = 0; args[1] = (unsigned long)&vid.lraw; args[2] = 1; args[3] = 0;
 	int ret = ioctl(vid.dispfd, DISP_LAYER_SET_CONFIG2, &args);
 	unsigned long cargs[4] = { 0, 4, 1, 0 };
-	ioctl(vid.dispfd, DISP_HWC_COMMIT, &cargs);
+	if (ioctl(vid.dispfd, DISP_HWC_COMMIT, &cargs) < 0) ret = -1;
 	args[0] = 0; args[1] = 0; args[2] = 0; args[3] = 0;
-	ioctl(vid.dispfd, DISP_SHADOW_PROTECT, &args);
+	if (ioctl(vid.dispfd, DISP_SHADOW_PROTECT, &args) < 0) ret = -1;
 	disp_commit_irq = disp_irq_now();
+	if (ret >= 0) disp_shown = page;
 	return ret;
 }
 
@@ -918,10 +918,10 @@ static void fb_blit565(int page) {
 	}
 }
 
-static void fb_pan(int page) {
+static int fb_pan(int page) {
 	vid.vinfo.yoffset = vid.vinfo.yres * page;
 	vid.vinfo.activate = FB_ACTIVATE_VBL;
-	ioctl(vid.fdfb, FBIOPAN_DISPLAY, &vid.vinfo); // blocks ~16.7ms (measured): our vsync
+	return ioctl(vid.fdfb, FBIOPAN_DISPLAY, &vid.vinfo); // blocks ~16.7ms (measured): our vsync
 }
 
 void PLAT_quitVideo(void) {
@@ -1246,7 +1246,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			}
 		}
 		// UI needs no reshape: the window is fixed full-surface (see PLAT_blitRenderer).
-		disp_commit(vid.page);
+		int presented = disp_commit(vid.page) >= 0;
 		int shown = vid.page;
 		vid.page = !vid.page;
 		// Suspenders for the settle race above: re-commit the first frames after a vsync-plus.
@@ -1263,7 +1263,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 		if (settle_commits > 0 && !disp_warm) {
 			settle_commits--;
 			usleep(20000);
-			disp_commit(shown);
+			presented = disp_commit(shown) >= 0;
 		}
 		// NEVER write a page here. disp_commit() returns as soon as the ioctls are issued; the DE
 		// does not latch until the next vblank, so until then the panel is STILL scanning the page
@@ -1279,11 +1279,11 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 		// accumulates every draw, so it always holds the complete UI image; the "partial UI redraw"
 		// rationale never applied here. Game frames get the letterbox scrub instead.
 		vid.blit = NULL;
-		first_frame_mark();
+		if (presented) first_frame_mark();
 		return;
 	}
 	fb_blit565(vid.page);
-	fb_pan(vid.page);                        // synchronous: returns with the page on its way out
+	int presented = fb_pan(vid.page) >= 0;    // successful pan: the page is on its way out
 	if (vid.pages > 1) {
 		int shown = vid.page;
 		vid.page = !vid.page;
@@ -1297,7 +1297,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			       vid.fbmmap + (size_t)shown * vid.page_bytes, vid.page_bytes);
 	}
 	vid.blit = NULL;
-	first_frame_mark();
+	if (presented) first_frame_mark();
 }
 
 ///////////////////////////////

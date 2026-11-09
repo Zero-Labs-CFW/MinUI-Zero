@@ -452,6 +452,23 @@ class RecoveryTests(unittest.TestCase):
                 self.assertIn("seek=16896 count=1 conv=notrunc,fsync", command)
                 self.assertNotIn("sh $T/installer", command)
 
+    def test_rendered_register_guards_fail_closed(self):
+        state = copy.deepcopy(self.status)
+        state['gp13'] = 0
+        command = r.device_commands(self.cohort, state, 'guarded-reboot')
+        function = next(line for line in command.splitlines() if line.startswith('regis()'))
+        guards = [line for line in command.splitlines() if line.startswith('regis ')]
+        self.assertEqual(len(guards), 5)
+        for guard in guards:
+            expected = int(guard.split()[-1])
+            for value, code, accept in (('', 1, False), ('0x00000000', 1, False),
+                                        ('', 0, False), ('0x0', 0, False), ('garbage', 0, False),
+                                        ('0x%08x' % (expected ^ 1), 0, False),
+                                        ('0x%08x' % expected, 0, True)):
+                stub = 'busybox() { printf "%s\\n" "' + value + '"; return ' + str(code) + '; }\n'
+                result = subprocess.run(['sh', '-ec', stub + function + '\n' + guard], capture_output=True)
+                self.assertEqual(result.returncode == 0, accept, (guard, value, code))
+
     def test_main_entrypoint_plan_and_prepare_use_real_tool(self):
         self.status_path.write_text(json.dumps(self.status))
         arguments = ["prepare", "--manifest", str(self.manifest_path), "--image", str(self.image_path),

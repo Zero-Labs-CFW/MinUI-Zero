@@ -458,6 +458,9 @@ def main():
             mode = debugfs_mode(img, off, '/opt/minui-zero/loader/boot-health')
             check('stage2 health executable', mode is not None and mode & 0o111 == 0o111)
             check('stage2 does not auto-enable', b'"$spl" 2>&1' in cat('/opt/minui-zero/spl-auto.sh'))
+            tuples = subprocess.run([sys.executable, os.path.join(REPO, 'workspace/h700/loader/tools/genprofiles.py'),
+                                     '--packaged', os.path.join(assets, 'boards-stage')], capture_output=True, text=True)
+            check('stage2 Plus/H artifact compatibility', tuples.returncode == 0, tuples.stdout.strip() or tuples.stderr.strip())
             check('no spl-state yet', debugfs_mode(img, off, '/opt/minui-zero/spl-state') is None)
             with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(img))) as tmp:
                 have = rdump(img, off, '/opt/minui-zero/boards', tmp)

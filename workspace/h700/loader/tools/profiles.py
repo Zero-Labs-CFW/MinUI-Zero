@@ -13,6 +13,7 @@ def load(path=ROOT / 'profiles.json'):
     if data['version'] != 1 or not data['profiles']:
         raise ValueError('unsupported/empty profile manifest')
     seen = set()
+    hashes = set()
     for row in data['profiles']:
         ident = row['id']
         if type(ident) is not int or ident not in (1, 2) or ident in seen:
@@ -26,6 +27,19 @@ def load(path=ROOT / 'profiles.json'):
             raise ValueError('invalid transcript lengths')
         if not re.fullmatch('[0-9a-f]{64}', row['sha256']):
             raise ValueError('invalid transcript SHA256')
+        variants = row.get('variants', [])
+        names = set()
+        for variant in variants:
+            name = variant.get('name', '')
+            if not re.fullmatch('[a-z0-9-]{1,64}', name) or name in names:
+                raise ValueError('duplicate/invalid variant name')
+            names.add(name)
+            if not re.fullmatch('[0-9a-f]{64}', variant.get('boot_header_sha256', '')):
+                raise ValueError('invalid variant header SHA256')
+        for digest in [row['sha256']] + [v.get('sha256', '') for v in variants]:
+            if not re.fullmatch('[0-9a-f]{64}', digest) or digest in hashes:
+                raise ValueError('duplicate/invalid transcript SHA256')
+            hashes.add(digest)
     return data['profiles']
 
 
@@ -34,11 +48,12 @@ def render(rows):
              'static const struct {', '    unsigned int id, ram_mib, lengths[8];',
              '    uint8_t hash[32];', '} profiles[] = {']
     for row in rows:
-        lines.append('    { %d, %d, { %s }, {' % (row['id'], row['ram_mib'], ', '.join(map(str, row['lengths']))))
-        digest = bytes.fromhex(row['sha256'])
-        for start in range(0, 32, 8):
-            lines.append('        ' + ', '.join('0x%02x' % b for b in digest[start:start + 8]) + ',')
-        lines.append('    } },')
+        for digest in [row['sha256']] + [v['sha256'] for v in row.get('variants', [])]:
+            lines.append('    { %d, %d, { %s }, {' % (row['id'], row['ram_mib'], ', '.join(map(str, row['lengths']))))
+            digest = bytes.fromhex(digest)
+            for start in range(0, 32, 8):
+                lines.append('        ' + ', '.join('0x%02x' % b for b in digest[start:start + 8]) + ',')
+            lines.append('    } },')
     return '\n'.join(lines + ['};', ''])
 
 

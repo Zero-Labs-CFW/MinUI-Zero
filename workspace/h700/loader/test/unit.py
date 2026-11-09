@@ -20,7 +20,10 @@ with tempfile.TemporaryDirectory(prefix='zero-loader-unit-') as directory:
     out = Path(directory)
     cases = [(0, 'id', 3), (1, 'id', 1), (0, 'ram_mib', 2048), (0, 'board', 'rgcubexx'),
              (0, 'sha256', 'x'*64), (0, 'lengths', [1]*7), (0, 'lengths', [True]*8),
-             (0, 'panel_rule', 'constant-boe'), (0, 'qualification', 'qualified')]
+             (0, 'panel_rule', 'constant-boe'), (0, 'qualification', 'qualified'),
+             (1, 'variants', [{'name': 'x', 'sha256': original['profiles'][0]['sha256'], 'boot_header_sha256': '0'*64}]),
+             (1, 'variants', [{'name': '../x', 'sha256': '0'*64, 'boot_header_sha256': '0'*64}]),
+             (1, 'variants', [{'name': 'x', 'sha256': '0'*64, 'boot_header_sha256': 'bad'}])]
     for index, field, value in cases:
         data = copy.deepcopy(original)
         data['profiles'][index][field] = value
@@ -41,4 +44,4 @@ with tempfile.TemporaryDirectory(prefix='zero-loader-unit-') as directory:
     env = dict(os.environ, ASAN_OPTIONS='detect_leaks=' + ('0' if sys.platform == 'darwin' else '1') + ':halt_on_error=1',
                UBSAN_OPTIONS='halt_on_error=1')
     subprocess.run([binary], check=True, env=env)
-print('PASS tracked profile manifest + 9 refusal mutations; no external captures or hardware required')
+print(f'PASS tracked profile manifest + {len(cases)} refusal mutations; no external captures or hardware required')

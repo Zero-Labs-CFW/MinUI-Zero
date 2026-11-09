@@ -338,6 +338,9 @@ def device_commands(cohort, status, action):
              "R=/opt/minui-zero/stage2-fatal-once-" + cohort.digest,
              "rd() { dd if=$D bs=512 skip=$1 count=$2 iflag=direct 2>/dev/null; }",
              "hashis() { test \"$(sha256sum | cut -d' ' -f1)\" = \"$1\"; }",
+             "regis() { v=$(busybox devmem \"$1\") || return 1; case \"$v\" in "
+             "0x[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]) "
+             "test \"$((v))\" -eq \"$2\" ;; *) return 1 ;; esac; }",
              "test \"$(cat /mnt/mmc/.system/h700/board)\" = plus",
              "test \"$(cat /sys/block/mmcblk0/device/cid)\" = " + q(cohort.cid),
              "b=$(cat /sys/class/power_supply/axp2202-battery/capacity); test \"$b\" -gt 50; test \"$b\" -le 100",
@@ -356,7 +359,7 @@ def device_commands(cohort, status, action):
         expected = register(status, name) if name == "gp13" else 0
         if recovering and name == "gp14":
             expected = FATAL_MARK
-        lines.append("test \"$(( $(busybox devmem %s) ))\" -eq %s" % (hex(address), expected))
+        lines.append("regis %s %s" % (hex(address), expected))
     for name, location in REGIONS.items():
         if name in ("slot16.bin", "slot512.bin") and recovering:
             data = cohort.trained if cohort.trained is not None else cohort.pin
@@ -383,7 +386,7 @@ def device_commands(cohort, status, action):
         for name in ("slot512.bin", "pinA.bin", "pinB.bin", "attempt.bin", "binding.bin", "store.bin"):
             lines.append("rd %d %d | hashis %s" % (*REGIONS[name], sha(cohort.saved[name])))
         for address in (0x07000134, 0x07000138, 0x0700013C):
-            lines.append("test \"$(( $(busybox devmem %s) ))\" -eq 0" % hex(address))
+            lines.append("regis %s 0" % hex(address))
         lines += ["rm /run/zero-spl-busy", "sync"]
     elif action == "cleanup":
         lines += ["( set -C; : > /run/zero-spl-busy )", "sync",

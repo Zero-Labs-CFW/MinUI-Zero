@@ -41,6 +41,10 @@ static void usage(const char *name) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--contract")) {
+        puts("zero-stage2-health-v1");
+        return 0;
+    }
     const char *names[] = {"--record", "--expected", "--cmdline", "--display", "--menu"};
     const char *paths[] = {
         "/sys/firmware/devicetree/base/chosen/zero,loader",

@@ -33,6 +33,16 @@ stage2_board_ok() {
 	*) return 1 ;;
 	esac
 }
+stage2_consumer_ok() {
+	[ -f "$1" ] && [ -x "$2" ] && [ -f "$3" ] || return 1
+	_ack=$(sh "$1" stage2-contract) || return 1
+	[ "$_ack" = zero-stage2-health-v1 ] || return 1
+	_health=$("$2" --contract) || return 1
+	[ "$_health" = zero-stage2-health-v1 ] || return 1
+	_id=$(cat "$3") || return 1
+	[ "${#_id}" = 64 ] || return 1
+	case "$_id" in *[!0-9a-f]*) return 1 ;; esac
+}
 egon_sum_ok() {
 	[ "$(od -An -tu4 -v "$1" | awk '{for(i=1;i<=NF;i++){n++; v=(n==4)?1594518585:$i; s=(s+v)%4294967296}} END{printf "%.0f", s}')" = "$(u32 "$1" 12)" ]
 }
@@ -162,6 +172,8 @@ else
 fi
 if [ -n "$LOADER" ]; then
 	stage2_board_ok "$board" "$ST" || { echo "stage2 needs RG35XX Plus, or LPDDR4 H with ZERO_STAGE2_TRIAL=1: refusing"; exit 1; }
+	stage2_consumer_ok /opt/minui-zero/boot0-slot.sh /opt/minui-zero/loader/boot-health \
+		/opt/minui-zero/loader/build-id || { echo 'stage2 needs the health-v1 acknowledgment rootfs: refusing'; exit 1; }
 	[ "$board" != h ] || echo "TRIAL: stage2 on LPDDR4 RG35XX H; this is not hardware qualification"
 fi
 want=$(md5sum < $T/stock.bin | cut -c1-32)

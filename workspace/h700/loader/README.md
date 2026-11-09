@@ -27,6 +27,9 @@ directories and diagnostics are build/scratch artifacts, not source.
 `profiles.inc`; `--check` rejects stale generated data. New rows require review and
 hardware qualification. Hash matching is accidental-mismatch protection, not secure boot
 or physical model detection. The SPL separately validates the unit binding and DRAM.
+Named variants keep exact hashes under the same hardware policy. The standard H
+image adds a rootflags token absent from its earlier development capture; both
+whole transcripts are explicit. No header bytes are masked or normalized.
 
 ## Tests
 
@@ -44,7 +47,7 @@ device or an implicit gitignored path. Use Linux arm64 with ASan/UBSan and dtc:
 ```sh
 make -C workspace/h700/loader captured-test FIXTURES=/captures TEST_OUTPUT=/output
 python3 workspace/h700/loader/test/profile_test.py --fixtures /captures \
-  --binary --artifacts /sealed-build
+  --binary --artifacts /sealed-build --packaged /boards-stage
 ```
 
 The fixture root contains `devices/plus-215203`, `devices/h-215206` (each with validated
@@ -104,6 +107,10 @@ does not erase a residual fatal loader header; clear/verify it before any rearm.
 
 The all-devices image carries the payload, but `spl-auto.sh` still installs SPL-only.
 No stage2 automatic/default-on policy is introduced by this integration.
+An explicit stage2 install requires the installed acknowledgment and health helper
+to advertise `zero-stage2-health-v1`, plus a valid expected build ID, before card
+writes. This refuses an older rootfs that could acknowledge without validation.
+SPL-only installation is unchanged. A card ZIP does not upgrade the rootfs consumer.
 
 ## Provenance
 
