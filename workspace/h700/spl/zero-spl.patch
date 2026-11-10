@@ -79,10 +79,18 @@ index 432b1c10..4d4cf8eb 100644
  }
  
 diff --git a/arch/arm/mach-sunxi/dram_sun50i_h616.c b/arch/arm/mach-sunxi/dram_sun50i_h616.c
-index 42a0550e..ce8df7e8 100644
+index 42a0550e..e05d3e3d 100644
 --- a/arch/arm/mach-sunxi/dram_sun50i_h616.c
 +++ b/arch/arm/mach-sunxi/dram_sun50i_h616.c
-@@ -1319,7 +1319,17 @@ bool mctl_core_init(const struct dram_para *para,
+@@ -22,6 +22,7 @@
+ #include <asm/arch/prcm.h>
+ #include <linux/bitops.h>
+ #include <linux/delay.h>
++#include "zero_dram_layout.h"
+ 
+ enum {
+ 	MBUS_QOS_LOWEST = 0,
+@@ -1319,7 +1320,17 @@ bool mctl_core_init(const struct dram_para *para,
  	return mctl_ctrl_init(para, config);
  }
  
@@ -101,7 +109,7 @@ index 42a0550e..ce8df7e8 100644
  	.clk = CONFIG_DRAM_CLK,
  #ifdef CONFIG_SUNXI_DRAM_H616_DDR3_1333
  	.type = SUNXI_DRAM_TYPE_DDR3,
-@@ -1340,12 +1350,25 @@ static const struct dram_para para = {
+@@ -1340,21 +1351,40 @@ static const struct dram_para para = {
  	.tpr12 = CONFIG_DRAM_SUNXI_TPR12,
  };
  
@@ -126,6 +134,22 @@ index 42a0550e..ce8df7e8 100644
 +#endif
  	setbits_le32(prcm + CCU_PRCM_RES_CAL_CTRL, BIT(8));
  	clrbits_le32(prcm + CCU_PRCM_OHMS240, 0x3f);
+ 
+ 	mctl_auto_detect_rank_width(&para, &config);
+ 	mctl_auto_detect_dram_size(&para, &config);
+ 
+-	mctl_core_init(&para, &config);
++	if (!zero_dram_layout_size(config.cols, config.rows, config.ranks,
++				   config.bus_full_width))
++		return 0;
++	if (!mctl_core_init(&para, &config))
++		return 0;
+ 
+ 	size = mctl_calc_size(&config);
++	if (!size)
++		return 0;
+ 
+ 	mctl_set_master_priority();
  
 diff --git a/arch/arm/mach-sunxi/zero_dram_check.h b/arch/arm/mach-sunxi/zero_dram_check.h
 new file mode 100644
@@ -242,6 +266,33 @@ index 00000000..2ef4b956
 +	if (type == ZDC_LPDDR3 && (!w[28] || !w[29] || !(w[26] >> 16 & 0xff)))
 +		return ZDC_UNTRAINED;
 +	return ZDC_OK;
++}
++
++#endif
+diff --git a/arch/arm/mach-sunxi/zero_dram_layout.h b/arch/arm/mach-sunxi/zero_dram_layout.h
+new file mode 100644
+index 00000000..903ef6b0
+--- /dev/null
++++ b/arch/arm/mach-sunxi/zero_dram_layout.h
+@@ -0,0 +1,21 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++#ifndef ZERO_DRAM_LAYOUT_H
++#define ZERO_DRAM_LAYOUT_H
++
++/* H700's bound unit records admit at most 2 GiB. A broken data path can make
++ * alias detection report its maximum geometry; mctl_calc_size would then touch
++ * 3/4 of that fictitious size, beyond the 32-bit DRAM window. Reject before it
++ * probes. This is a layout bound, not admission of another board or RAM size. */
++static inline unsigned long long zero_dram_layout_size(unsigned int cols,
++		unsigned int rows, unsigned int ranks, unsigned int full_width)
++{
++	unsigned long long size;
++
++	if (cols < 8 || cols > 11 || rows < 13 || rows > 17 ||
++	    (ranks != 1 && ranks != 2) || full_width > 1)
++		return 0;
++	size = (1ULL << (cols + rows + 3)) * (full_width ? 4 : 2) * ranks;
++	return size <= 0x80000000ULL ? size : 0;
 +}
 +
 +#endif
