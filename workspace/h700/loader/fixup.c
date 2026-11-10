@@ -24,6 +24,7 @@
 #include "zl.h"
 #include "rtc.h"
 #include "memory_layout.h"
+#include "display_contract.h"
 #include "obj/build_id.h"
 
 static int zl_fix_health(void *fdt, const struct zero_params *p, const char *panel)
@@ -34,18 +35,20 @@ static int zl_fix_health(void *fdt, const struct zero_params *p, const char *pan
 	int off = fdt_path_offset(fdt, "/soc@03000000/lcd0@01c0c000"), len;
 	const fdt32_t *x, *y;
 	unsigned int fields[7];
-	if (profile != 1 && profile != 2)
+	struct zero_display_contract display;
+	if (!zero_display_profile(profile, &display) || !zero_display_v1_compatible(&display))
 		return -FDT_ERR_BADVALUE;
 	if (off < 0 || !panel || (strcmp(panel, "old") && strcmp(panel, "boe")))
 		return -FDT_ERR_BADVALUE;
 	x = fdt_getprop(fdt, off, "lcd_x", &len);
-	if (!x || len != 4 || fdt32_to_cpu(*x) != 640)
+	if (!x || len != 4 || fdt32_to_cpu(*x) != display.lcd_width)
 		return -FDT_ERR_BADVALUE;
 	y = fdt_getprop(fdt, off, "lcd_y", &len);
-	if (!y || len != 4 || fdt32_to_cpu(*y) != 480)
+	if (!y || len != 4 || fdt32_to_cpu(*y) != display.lcd_height)
 		return -FDT_ERR_BADVALUE;
 	fields[0] = 1; fields[1] = sizeof(record); fields[2] = profile;
-	fields[3] = !strcmp(panel, "boe"); fields[4] = 640; fields[5] = 480; fields[6] = 0;
+	fields[3] = !strcmp(panel, "boe");
+	fields[4] = display.lcd_width; fields[5] = display.lcd_height; fields[6] = 0;
 	for (unsigned int i = 0; i < 7; i++) {
 		fdt32_t value = cpu_to_fdt32(fields[i]);
 		memcpy(record + 4 + i * 4, &value, 4);

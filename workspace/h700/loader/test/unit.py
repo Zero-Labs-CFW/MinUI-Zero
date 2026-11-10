@@ -74,4 +74,9 @@ with tempfile.TemporaryDirectory(prefix='zero-loader-unit-') as directory:
                     '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-I', ROOT,
                     ROOT / 'test/memory_layout_test.c', '-o', binary], check=True)
     subprocess.run([binary], check=True, env=env)
+    binary = out / 'display-contract'
+    subprocess.run([*cc, '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
+                    '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-I', ROOT,
+                    ROOT / 'test/display_contract_test.c', '-o', binary], check=True)
+    subprocess.run([binary], check=True, env=env)
 print(f'PASS tracked profile manifest + {len(cases)} refusal mutations; no external captures or hardware required')

@@ -119,6 +119,15 @@ static void pure_tests(void) {
     }
     baseline(1, 0); put32(raw + 12, 0);
     CHECK(zero_boot_record(raw, 64, &record) != NULL);
+    /* Valid fleet shapes are not interchangeable with an admitted Plus/H record. */
+    for (profile = 1; profile <= 2; ++profile) {
+        const uint32_t sizes[][2] = {{720,720}, {720,480}, {480,640}, {640,481}, {UINT32_MAX,480}};
+        for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); ++i) {
+            baseline(profile, 0);
+            put32(raw + 20, sizes[i][0]); put32(raw + 24, sizes[i][1]);
+            CHECK(zero_boot_record(raw, 64, &record) != NULL);
+        }
+    }
     baseline(1, 0);
     for (i = 0; i < 32; ++i) {
         raw[32 + i] ^= 1;

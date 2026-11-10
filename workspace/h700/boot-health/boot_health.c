@@ -1,4 +1,5 @@
 #include "boot_health.h"
+#include "../loader/display_contract.h"
 
 #include <limits.h>
 #include <string.h>
@@ -10,6 +11,7 @@ static uint32_t be32(const unsigned char *p) {
 
 const char *zero_boot_record(const unsigned char *data, size_t size,
                             struct zero_boot_record *record) {
+    struct zero_display_contract display;
     if (size != ZERO_LOADER_RECORD_SIZE) return "record length";
     if (memcmp(data, "ZHL1", 4)) return "record magic";
     if (be32(data + 4) != 1) return "record version";
@@ -18,9 +20,11 @@ const char *zero_boot_record(const unsigned char *data, size_t size,
     record->panel = be32(data + 16);
     record->width = be32(data + 20);
     record->height = be32(data + 24);
-    if (record->profile != 1 && record->profile != 2) return "record profile";
+    if (!zero_display_profile(record->profile, &display)) return "record profile";
     if (record->panel > 1) return "record panel";
-    if (!record->width || !record->height) return "record geometry";
+    if (!zero_display_v1_compatible(&display) ||
+        record->width != display.lcd_width || record->height != display.lcd_height)
+        return "record geometry";
     if (be32(data + 28)) return "record reserved field";
     memcpy(record->build_id, data + 32, sizeof(record->build_id));
     return NULL;

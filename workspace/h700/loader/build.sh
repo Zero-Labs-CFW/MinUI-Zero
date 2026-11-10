@@ -12,12 +12,13 @@ IMAGE=${ZERO_LOADER_BUILD_IMAGE:-sha256:906796bdcb29b23d682b81bc2dba00d921ac1098
 docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
     -v "$HERE:/source:ro" -v "$HERE/../boot-health:/health:ro" -v "$OUT:/out" "$IMAGE" sh -ec '
     cp -a /source /tmp/loader
+    cp -a /health /tmp/boot-health
     cd /tmp/loader
     make clean
     python3 -I tools/profiles.py --check
     make -j2
     cp zero-loader.bin obj/zero-loader.elf obj/zero-loader.map obj/build-id obj/sources.json /out/
-    gcc -std=c11 -O2 -Wall -Wextra -Werror -static /health/boot-health.c /health/boot_health.c -o /out/boot-health
+    gcc -std=c11 -O2 -Wall -Wextra -Werror -static /tmp/boot-health/boot-health.c /tmp/boot-health/boot_health.c -o /out/boot-health
     gcc --version > /out/compiler.txt
     ld --version > /out/linker.txt
     cd /out
