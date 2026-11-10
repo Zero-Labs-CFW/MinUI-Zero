@@ -18,6 +18,7 @@
 #include "zl.h"
 #include "rtc.h"
 #include "monitor.h"
+#include "memory_layout.h"
 
 _Static_assert(sizeof(struct zero_loader_hdr) == ZL_HDR_LEN, "zero_loader_hdr must be 64 bytes");
 
@@ -44,9 +45,6 @@ _Static_assert(sizeof(struct zero_loader_hdr) == ZL_HDR_LEN, "zero_loader_hdr mu
 #define ZL_IMG_MAGIC		0x38
 #define ZL_IMG_MAGIC_ARM64	0x644d5241u	/* "ARM\x64" */
 #define ZL_2M			0x200000UL
-
-/* the 1 GiB that start.S maps normal cacheable; every region the loader touches must be inside it */
-#define ZL_MAP_END	(ZL_DRAM_BASE + 0x40000000UL)
 
 static void __attribute__((noreturn)) zl_fail(uint32_t code)
 {
@@ -92,11 +90,9 @@ int zl_params_ok_at(const struct zero_params *p, uint64_t params_addr)
 
 	if (p->magic != ZP_MAGIC || p->version != ZP_VERSION || p->size != sizeof(*p) || (params_addr & 7))
 		return 0;
-	if (!p->dram_mib || p->dram_mib > 1024)
+	zl_dram_end = zl_mapped_dram_end(p->dram_mib);
+	if (!zl_dram_end)
 		return 0;
-	zl_dram_end = ZL_DRAM_BASE + ((uint64_t)p->dram_mib << 20);
-	if (zl_dram_end > ZL_MAP_END)
-		zl_dram_end = ZL_MAP_END;
 	if (!p->dtb_len || !p->kernel_gz_len || !p->kernel_max || (p->dtb & 7) || (p->monitor & 3) ||
 	    (p->uboot & 3) || p->monitor > UINT32_MAX || p->kernel_addr > UINT32_MAX || p->dtb > UINT32_MAX)
 		return 0;	/* the monitor head holds 32-bit addresses */
@@ -151,7 +147,8 @@ void main(struct zero_params *p)
 	if ((uintptr_t)p != ZL_HDR_ADDR + 2048 || !zl_params_ok_at(p, (uintptr_t)p))
 		zl_fail(ZL_FAIL_PARAMS);
 	/* Only the returning, read-only preflight may select an admitted artifact profile. */
-	if (zl_panel_rule_for_profile((p->flags & ZP_PROFILE_MASK) >> ZP_PROFILE_SHIFT) == ZL_PANEL_INVALID)
+	if (p->dram_mib != 1024 ||
+	    zl_panel_rule_for_profile((p->flags & ZP_PROFILE_MASK) >> ZP_PROFILE_SHIFT) == ZL_PANEL_INVALID)
 		zl_fail(ZL_FAIL_PARAMS);
 	if (zl_prepare_hardware())
 		zl_fail(ZL_FAIL_PARAMS);

@@ -35,6 +35,10 @@ int main(int argc, char **argv)
 	BAD(kernel_max,0x1f80001); BAD(kernel_max,0); BAD(ramdisk,0x48000000); BAD(ramdisk_len,0x100001);
 	BAD(dtbo,0x4a200000); BAD(dtbo_len,0x100001); BAD(bootimg_hdr,0x44f00004);
 	CHECK(!zl_params_ok_at(&p, pa+1)); CHECK(!zl_params_ok_at(&p, UINT64_MAX-7));
+	/* Backend layout supports 2 GiB, but every accessed byte stays in the first mapped GiB. */
+	q=p; q.dram_mib=2048; CHECK(zl_params_ok_at(&q, pa));
+	CHECK(!zl_params_ok_at(&q, 0x80000000ull));
+	BAD(dram_mib,2049); BAD(dram_mib,UINT32_MAX);
 	q=p; q.ramdisk_len=0; q.dtbo_len=0; CHECK(zl_params_ok_at(&q, pa));
 	CHECK(zl_image_ok(image, p.kernel_addr, p.kernel_max, image_len));
 	CHECK(!zl_image_ok(image, p.kernel_addr+4, p.kernel_max, image_len));

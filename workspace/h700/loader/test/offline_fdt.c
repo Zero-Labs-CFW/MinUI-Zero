@@ -50,6 +50,17 @@ int main(int argc, char **argv)
 	CHECK(health && len == 64 && !memcmp(health, "ZHL1", 4));
 	CHECK(fdt32_to_cpu(*(const fdt32_t *)(health + 12)) == 1);
 	write_file(argv[5], fdt, fdt_totalsize(fdt));
+	/* Exercise physical RAM encoding separately from preflight/main board admission. */
+	for (unsigned mib = 1024; mib <= 2048; mib += 1024) {
+		p = good; p.dram_mib = mib; fresh(fdt, pkg, pkg_len); mock_reset();
+		CHECK(zl_build_fdt(&p) == 0);
+		const fdt32_t *reg = fdt_getprop(fdt, fdt_path_offset(fdt, "/memory@40000000"), "reg", &len);
+		CHECK(reg && len == 16 && fdt32_to_cpu(reg[0]) == 0 && fdt32_to_cpu(reg[1]) == 0x40000000);
+		CHECK(fdt32_to_cpu(reg[2]) == 0 && fdt32_to_cpu(reg[3]) == ((uint64_t)mib << 20));
+		for (size_t i = 0; i < 16; i++) CHECK(fdt[ZL_FDT_MAX + i] == 0xa5);
+	}
+	p = good; p.dram_mib = 2049; fresh(fdt, pkg, pkg_len);
+	CHECK(zl_build_fdt(&p) < 0);
 	CHECK(zl_snum(serial, sizeof(serial), sid) == 19 && !strcmp(serial, "0000000000000000000"));
 	sid[1] = 0x12300000; sid[2] = 1; sid[3] = 2;
 	CHECK(zl_snum(serial, sizeof(serial), sid) == 19 && !strcmp(serial, "1230000000100000002"));

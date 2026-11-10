@@ -4,6 +4,11 @@ Experimental SPL -> loader -> vendor monitor -> Linux path. Packaging this loade
 does not install or enable it. Plus/H are the only admitted artifact profiles.
 Other board/DRAM/panel combinations remain refused. This is not a release qualification.
 
+The memory-layout backend separates physical RAM from the first GiB mapped by the
+loader. Its bounds and FDT encoding are tested for 2 GiB, without mapping or touching
+the upper GiB. Preflight and main still reject unqualified 2 GiB sessions; this
+plumbing alone does not qualify RG34XX SP, its monitor, DRAM training or suspend.
+
 ## Build
 
 The build needs Docker and a Linux arm64 toolchain image. The default image is pinned

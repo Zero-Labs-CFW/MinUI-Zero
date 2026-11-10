@@ -23,6 +23,7 @@
 #include <libfdt.h>
 #include "zl.h"
 #include "rtc.h"
+#include "memory_layout.h"
 #include "obj/build_id.h"
 
 static int zl_fix_health(void *fdt, const struct zero_params *p, const char *panel)
@@ -251,11 +252,11 @@ static int zl_fix_chosen(void *fdt, const struct zero_params *p, const char **se
 /* reg = <base size> in the root's #address-cells/#size-cells (2/2 in the package dtb) */
 static int zl_fix_memory(void *fdt, const struct zero_params *p)
 {
-	uint64_t base = ZL_DRAM_BASE, size = (uint64_t)p->dram_mib << 20;
+	uint64_t base = ZL_DRAM_BASE, size = zl_physical_dram_size(p->dram_mib);
 	fdt32_t reg[4];
 	int ac, sc, n = 0, off, r;
 
-	if (!p->dram_mib)
+	if (!size)
 		return -FDT_ERR_BADVALUE;
 	ac = fdt_address_cells(fdt, 0);
 	sc = fdt_size_cells(fdt, 0);

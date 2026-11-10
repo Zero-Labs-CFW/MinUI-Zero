@@ -69,4 +69,9 @@ with tempfile.TemporaryDirectory(prefix='zero-loader-unit-') as directory:
         (out / 'Image').write_bytes(data)
         (out / 'kernel.gz').write_bytes(gz)
         subprocess.run([binary, out / 'kernel.gz', out / 'Image'], check=True, env=env)
+    binary = out / 'memory-layout'
+    subprocess.run([*cc, '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror', '-DZL_HOST_TEST',
+                    '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-I', ROOT,
+                    ROOT / 'test/memory_layout_test.c', '-o', binary], check=True)
+    subprocess.run([binary], check=True, env=env)
 print(f'PASS tracked profile manifest + {len(cases)} refusal mutations; no external captures or hardware required')

@@ -221,6 +221,7 @@ int main(int argc, char **argv)
 #define BAD(field, value) do { fresh(); p->field = (value); execute("params-" #field "-" #value, p, 0x4d, 0); CHECK(mock_count == 5); } while (0)
 	BAD(magic, 0); BAD(version, ZP_VERSION+1); BAD(size, sizeof(*p)-1); BAD(dram_mib, 192);
 	BAD(dram_mib, 1025); BAD(dtb_len, 39); BAD(dtb_len, ZL_FDT_MAX+1);
+	BAD(dram_mib, 2048); /* Layout plumbing is not profile admission; refuse before hardware writes. */
 	BAD(dtb, UINT64_MAX-7); BAD(kernel_gz_len, 0); BAD(kernel_gz_len, ZL_KGZ_MAX+1);
 	BAD(kernel_max, 0); BAD(kernel_max, 0x1f80001); BAD(fdt_max, 39);
 	BAD(ramdisk_len, UINT64_MAX); BAD(dtbo_len, UINT64_MAX);
