@@ -197,7 +197,7 @@ static int zl_bootargs(const void *fdt, const struct zero_params *p, const char 
 	zl_puts(&s, " bootreason=");
 	zl_puts(&s, reason);
 	zl_puts(&s, " lcd_type=");
-	lcd = zl_lcd_type();
+	lcd = zl_lcd_type_rule(zl_panel_rule_for_profile((p->flags & ZP_PROFILE_MASK) >> ZP_PROFILE_SHIFT));
 	*selected_panel = lcd;
 	if (!lcd)
 		return -FDT_ERR_BADVALUE;

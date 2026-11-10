@@ -7,6 +7,7 @@ struct mock_write mock_writes[128];
 unsigned mock_count;
 static struct mock_write registers[128];
 static unsigned register_count;
+static unsigned long forbidden_read;
 static int reset_escape;
 static uint64_t counter_now, counter_step;
 jmp_buf mock_jmp;
@@ -20,6 +21,7 @@ void mock_set(unsigned long addr, uint32_t value)
 void mock_reset(void)
 {
 	register_count = mock_count = 0;
+	forbidden_read = 0;
 	reset_escape = 0;
 	counter_now = 2400123; counter_step = 24000;
 	mock_set(0x03006200, 0x33806c00);
@@ -38,6 +40,7 @@ void mock_reset(void)
 }
 uint32_t read32(unsigned long addr)
 {
+	if (forbidden_read && addr == forbidden_read) abort();
 	for (unsigned i = 0; i < register_count; i++)
 		if (registers[i].addr == addr) return registers[i].value;
 	fprintf(stderr, "unexpected MMIO read %#lx\n", addr);
@@ -51,5 +54,6 @@ void write32(unsigned long addr, uint32_t value)
 	if (reset_escape && addr == 0x030090b0) longjmp(mock_jmp, 1);
 }
 void mock_reset_escape(int enabled) { reset_escape = enabled; }
+void mock_forbid_read(unsigned long addr) { forbidden_read = addr; }
 void mock_clock(uint64_t now, uint64_t step) { counter_now = now; counter_step = step; }
 uint64_t zl_test_counter(void) { uint64_t now = counter_now; counter_now += counter_step; return now; }

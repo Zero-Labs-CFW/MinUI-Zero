@@ -1,7 +1,7 @@
 # H700 Stage-2 Loader
 
 Experimental SPL -> loader -> vendor monitor -> Linux path. Packaging this loader
-does not install or enable it. Plus development checks exist; H is host-tested only.
+does not install or enable it. Plus/H are the only admitted artifact profiles.
 Other board/DRAM/panel combinations remain refused. This is not a release qualification.
 
 ## Build
@@ -33,7 +33,7 @@ whole transcripts are explicit. No header bytes are masked or normalized.
 
 ## Tests
 
-Portable, capture-free production SHA/profile-manifest checks:
+Portable, capture-free production SHA/profile-manifest and panel-policy sanitizer checks:
 
 ```sh
 python3 workspace/h700/loader/test/unit.py
@@ -71,6 +71,12 @@ gzip 0x45000000, vendor monitor 0x48000000, fallback U-Boot 0x4a000000,
 DTBO 0x4a100000, FDT 0x4a200000, loader 0x4c000000. Link-time and runtime checks
 bound the image, stack, inflate output and disjoint regions. Kernel gzip CRC/size
 and arm64 Image headers are checked. Existing panel power/reset minimum waits remain.
+
+Panel selection has four tested vendor-policy primitives: strap with pull-up, strap with
+pull unchanged, constant old, and constant BOE. `panel_policy.h` maps admitted profile IDs
+to policies; only Plus/H currently map, both to strap with pull-up. The other primitives
+do not enable any board or its geometry, memory, monitor or power behavior. Constant
+policies do not sample/configure PE6; the unchanged-pull policy does not touch its pull.
 
 ## Boot Acceptance
 

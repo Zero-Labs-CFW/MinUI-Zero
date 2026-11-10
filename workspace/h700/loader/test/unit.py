@@ -44,4 +44,10 @@ with tempfile.TemporaryDirectory(prefix='zero-loader-unit-') as directory:
     env = dict(os.environ, ASAN_OPTIONS='detect_leaks=' + ('0' if sys.platform == 'darwin' else '1') + ':halt_on_error=1',
                UBSAN_OPTIONS='halt_on_error=1')
     subprocess.run([binary], check=True, env=env)
+    binary = out / 'panel-policies'
+    subprocess.run([*cc, '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror', '-DZL_HOST_TEST',
+                    '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-I', ROOT,
+                    ROOT / 'test/offline_panel.c', ROOT / 'test/offline_soc.c', ROOT / 'rtc.c',
+                    '-o', binary], check=True)
+    subprocess.run([binary], check=True, env=env)
 print(f'PASS tracked profile manifest + {len(cases)} refusal mutations; no external captures or hardware required')

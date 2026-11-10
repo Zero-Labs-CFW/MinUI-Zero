@@ -12,6 +12,7 @@
 #define ZL_RTC_H
 
 #include <stdint.h>
+#include "panel_policy.h"
 
 #ifdef ZL_HOST_TEST
 void write32(unsigned long addr, uint32_t val);
@@ -54,6 +55,7 @@ void zl_stamp(unsigned long reg);
 void zl_sid_read(uint32_t sid[4]);
 int zl_lcd_begin(void);
 const char *zl_lcd_type(void);
+const char *zl_lcd_type_rule(enum zl_panel_rule rule);
 int zl_prepare_hardware(void);
 
 #endif

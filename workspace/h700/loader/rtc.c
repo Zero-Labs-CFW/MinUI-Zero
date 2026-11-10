@@ -117,18 +117,27 @@ int zl_lcd_begin(void)
 }
 
 /* Direct callers retain the complete synchronous sequence, including every minimum delay. */
-const char *zl_lcd_type(void)
+const char *zl_lcd_type_rule(enum zl_panel_rule rule)
 {
-	uint32_t cfg, pull;
+	uint32_t cfg;
+	if (rule < ZL_PANEL_STRAP_PULL || rule > ZL_PANEL_BOE) {
+		lcd_started = 0;
+		return 0;
+	}
 	if (!lcd_started && zl_lcd_begin())
 		return 0;
 	lcd_started = 0;
 	if (zl_delay_since(lcd_reset_high_at, 100000))
 		return 0;
+	/* Constant-panel boards must not sample or reconfigure an unrelated/floating strap. */
+	if (rule == ZL_PANEL_OLD || rule == ZL_PANEL_BOE)
+		return rule == ZL_PANEL_OLD ? "old" : "boe";
 	cfg = read32(0x0300b090);
-	pull = read32(0x0300b0ac);
 	write32(0x0300b090, (cfg & ~(0xfu << 24)) | (6u << 24));
-	write32(0x0300b0ac, (pull & ~(3u << 12)) | (1u << 12));
+	if (rule == ZL_PANEL_STRAP_PULL) {
+		uint32_t pull = read32(0x0300b0ac);
+		write32(0x0300b0ac, (pull & ~(3u << 12)) | (1u << 12));
+	}
 #ifndef ZL_HOST_TEST
 	__asm__ volatile("dsb sy" ::: "memory");
 #endif
@@ -140,4 +149,9 @@ const char *zl_lcd_type(void)
 	if (zl_delay_us(1000))
 		return 0;
 	return read32(0x0300b0a0) & (1u << 6) ? "old" : "boe";
+}
+
+const char *zl_lcd_type(void)
+{
+	return zl_lcd_type_rule(ZL_PANEL_STRAP_PULL);
 }

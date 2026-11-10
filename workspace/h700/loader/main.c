@@ -150,10 +150,8 @@ void main(struct zero_params *p)
 	zl_mark(ZL_MARK_MAIN);
 	if ((uintptr_t)p != ZL_HDR_ADDR + 2048 || !zl_params_ok_at(p, (uintptr_t)p))
 		zl_fail(ZL_FAIL_PARAMS);
-	/* Only the returning, read-only preflight may select an artifact profile. Both qualified
-	 * rows use PE6 strap with pull; other panel rules remain refused until implemented/tested. */
-	if ((p->flags & ZP_PROFILE_MASK) != ZP_PROFILE_PLUS &&
-	    (p->flags & ZP_PROFILE_MASK) != ZP_PROFILE_H)
+	/* Only the returning, read-only preflight may select an admitted artifact profile. */
+	if (zl_panel_rule_for_profile((p->flags & ZP_PROFILE_MASK) >> ZP_PROFILE_SHIFT) == ZL_PANEL_INVALID)
 		zl_fail(ZL_FAIL_PARAMS);
 	if (zl_prepare_hardware())
 		zl_fail(ZL_FAIL_PARAMS);
