@@ -66,6 +66,52 @@ int main(int argc, char **argv)
 	for (size_t i = 0; i < 16; i++)
 		CHECK(dst[image_len + i] == 0xa5);
 	CHECK(image[56] == 'A' && image[57] == 'R' && image[58] == 'M' && image[59] == 0x64);
+	/* Exercise all optional-header combinations, including the FHCRC upstream skips. */
+	size_t payload = 10;
+	CHECK((gz[3] & ~8u) == 0);
+	if (gz[3] & 8) {
+		while (payload < gz_len && gz[payload])
+			payload++;
+		CHECK(payload < gz_len);
+		payload++;
+	}
+	for (unsigned variant = 0; variant < 8; variant++) {
+		memcpy(bad, gz, 10);
+		bad[3] = 2 | (variant << 2);
+		size_t pos = 10;
+		if (bad[3] & 4) {
+			bad[pos++] = 3; bad[pos++] = 0;
+			memcpy(bad + pos, "abc", 3); pos += 3;
+		}
+		if (bad[3] & 8) {
+			memcpy(bad + pos, "kernel\0", 7); pos += 7;
+		}
+		if (bad[3] & 16) {
+			memcpy(bad + pos, "comment\0", 8); pos += 8;
+		}
+		unsigned crc = crc32(0, bad, pos);
+		bad[pos] = crc; bad[pos + 1] = crc >> 8;
+		memcpy(bad + pos + 2, gz + payload, gz_len - payload);
+		size_t len = pos + 2 + gz_len - payload;
+		memset(dst, 0xa5, image_len + 16);
+		CHECK(zl_gunzip(dst, image_len, bad, len, &out) == 0);
+		CHECK(out == image_len && memcmp(dst, image, image_len) == 0);
+		for (size_t i = 0; i < 16; i++)
+			CHECK(dst[image_len + i] == 0xa5);
+		bad[pos] ^= 1;
+		rejected(dst, image_len, bad, len);
+		/* End each optional field early: no bounded scan may escape the input. */
+		for (size_t truncated = 18; truncated <= pos + 9; truncated++)
+			rejected(dst, image_len, bad, truncated);
+	}
+	memset(bad, 0x7f, 32);
+	memcpy(bad, gz, 10);
+	bad[3] = 2 | 4; bad[10] = 255; bad[11] = 255;
+	rejected(dst, image_len, bad, 32);
+	bad[3] = 2 | 8;
+	rejected(dst, image_len, bad, 32);
+	bad[3] = 2 | 16;
+	rejected(dst, image_len, bad, 32);
 	rejected(dst, image_len - 1, gz, gz_len);
 	rejected(dst, 1, gz, gz_len);
 	rejected(dst, image_len, gz, 0);

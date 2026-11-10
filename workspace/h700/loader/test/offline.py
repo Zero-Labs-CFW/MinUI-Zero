@@ -51,7 +51,7 @@ def extract_bootimg(path, out):
 
 def compile_host(output, sources, sanitize):
     cc = shlex.split(os.environ.get("CC", "cc"))
-    flags = ["-std=gnu11", "-O1", "-g", "-D__UBOOT__", "-DZL_HOST_TEST", "-fno-strict-aliasing",
+    flags = ["-std=gnu11", "-O1", "-g", "-D__UBOOT__", "-DFREESTANDING", "-DZL_HOST_TEST", "-fno-strict-aliasing",
              "-I" + str(ROOT), "-I" + str(ROOT / "include"), "-I" + str(ROOT / "libfdt")]
     if sanitize:
         flags += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
@@ -227,7 +227,9 @@ def main():
     env = dict(os.environ, ASAN_OPTIONS="detect_leaks=" + ("0" if sys.platform == "darwin" else "1"),
                UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1")
     exe = out / "test-gunzip"
-    compile_host(exe, ["test/offline_gunzip.c", "gunzip.c", "zlib/zlib.c", "lib/crc32.c"], not args.no_sanitize)
+    compile_host(exe, ["test/offline_gunzip.c", "gunzip.c", "lib/crc32.c", "libdeflate/lib/utils.c",
+                       "libdeflate/lib/deflate_decompress.c", "libdeflate/lib/gzip_decompress.c",
+                       "libdeflate/lib/x86/cpu_features.c"], not args.no_sanitize)
     run([exe, gz, image], env=env)
     exe = out / "test-fdt"
     libfdt = [str(p.relative_to(ROOT)) for p in sorted((ROOT / "libfdt").glob("*.c"))]

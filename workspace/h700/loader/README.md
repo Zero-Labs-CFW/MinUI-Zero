@@ -120,6 +120,9 @@ SPL-only installation is unchanged. A card ZIP does not upgrade the rootfs consu
 
 ## Provenance
 
-Vendored inflate, libfdt and cache code derive from U-Boot v2026.10,
+Vendored libfdt, cache code and the retained reference zlib derive from U-Boot v2026.10,
 commit 5508406582f6f7120dce0c4b3059819a41788db2. Existing SPDX/copyright notices
 are retained. Standalone shims and hardware CRC selection are local adaptations.
+The linked whole-buffer decoder is libdeflate v1.26 (pin/license in
+`libdeflate/README.md`); the wrapper checks FHCRC, data CRC, ISIZE and trailing data.
+It uses the existing bounded allocator and runtime-selected CRC implementation.

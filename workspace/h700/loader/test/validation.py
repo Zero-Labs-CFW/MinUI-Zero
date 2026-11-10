@@ -52,9 +52,10 @@ def main():
         run([sys.executable, "-I", ROOT / "test/offline.py", "--output", OUT / "existing",
              '--fixtures', FIXTURES, "--bootimg", FIXTURES / "devices/plus-215203/boot.img"], log)
         sources = ["test/offline_lifecycle.c", "monitor.c", "rtc.c", "wdt.c", "fixup.c",
-                   "zlib/zlib.c", "lib/crc32.c"]
+                   "lib/crc32.c", "libdeflate/lib/utils.c", "libdeflate/lib/deflate_decompress.c",
+                   "libdeflate/lib/gzip_decompress.c", "libdeflate/lib/x86/cpu_features.c"]
         sources += [str(p.relative_to(ROOT)) for p in sorted((ROOT / "libfdt").glob("*.c"))]
-        flags = ["-std=gnu11", "-O1", "-g", "-D__UBOOT__", "-DZL_HOST_TEST", "-fno-strict-aliasing",
+        flags = ["-std=gnu11", "-O1", "-g", "-D__UBOOT__", "-DFREESTANDING", "-DZL_HOST_TEST", "-fno-strict-aliasing",
                  "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-I" + str(ROOT),
                  "-I" + str(ROOT / "include"), "-I" + str(ROOT / "libfdt")]
         exe = OUT / "test-lifecycle"

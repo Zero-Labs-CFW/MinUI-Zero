@@ -1,58 +1,69 @@
 // SPDX-License-Identifier: GPL-2.0+
-/*
- * MinUI Zero loader: inflate the gzip kernel stored in boot.img.
- *
- * zlib in gzip mode: inflateInit2 with windowBits 16 + MAX_WBITS (wrap = 2, gzip only: zlib/inflate.c:52-60, GUNZIP is
- * defined by the glue in zlib/zlib.h:14). zlib then parses the gzip header itself (inflate.c HEAD/FLAGS..HCRC states)
- * and checks the CRC-32 (CHECK) and ISIZE (LENGTH) trailer, so a damaged or truncated kernel is refused here instead of
- * being run. U-Boot's own lib/gunzip.c is not used: it parses the header by hand and inflates raw (-MAX_WBITS,
- * lib/gunzip.c:330), with no trailer check.
- *
- * One inflate() call with the whole output buffer, like U-Boot's zunzip: zlib needs no 32 KiB window then (it only
- * allocates one when inflate returns early, inflate.c inf_leave), and the CRC runs once over the output at the end.
- */
+/* Whole-buffer gzip decode; validate FHCRC as well as the data CRC and ISIZE. */
 #include <stddef.h>
 #include <stdint.h>
 #include <limits.h>
-#include <string.h>
-#include "zlib/zlib.h"
+#include <malloc.h>
+#include <u-boot/zlib.h>
+#include "libdeflate/libdeflate.h"
 #include "zl.h"
 
-#define ZL_GZ_MIN	18	/* 10-byte header + empty deflate block (2) + 8-byte trailer, roughly */
+static int header_crc_ok(const unsigned char *src, size_t len)
+{
+	size_t pos = 10, end = len - 8;
+	unsigned flags = src[3];
+
+	if (!(flags & 2))
+		return 1;
+	if (flags & 4) {
+		if (end - pos < 2)
+			return 0;
+		size_t extra = src[pos] | ((size_t)src[pos + 1] << 8);
+		pos += 2;
+		if (extra > end - pos)
+			return 0;
+		pos += extra;
+	}
+	for (unsigned flag = 8; flag <= 16; flag <<= 1) {
+		if (!(flags & flag))
+			continue;
+		while (pos < end && src[pos])
+			pos++;
+		if (pos == end)
+			return 0;
+		pos++;
+	}
+	if (end - pos < 2)
+		return 0;
+	return (crc32(0, src, (uInt)pos) & 0xffff) ==
+	       (unsigned)(src[pos] | ((unsigned)src[pos + 1] << 8));
+}
 
 int zl_gunzip(void *dst, unsigned long dst_max, const void *src, unsigned long src_len, unsigned long *out_len)
 {
-	const unsigned char *rest;
-	z_stream s;
-	int r;
+	const unsigned char *bytes = src;
+	struct libdeflate_options options = {
+		.sizeof_options = sizeof(options), .malloc_func = malloc, .free_func = free,
+	};
+	size_t used = 0, written = 0;
 
 	*out_len = 0;
-	/* zlib 1.2.3 keeps byte counts in 32-bit uInt */
-	if (!dst || !src || src_len < ZL_GZ_MIN || src_len > UINT_MAX || !dst_max || dst_max > UINT_MAX)
+	if (!dst || !src || src_len < 18 || src_len > UINT_MAX || !dst_max || dst_max > UINT_MAX)
 		return -1;
-	memset(&s, 0, sizeof(s));	/* zalloc/zfree NULL: zcalloc/zcfree, i.e. lib/malloc.c */
-	if (inflateInit2(&s, 16 + MAX_WBITS) != Z_OK)
+	if (!header_crc_ok(bytes, src_len))
+		return -1;
+	struct libdeflate_decompressor *d = libdeflate_alloc_decompressor_ex(&options);
+	if (!d)
 		return -2;
-	s.next_in = (Bytef *)src;
-	s.avail_in = (uInt)src_len;
-	s.next_out = dst;
-	s.avail_out = (uInt)dst_max;
-	r = inflate(&s, Z_FINISH);
-	/* Z_BUF_ERROR: output too small or input truncated; Z_DATA_ERROR: bad data, header, CRC-32 or ISIZE */
-	if (r != Z_STREAM_END) {
-		inflateEnd(&s);
+	enum libdeflate_result result = libdeflate_gzip_decompress_ex(d, src, src_len, dst, dst_max,
+								 &used, &written);
+	libdeflate_free_decompressor(d);
+	if (result != LIBDEFLATE_SUCCESS)
 		return -3;
-	}
-	/*
-	 * Bytes after the gzip member: tolerate zero padding only. Anything else (a second gzip member, which zlib would
-	 * not inflate, or an appended DTB) means the image is not what this loader expects.
-	 */
-	for (rest = s.next_in; s.avail_in; s.avail_in--, rest++)
-		if (*rest) {
-			inflateEnd(&s);
+	/* Refuse concatenated members and appended data; permit boot.img zero padding only. */
+	for (; used < src_len; used++)
+		if (bytes[used])
 			return -4;
-		}
-	*out_len = s.total_out;
-	inflateEnd(&s);
+	*out_len = written;
 	return 0;
 }

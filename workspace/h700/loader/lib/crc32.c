@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
  * MinUI Zero loader: CRC-32 (the gzip trailer check: reflected polynomial 0xedb88320, zlib's crc32() semantics), which
- * zlib's inflate calls in gzip mode (zlib/inflate.c UPDATE/CRC2/CRC4). Same interface and result as U-Boot's
+ * libdeflate calls through the adapter below. Same interface and result as U-Boot's
  * lib/crc32.c (derived from zlib 1.1.3); written fresh here to avoid its EFI/host glue.
  *
  * Speed matters: the whole inflated kernel (~18 MB on the Plus) goes through here once. When the CPU has the ARMv8
  * CRC32 instructions (ID_AA64ISAR0_EL1.CRC32, bits 19:16, read at run time; CRC32X uses the same polynomial), 8 bytes
- * per instruction; otherwise a byte-wise table built on first use. Whether the H700's Cortex-A53 has them is
- * unverified here: the run-time check makes either answer safe. This file alone is built with -march=armv8-a+crc so
+ * per instruction; otherwise a byte-wise table built on first use. The run-time check keeps units without the
+ * extension safe. This file alone is built with -march=armv8-a+crc so
  * the assembler accepts the instructions; nothing else in it lets the compiler emit them.
  */
 #include <stddef.h>
 #include <stdint.h>
+#include <limits.h>
+#include "../libdeflate/libdeflate.h"
 #include <u-boot/zlib.h>	/* the crc32() prototype zlib calls, so a mismatch fails to compile */
 
 #define ZL_CRC_POLY	0xedb88320u
@@ -83,4 +85,18 @@ uInt crc32(uInt crc, const Bytef *buf, uInt len)
 			c = zl_crc_table[(c ^ *buf++) & 0xff] ^ (c >> 8);
 	}
 	return ~c;
+}
+
+uint32_t libdeflate_crc32(uint32_t crc, const void *buffer, size_t len)
+{
+	const unsigned char *bytes = buffer;
+	if (!bytes)
+		return 0;
+	while (len) {
+		uInt chunk = len > UINT_MAX ? UINT_MAX : (uInt)len;
+		crc = crc32(crc, bytes, chunk);
+		bytes += chunk;
+		len -= chunk;
+	}
+	return crc;
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- * MinUI Zero loader host test (aarch64 Linux): runs the loader's own gunzip.c, fixup.c, zlib, libfdt and crc32.c on
+ * MinUI Zero loader host test (aarch64 Linux): runs the loader's gunzip.c, fixup.c, libdeflate, libfdt and crc32.c on
  * the real boot.img and boot package, with the host libc. test/hosttest.py extracts the inputs into <dir> and
  * compares out.dtb against the live tree afterwards.
  *

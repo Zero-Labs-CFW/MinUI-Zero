@@ -25,7 +25,8 @@ GCC_INC	:= $(shell $(CC) -print-file-name=include)
 LIBFDT	:= fdt.c fdt_ro.c fdt_rw.c fdt_wip.c fdt_sw.c fdt_strerror.c fdt_addresses.c fdt_overlay.c fdt_empty_tree.c \
 	   fdt_check.c
 ASRCS	:= start.S cache.S
-CSRCS	:= main.c monitor.c fixup.c gunzip.c rtc.c wdt.c profile.c lib/sha256.c lib/string.c lib/malloc.c lib/crc32.c zlib/zlib.c \
+INFLATE := libdeflate/lib/utils.c libdeflate/lib/deflate_decompress.c libdeflate/lib/gzip_decompress.c
+CSRCS	:= main.c monitor.c fixup.c gunzip.c rtc.c wdt.c profile.c lib/sha256.c lib/string.c lib/malloc.c lib/crc32.c $(INFLATE) \
 	   $(addprefix libfdt/,$(LIBFDT))
 OBJS	:= $(addprefix $(O)/,$(ASRCS:.S=.o) $(CSRCS:.c=.o))
 
@@ -42,6 +43,9 @@ LDFLAGS	:= -T link.ld -nostdlib -static --no-dynamic-linker --gc-sections -z noe
 
 # Per-file flags. Upstream code keeps its warnings visible except the ones named here, file by file.
 FLAGS_zlib/zlib.c	:= -D__UBOOT__ -Wno-sign-compare -Wno-unused-parameter
+# start.S clears SCTLR.A and maps gzip buffers as Normal memory before this decoder runs.
+$(foreach src,$(INFLATE),$(eval FLAGS_$(src) := -DFREESTANDING -mno-strict-align))
+FLAGS_libdeflate/lib/deflate_decompress.c += -Wno-sign-compare -Wno-unused-parameter
 FLAGS_lib/crc32.c	:= -march=armv8-a+crc
 FLAGS_lib/string.c	:= -fno-tree-loop-distribute-patterns
 

@@ -4,11 +4,13 @@ import copy
 import importlib.util
 import json
 import os
+import random
 from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('profiles', ROOT / 'tools/profiles.py')
@@ -50,4 +52,21 @@ with tempfile.TemporaryDirectory(prefix='zero-loader-unit-') as directory:
                     ROOT / 'test/offline_panel.c', ROOT / 'test/offline_soc.c', ROOT / 'rtc.c',
                     '-o', binary], check=True)
     subprocess.run([binary], check=True, env=env)
+    binary = out / 'gzip'
+    sources = ['test/offline_gunzip.c', 'gunzip.c', 'lib/crc32.c', 'libdeflate/lib/utils.c',
+               'libdeflate/lib/deflate_decompress.c', 'libdeflate/lib/gzip_decompress.c',
+               'libdeflate/lib/x86/cpu_features.c']
+    subprocess.run([*cc, '-std=gnu11', '-O1', '-g', '-DFREESTANDING', '-DZL_HOST_TEST',
+                    '-fno-strict-aliasing', '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
+                    '-I', ROOT, '-I', ROOT / 'include',
+                    *(ROOT / name for name in sources), '-o', binary], check=True)
+    rng = random.Random(700)
+    for level, strategy in [(0, zlib.Z_DEFAULT_STRATEGY), (6, zlib.Z_DEFAULT_STRATEGY), (6, zlib.Z_FIXED)]:
+        data = bytearray(bytes(rng.randrange(256) for _ in range(1024)) * 16)
+        data[56:60] = b'ARM\x64'
+        compressor = zlib.compressobj(level, zlib.DEFLATED, 31, strategy=strategy)
+        gz = compressor.compress(data) + compressor.flush()
+        (out / 'Image').write_bytes(data)
+        (out / 'kernel.gz').write_bytes(gz)
+        subprocess.run([binary, out / 'kernel.gz', out / 'Image'], check=True, env=env)
 print(f'PASS tracked profile manifest + {len(cases)} refusal mutations; no external captures or hardware required')
