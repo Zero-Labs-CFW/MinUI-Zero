@@ -24,6 +24,23 @@ echo 0 > /sys/class/led_anim/max_scale_f1f2 2>/dev/null
 
 # for Brick (noatime: nothing reads atime, so skip the per-access metadata writeback to SD)
 mount -o remount,rw,async,noatime "$SDCARD_PATH"
+# The boot hook hands off the moment the SD card is mounted, but the vendor's `block mount` mounts
+# /mnt/UDISK right AFTER the card (30-170 ms later). On about one boot in five this script got here
+# first: the remount below failed, UDISK stayed sync,relatime for the whole session, and the
+# system.json sweep found no file (Brick, 4 of 20 boots, 2026-11-11). Wait for it, bounded, so a
+# device whose UDISK never mounts still boots. The check is shell builtins only, so the usual
+# boot (already mounted) pays no process spawn for it.
+udisk_mounted() {
+	while read -r _ UDISK_MP _; do
+		[ "$UDISK_MP" = /mnt/UDISK ] && return 0
+	done < /proc/mounts
+	return 1
+}
+UDISK_TRIES=0
+while ! udisk_mounted && [ $UDISK_TRIES -lt 10 ]; do
+	sleep 0.05
+	UDISK_TRIES=$((UDISK_TRIES + 1))
+done
 mount -o remount,rw,async,noatime "/mnt/UDISK"
 
 # Persist "LEDs off" where the FIRMWARE reads it, not just in sysfs. The sysfs writes above hold
