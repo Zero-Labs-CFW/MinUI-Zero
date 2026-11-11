@@ -50,21 +50,24 @@ else
 	export TZ="UTC"
 fi
 
-mkdir -p "$BIOS_PATH"
-mkdir -p "$ROMS_PATH"
-mkdir -p "$SAVES_PATH"
-mkdir -p "$USERDATA_PATH"
-mkdir -p "$LOGS_PATH"
-mkdir -p "$SHARED_USERDATA_PATH/.minui"
+# Existence checks before mkdir/rm/touch here and below: every one of those is a fork (about 10 ms on the
+# Brick) and on a normal boot there is nothing to do (mkdirs 50 -> 20 ms, hygiene 40 -> 10 ms, 2026-11-11).
+for _d in "$BIOS_PATH" "$ROMS_PATH" "$SAVES_PATH" "$USERDATA_PATH" "$LOGS_PATH" "$SHARED_USERDATA_PATH/.minui"; do
+	[ -d "$_d" ] || mkdir -p "$_d"
+done
 
 # macs and windows leave droppings on any card they mount (Spotlight index, fsevents logs,
 # ._* resource forks, .DS_Store, System Volume Information). Sweep them each boot; the
 # .metadata_never_index and .fseventsd/no_log markers shipped in the zip prevent most of it.
-rm -rf "$SDCARD_PATH/.Spotlight-V100" "$SDCARD_PATH/.Trashes" "$SDCARD_PATH/System Volume Information" 2>/dev/null
-touch "$SDCARD_PATH/.metadata_never_index" 2>/dev/null
-mkdir -p "$SDCARD_PATH/.fseventsd" && touch "$SDCARD_PATH/.fseventsd/no_log" 2>/dev/null
+for _d in "$SDCARD_PATH/.Spotlight-V100" "$SDCARD_PATH/.Trashes" "$SDCARD_PATH/System Volume Information"; do
+	[ -e "$_d" ] && rm -rf "$_d" 2>/dev/null
+done
+[ -f "$SDCARD_PATH/.metadata_never_index" ] || touch "$SDCARD_PATH/.metadata_never_index" 2>/dev/null
+[ -f "$SDCARD_PATH/.fseventsd/no_log" ] || { mkdir -p "$SDCARD_PATH/.fseventsd" && touch "$SDCARD_PATH/.fseventsd/no_log" 2>/dev/null; }
 find "$SDCARD_PATH/.fseventsd" -type f ! -name no_log -exec rm -f {} + 2>/dev/null
-rm -f "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._* 2>/dev/null
+for _d in "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._*; do
+	[ -e "$_d" ] && rm -f "$_d" 2>/dev/null
+done
 # the & belongs OUTSIDE the subshell: inside it backgrounded only the find, and the sleep 15 ran in the
 # foreground of every boot (menu-ready 7 s -> 22 s on the Brick and Smart Pro, 2026-09-22)
 ( sleep 15; while pidof minarch.elf >/dev/null 2>&1; do sleep 30; done; nice -n 19 find "$ROMS_PATH" "$BIOS_PATH" "$SAVES_PATH" "$SDCARD_PATH/Collections" \( -name "._*" -o -name ".DS_Store" -o -name "Thumbs.db" -o -name "ehthumbs.db" -o -name "desktop.ini" \) -exec rm -f {} + 2>/dev/null ) &   # + Windows droppings, Collections (2026-09-22)
@@ -389,11 +392,16 @@ fi
 # die in BOTH modes. adbd does NOT: dev mode keeps stock USB "data" mode on purpose so adb is a
 # wifi-less fallback, so it is killed only in the non-dev branch below.
 # (Found on the Brick Pro with wifi enabled, 2026-08-30; adbd carve-out added in review.)
-killall MtpDaemon 2>/dev/null
 # ntpd is a procd service with "respawn": killed by pid alone it was back within about 6 s, with no network event
 # (measured on the Brick, 2026-11-11). Stopping the service removes it; the kill stays for firmware without the script.
 [ -x /etc/init.d/sysntpd ] && /etc/init.d/sysntpd stop >/dev/null 2>&1
-for p in $(pidof ntpd 2>/dev/null); do kill "$p"; done # MinUI keeps its own clock (by pid: busybox killall skips applets)
+# MinUI keeps its own clock. One builtin pass over /proc for both names: killall and pidof each rescan /proc
+# (about 50 ms per name on the Brick; 110 -> 70 ms for this block, 2026-11-11), and comm finds busybox applets,
+# which killall skips.
+for _c in /proc/[0-9]*/comm; do
+	read -r _n 2>/dev/null < "$_c" || continue
+	case "$_n" in MtpDaemon|ntpd) _k=${_c#/proc/}; kill "${_k%/comm}" 2>/dev/null ;; esac
+done
 # DEV MODE is now unified on devmode.txt (Dan, 2026-09-08: "stay awake should just be Dev Mode ...
 # add it to all the devices when devmode is active"). devmode.txt at the card root already arms
 # stay-awake in C (PWR_init), so gating SSH on the SAME flag is what stops the reconnect rodeo: the
@@ -468,9 +476,9 @@ cd $(dirname "$0")
 # is marker-guarded because FAT32 folds case, so "WiFi.pak" is also the community Wifi.pak, which
 # we must never delete.
 for _p in "Deep Sleep.pak" "Clock.pak" "Focus Mode.pak" "WiFi Toggle.pak" "Optimize CPU.pak"; do
-	rm -rf "$SDCARD_PATH/Tools/tg5040/$_p" 2>/dev/null
+	[ -e "$SDCARD_PATH/Tools/tg5040/$_p" ] && rm -rf "$SDCARD_PATH/Tools/tg5040/$_p" 2>/dev/null
 done
-grep -q 'styled like Deep Sleep.pak' "$SDCARD_PATH/Tools/tg5040/WiFi.pak/launch.sh" 2>/dev/null && rm -rf "$SDCARD_PATH/Tools/tg5040/WiFi.pak" 2>/dev/null
+[ -f "$SDCARD_PATH/Tools/tg5040/WiFi.pak/launch.sh" ] && grep -q 'styled like Deep Sleep.pak' "$SDCARD_PATH/Tools/tg5040/WiFi.pak/launch.sh" 2>/dev/null && rm -rf "$SDCARD_PATH/Tools/tg5040/WiFi.pak" 2>/dev/null
 # Boot receipt, DEV CARDS ONLY (devmode.txt at the card root): kernel seconds at menu launch,
 # one ~40-byte line per boot. Measured the fleet for the README table (2026-08-31); stays as a
 # regression canary on dev cards and costs users nothing.
