@@ -143,6 +143,22 @@ static void PLAT_flipFB_game(void) {
 	}
 }
 
+static void ensureRenderer(void) {
+	if (vid.renderer) return;
+	vid.window   = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, FIXED_WIDTH,FIXED_HEIGHT, SDL_WINDOW_SHOWN);
+	vid.renderer = SDL_CreateRenderer(vid.window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
+
+	// SDL_RendererInfo info;
+	// SDL_GetRendererInfo(vid.renderer, &info);
+	// LOG_info("Current render driver: %s\n", info.name);
+
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY,"0");
+	vid.texture = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, FIXED_WIDTH,FIXED_HEIGHT);
+	vid.target	= NULL; // only needed for non-native sizes
+
+	// SDL_SetTextureScaleMode(vid.texture, SDL_ScaleModeNearest);
+}
+
 SDL_Surface* PLAT_initVideo(void) {
 	char* device = getenv("DEVICE");
 	is_brick = exactMatch("brick", device);
@@ -184,19 +200,7 @@ SDL_Surface* PLAT_initVideo(void) {
 	int w = FIXED_WIDTH;
 	int h = FIXED_HEIGHT;
 	int p = FIXED_PITCH;
-	vid.window   = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w,h, SDL_WINDOW_SHOWN);
-	vid.renderer = SDL_CreateRenderer(vid.window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
-	
-	// SDL_RendererInfo info;
-	// SDL_GetRendererInfo(vid.renderer, &info);
-	// LOG_info("Current render driver: %s\n", info.name);
-	
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY,"0");
-	vid.texture = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, w,h);
-	vid.target	= NULL; // only needed for non-native sizes
-	
-	// SDL_SetTextureScaleMode(vid.texture, SDL_ScaleModeNearest);
-	
+
 	vid.buffer	= SDL_CreateRGBSurfaceFrom(NULL, w,h, FIXED_DEPTH, p, RGBA_MASK_565);
 	vid.screen	= SDL_CreateRGBSurface(SDL_SWSURFACE, w,h, FIXED_DEPTH, RGBA_MASK_565);
 	vid.width	= w;
@@ -217,10 +221,19 @@ SDL_Surface* PLAT_initVideo(void) {
 			fb_mem = mmap(0, fb_finfo.smem_len, PROT_READ|PROT_WRITE, MAP_SHARED, fb_fd, 0);
 			if (fb_mem==MAP_FAILED) fb_mem = NULL;
 		}
+		// PLAT_flipFB assumes a 32bpp fb0 at least as large as the menu; nothing here sets the mode
+		if (fb_mem && (fb_vinfo.bits_per_pixel!=32 || fb_vinfo.xres<(unsigned)w || fb_vinfo.yres<(unsigned)h)) {
+			munmap(fb_mem, fb_finfo.smem_len); fb_mem = NULL;
+		}
 		if (!fb_mem) { fb_present = 0; fb_game = 0; if (fb_fd>=0) close(fb_fd); fb_fd = -1; }
 		LOG_info("ZERO_FB: fb=%ux%u menu=%s game=%s (stride=%u yoff=%u)\n", fb_vinfo.xres, fb_vinfo.yres,
 			fb_present?"on":"off", fb_game?"on":"off", fb_finfo.line_length, fb_vinfo.yoffset);
 	}
+
+	// The direct-fb menu never draws through GLES, so it skips the window and renderer
+	// (about 350 ms of a 435 ms init, Brick-measured) and the PowerVR never powers up for it.
+	// Any GLES path that does run creates them on first use (ensureRenderer).
+	if (!fb_present) ensureRenderer();
 
 	return vid.screen;
 }
@@ -246,9 +259,9 @@ void PLAT_quitVideo(void) {
 	SDL_FreeSurface(vid.buffer);
 	if (vid.target) SDL_DestroyTexture(vid.target);
 	if (vid.effect) SDL_DestroyTexture(vid.effect);
-	SDL_DestroyTexture(vid.texture);
-	SDL_DestroyRenderer(vid.renderer);
-	SDL_DestroyWindow(vid.window);
+	if (vid.texture) SDL_DestroyTexture(vid.texture);
+	if (vid.renderer) SDL_DestroyRenderer(vid.renderer);
+	if (vid.window) SDL_DestroyWindow(vid.window);
 
 	SDL_Quit();
 	// Preserve the old fb0 clear without spawning cat to stream /dev/zero through the
@@ -281,7 +294,7 @@ void PLAT_clearVideo(SDL_Surface* screen) {
 }
 void PLAT_clearAll(void) {
 	PLAT_clearVideo(vid.screen); // TODO: revist
-	SDL_RenderClear(vid.renderer);
+	if (vid.renderer) SDL_RenderClear(vid.renderer);
 }
 
 void PLAT_setVsync(int vsync) {
@@ -292,6 +305,8 @@ static int hard_scale = 4; // TODO: base src size, eg. 160x144 can be 4
 
 static void resizeVideo(int w, int h, int p) {
 	if (w==vid.width && h==vid.height && p==vid.pitch) return;
+	
+	ensureRenderer();
 	
 	// TODO: minarch disables crisp (and nn upscale before linear downscale) when native, is this true?
 	
@@ -501,6 +516,7 @@ scaler_t PLAT_getScaler(GFX_Renderer* renderer) {
 
 void PLAT_blitRenderer(GFX_Renderer* renderer) {
 	vid.blit = renderer;
+	ensureRenderer();
 	SDL_RenderClear(vid.renderer);
 	resizeVideo(vid.blit->true_w,vid.blit->true_h,vid.blit->src_p);
 }
@@ -631,6 +647,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	
 	if (!vid.blit) {
 		if (fb_present) { PLAT_flipFB(); return; } // GPU-dark software present for the native-res menu
+		ensureRenderer();
 		resizeVideo(device_width,device_height,FIXED_PITCH); // !!!???
 		SDL_UpdateTexture(vid.texture,NULL,vid.screen->pixels,vid.screen->pitch);
 		SDL_RenderCopy(vid.renderer, vid.texture, NULL,NULL);
