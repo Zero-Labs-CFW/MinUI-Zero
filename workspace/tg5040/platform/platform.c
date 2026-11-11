@@ -230,8 +230,8 @@ SDL_Surface* PLAT_initVideo(void) {
 			fb_present?"on":"off", fb_game?"on":"off", fb_finfo.line_length, fb_vinfo.yoffset);
 	}
 
-	// The direct-fb menu never draws through GLES, so it skips the window and renderer
-	// (about 350 ms of a 435 ms init, Brick-measured) and the PowerVR never powers up for it.
+	// The direct-fb menu never draws through GLES, so it skips the window and renderer:
+	// PLAT_initVideo 394-446 ms -> 50-63 ms, menu RSS 15.7 -> 7.3 MB (Brick, 10 interleaved boots).
 	// Any GLES path that does run creates them on first use (ensureRenderer).
 	if (!fb_present) ensureRenderer();
 
