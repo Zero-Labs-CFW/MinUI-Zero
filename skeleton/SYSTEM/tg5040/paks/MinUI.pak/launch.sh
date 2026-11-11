@@ -390,6 +390,9 @@ fi
 # wifi-less fallback, so it is killed only in the non-dev branch below.
 # (Found on the Brick Pro with wifi enabled, 2026-08-30; adbd carve-out added in review.)
 killall MtpDaemon 2>/dev/null
+# ntpd is a procd service with "respawn": killed by pid alone it was back within about 6 s, with no network event
+# (measured on the Brick, 2026-11-11). Stopping the service removes it; the kill stays for firmware without the script.
+[ -x /etc/init.d/sysntpd ] && /etc/init.d/sysntpd stop >/dev/null 2>&1
 for p in $(pidof ntpd 2>/dev/null); do kill "$p"; done # MinUI keeps its own clock (by pid: busybox killall skips applets)
 # DEV MODE is now unified on devmode.txt (Dan, 2026-09-08: "stay awake should just be Dev Mode ...
 # add it to all the devices when devmode is active"). devmode.txt at the card root already arms
