@@ -24,13 +24,13 @@ GCC_INC	:= $(shell $(CC) -print-file-name=include)
 
 LIBFDT	:= fdt.c fdt_ro.c fdt_rw.c fdt_wip.c fdt_sw.c fdt_strerror.c fdt_addresses.c fdt_overlay.c fdt_empty_tree.c \
 	   fdt_check.c
-ASRCS	:= start.S cache.S
+ASRCS	:= start.S cache.S lib/sha256_ce_core.S lib/sha256_ce_preserve.S
 INFLATE := libdeflate/lib/utils.c libdeflate/lib/deflate_decompress.c libdeflate/lib/gzip_decompress.c
-CSRCS	:= main.c monitor.c fixup.c gunzip.c rtc.c wdt.c profile.c lib/sha256.c lib/string.c lib/malloc.c lib/crc32.c $(INFLATE) \
+CSRCS	:= main.c monitor.c fixup.c gunzip.c rtc.c wdt.c profile.c lib/sha256.c lib/sha256_ce.c lib/string.c lib/malloc.c lib/crc32.c $(INFLATE) \
 	   $(addprefix libfdt/,$(LIBFDT))
 OBJS	:= $(addprefix $(O)/,$(ASRCS:.S=.o) $(CSRCS:.c=.o))
 
-# freestanding, no FP/SIMD (the monitor may trap it), no PIC/GOT, no unwind tables, every warning an error
+# C remains general-register-only; the guarded SHA assembly preserves all touched FP state.
 WARN	:= -Wall -Wextra -Werror
 CFLAGS	:= -std=gnu11 -O2 -g -ffreestanding -nostdlib -nostdinc -isystem $(GCC_INC) \
 	   -fno-pic -fno-pie -fno-builtin -fno-common -fno-strict-aliasing -fno-stack-protector \
@@ -85,6 +85,7 @@ $(O)/check.ok: $(O)/zero-loader.elf zero-loader.bin tools/checkelf.py zero_param
 
 hosttest:
 	$(PY) test/unit.py
+	$(PY) test/sha_ce_test.py
 
 captured-test: identity
 	@test -n "$(FIXTURES)" -a -n "$(TEST_OUTPUT)" || { echo 'FIXTURES and TEST_OUTPUT are required'; exit 1; }

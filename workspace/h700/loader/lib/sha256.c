@@ -182,7 +182,7 @@ static void sha256_process_one(sha256_context *ctx, const uint8_t data[64])
 	ctx->state[7] += H;
 }
 
-__weak void sha256_process(sha256_context *ctx, const unsigned char *data,
+void sha256_process_scalar(sha256_context *ctx, const unsigned char *data,
 			   unsigned int blocks)
 {
 	if (!blocks)
@@ -192,6 +192,12 @@ __weak void sha256_process(sha256_context *ctx, const unsigned char *data,
 		sha256_process_one(ctx, data);
 		data += 64;
 	}
+}
+
+__weak void sha256_process(sha256_context *ctx, const unsigned char *data,
+			   unsigned int blocks)
+{
+	sha256_process_scalar(ctx, data, blocks);
 }
 
 void sha256_update(sha256_context *ctx, const uint8_t *input, uint32_t length)

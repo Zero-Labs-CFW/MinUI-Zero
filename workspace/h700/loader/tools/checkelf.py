@@ -4,7 +4,7 @@
 
 1. _start is at ZL_LOAD_ADDR + 64 (zero_params.h) and the first instruction there is _start (objdump).
 2. A static executable with no relocations, GOT, PLT, dynamic or interpreter sections or segments.
-3. No FP/SIMD register anywhere in the code (the monitor or the SPL may leave FP trapped).
+3. FP/SIMD only inside the two bounded, guarded SHA assembly functions.
 4. zero-loader.bin: header as the SPL checks it (magic, length = file size, multiple of 512, entry 64, version 1,
    checksum), and its bytes from offset 64 equal the ELF's code at the entry.
 """
@@ -15,6 +15,19 @@ import subprocess
 import sys
 
 FAILS = []
+
+
+def unexpected_fp(dis, ranges):
+    bad = []
+    for line in dis.splitlines():
+        m = re.match(r"^\s*([0-9a-f]+):\s+(\S+)\s*(.*)$", line)
+        if not m:
+            continue
+        ops = m.group(3).split("//")[0]
+        uses_fp = re.search(r"\b[vqdsbh]([0-9]|[12][0-9]|3[01])\b", ops) or re.search(r"\b(fpcr|fpsr)\b", ops)
+        if uses_fp and not any(start <= int(m.group(1), 16) < end for start, end in ranges):
+            bad.append(line.strip())
+    return bad
 
 
 def fail(msg):
@@ -73,14 +86,16 @@ def main():
         fail("INTERP or DYNAMIC segment present")
 
     dis = run(a.objdump, "-d", "--no-show-raw-insn", a.elf)
-    fp = []
-    for line in dis.splitlines():
-        m = re.match(r"^\s*([0-9a-f]+):\s+(\S+)\s*(.*)$", line)
-        if not m:
-            continue
-        ops = m.group(3).split("//")[0]
-        if re.search(r"\b[vqdsbh]([0-9]|[12][0-9]|3[01])\b", ops) or re.search(r"\b(fpcr|fpsr)\b", ops):
-            fp.append(line.strip())
+    ranges = []
+    sizes = {f[3]: (int(f[0], 16), int(f[1], 16)) for line in run(a.nm, "-S", a.elf).splitlines()
+             if len(f := line.split()) == 4}
+    for name in ("sha256_armv8_ce_process", "zl_sha256_ce_preserved"):
+        start, size = sizes.get(name, (0, 0))
+        if not size or size > 4096:
+            fail("missing/unbounded SHA assembly: " + name)
+        else:
+            ranges.append((start, start + size))
+    fp = unexpected_fp(dis, ranges)
     if fp:
         fail("FP/SIMD registers used:\n  " + "\n  ".join(fp[:20]))
 
@@ -105,7 +120,7 @@ def main():
 
     if FAILS:
         sys.exit("checkelf: %d check(s) failed" % len(FAILS))
-    print("checkelf: OK (entry 0x%x, no relocations/GOT/PLT/dynamic, no FP/SIMD, %d-byte image, sum 0x%08x)" % (
+    print("checkelf: OK (entry 0x%x, no relocations/GOT/PLT/dynamic, FP confined to guarded SHA, %d-byte image, sum 0x%08x)" % (
         entry, len(img), total))
 
 

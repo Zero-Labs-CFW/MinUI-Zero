@@ -12,6 +12,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import platform
 from pathlib import Path
 import shlex
 import struct
@@ -110,7 +111,8 @@ def protocol(rows):
 
 def snapshot(binary, artifacts):
     names = ("profile.c", "profile.h", "zero_params.h", "profiles.inc", "profiles.json", "tools/profiles.py", "lib/sha256.c", "lib/sha256.h",
-             "tools/genprofiles.py", "test/profile_test.py", "test/profile_host.c")
+             "tools/genprofiles.py", "test/profile_test.py", "test/profile_host.c", "test/sha_ce_preserve_test.S",
+             "lib/sha256_ce.c", "lib/sha256_ce_policy.h", "lib/sha256_ce_core.S", "lib/sha256_ce_preserve.S")
     paths = [LOADER / name for name in names]
     result = {str(p.relative_to(LOADER)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     if binary:
@@ -199,6 +201,8 @@ def main():
                    "-U__weak",
                    "-I", str(LOADER), str(LOADER / "test/profile_host.c"), str(LOADER / "profile.c"),
                    str(LOADER / "lib/sha256.c"), "-o", str(exe)]
+        if sys.platform == 'linux' and platform.machine() == 'aarch64':
+            command += ['-DZL_TEST_PROFILE', str(LOADER / 'test/sha_ce_preserve_test.S')]
         print("+ " + shlex.join(command), flush=True)
         subprocess.run(command, check=True)
         command = [str(exe)]

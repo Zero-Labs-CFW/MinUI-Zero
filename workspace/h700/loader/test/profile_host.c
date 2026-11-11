@@ -7,6 +7,12 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#if defined(__linux__) && defined(__aarch64__)
+#include <asm/hwcap.h>
+#include <signal.h>
+#include <sys/auxv.h>
+#include <ucontext.h>
+#endif
 #include "profile.h"
 #include "lib/sha256.h"
 
@@ -149,6 +155,41 @@ static void profile_tests(struct fixture f[2])
 }
 
 #if defined(__linux__) && defined(__aarch64__)
+/* EL0 cannot read EL3 controls. Emulate only these four MRS instructions in
+ * the unchanged mapped loader; all hashing, guards and vector code run for real. */
+static volatile sig_atomic_t cpu_mode, cpu_reads;
+static void cpu_read_trap(int sig, siginfo_t *info, void *opaque)
+{
+    (void)sig; (void)info;
+    ucontext_t *u = opaque;
+    uintptr_t pc = u->uc_mcontext.pc;
+    if (pc < ZL_LOAD_ADDR || pc >= ZL_LOAD_ADDR + ZL_LOAD_MAX) _exit(119);
+    uint32_t instruction = *(const uint32_t *)pc;
+    uint64_t value;
+    switch (instruction & ~31u) {
+    case 0xd5384240: value = cpu_mode ? 12 : 0; break; /* CurrentEL */
+    case 0xd5380600: value = 1u << 12; break; /* ID_AA64ISAR0_EL1, if not emulated by Linux */
+    case 0xd53e1140: value = cpu_mode == 2 ? 1u << 10 : 0; break; /* CPTR_EL3 */
+    case 0xd53e1000: value = cpu_mode == 3 ? 7 : cpu_mode == 4 ? 4 : 5; break; /* SCTLR_EL3 */
+    default: _exit(120);
+    }
+    unsigned reg = instruction & 31;
+    if (reg < 31) u->uc_mcontext.regs[reg] = value;
+    u->uc_mcontext.pc += 4;
+    cpu_reads++;
+}
+extern int zl_sha_ce_test_call(void *, const struct zero_params *, unsigned int *, void *);
+static unsigned long profile_checked_call(void *fn, const struct zero_params *p, unsigned int *result)
+{
+    unsigned char vectors[528] __attribute__((aligned(16)));
+    unsigned long error = zl_sha_ce_test_call(fn, p, result, vectors);
+    for (unsigned q = 0; q < 32; ++q)
+        for (unsigned b = 0; b < 16; ++b) CHECK(vectors[q*16+b] == q);
+    uint64_t fpcr, fpsr;
+    memcpy(&fpcr, vectors+512, 8); memcpy(&fpsr, vectors+520, 8);
+    CHECK(fpcr == 0x400000 && fpsr == 0x8000000);
+    return error;
+}
 /* Preserve the host caller, then seed every platform/callee-saved GPR before BLR. */
 extern unsigned long profile_abi_call(void *, const struct zero_params *, unsigned int *);
 __asm__(
@@ -174,6 +215,9 @@ ABI_CHECK(x26,0x2626) ABI_CHECK(x27,0x2727) ABI_CHECK(x28,0x2828) ABI_CHECK(x29,
 
 static void image_tests(struct fixture f[2], const char *path, uintptr_t bss, size_t bss_size)
 {
+    CHECK(getauxval(AT_HWCAP) & HWCAP_SHA2);
+    struct sigaction action = {.sa_sigaction = cpu_read_trap, .sa_flags = SA_SIGINFO}, prior;
+    CHECK(!sigemptyset(&action.sa_mask) && !sigaction(SIGILL, &action, &prior));
     CHECK(bss >= ZL_LOAD_ADDR+64 && bss < ZL_LOAD_ADDR+ZL_LOAD_MAX &&
           bss_size && bss_size <= ZL_LOAD_ADDR+ZL_LOAD_MAX-bss);
     FILE *fp = fopen(path, "rb");
@@ -216,7 +260,8 @@ static void image_tests(struct fixture f[2], const char *path, uintptr_t bss, si
         struct zero_params saved = *p;
         for (unsigned i = 0; i < 8; i++) CHECK(!mprotect((void *)addresses[i], sizes[i], PROT_READ));
         const unsigned char poison[] = {0xa5, 0x5a, 0};
-        for (unsigned pass = 0; pass < sizeof(poison); pass++) {
+        for (cpu_mode = 0; cpu_mode < 5; ++cpu_mode) {
+          for (unsigned pass = 0; pass < sizeof(poison); pass++) {
             CHECK(!mprotect(loaded, ZL_LOAD_MAX, PROT_READ|PROT_WRITE));
             memset(loaded, poison[pass], ZL_LOAD_MAX);
             memcpy(loaded, image, (size_t)file_size);
@@ -225,30 +270,32 @@ static void image_tests(struct fixture f[2], const char *path, uintptr_t bss, si
             __builtin___clear_cache((char *)loaded, (char *)loaded+file_size);
             CHECK(!mprotect(loaded, ZL_LOAD_MAX, PROT_READ|PROT_EXEC));
             unsigned result = 0;
-            CHECK(!profile_abi_call(loaded+entry, p, &result) && result == f[row].id);
+            CHECK(!profile_checked_call(loaded+entry, p, &result) && result == f[row].id);
             CHECK(!memcmp(p, &saved, sizeof(saved)));
             calls++;
             CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ|PROT_WRITE));
             p->dram_mib = 2048;
             CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ));
-            CHECK(!profile_abi_call(loaded+entry, p, &result) && result == 0);
+            CHECK(!profile_checked_call(loaded+entry, p, &result) && result == 0);
             calls++;
             CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ|PROT_WRITE));
             *p = saved;
             /* Real binary rejection after content hashing, not just a guard return. */
             ((uint8_t *)(uintptr_t)ZL_HDR_ADDR)[100] ^= 1;
             CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ));
-            CHECK(!profile_abi_call(loaded+entry, p, &result) && result == 0);
+            CHECK(!profile_checked_call(loaded+entry, p, &result) && result == 0);
             calls++;
             CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ|PROT_WRITE));
             ((uint8_t *)(uintptr_t)ZL_HDR_ADDR)[100] ^= 1;
             CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ));
         }
+        }
         for (unsigned i = 0; i < 8; i++) CHECK(!munmap((void *)addresses[i], sizes[i]));
     }
     CHECK(!munmap(loaded, ZL_LOAD_MAX));
     free(image);
-    printf("PASS ACTUAL zero-loader.bin preflight: %u calls, Plus/H accept + RAM/content refusal, 3 BSS poisons, RX image/read-only inputs, x18-x29/SP preserved; no MMIO mocks\n", calls);
+    CHECK(cpu_reads > 0 && !sigaction(SIGILL, &prior, NULL));
+    printf("PASS ACTUAL zero-loader.bin preflight: %u calls, Plus/H accept + RAM/content refusal, 3 BSS poisons, RX image/read-only inputs, x18-x29/SP + Q0-Q31/FPCR/FPSR preserved; five CPU modes with privileged MRS emulation, NOT EL3 hardware proof\n", calls);
 }
 #endif
 

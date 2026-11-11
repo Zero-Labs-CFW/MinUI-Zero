@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
-/* Called before _start: only const image data, caller stack and immutable inputs.
- * No BSS, heap, MMIO, cache/MMU changes, or writes to any package/boot component. */
+/* Called before _start: const image data, caller stack and immutable inputs.
+ * SHA may read CPU feature/trap controls; it never changes them and preserves
+ * touched vector/FP state. No BSS, heap, MMIO, cache/MMU changes or input writes. */
 #include <stdint.h>
 #include <string.h>
 #include "profile.h"

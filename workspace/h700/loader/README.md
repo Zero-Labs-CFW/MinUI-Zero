@@ -24,7 +24,7 @@ sh workspace/h700/loader/build.sh /absolute/output-directory
 
 Outputs: `zero-loader.bin`, ELF/map, `boot-health`, source `build-id`,
 `sources.json`, compiler/linker versions, toolchain image ID and `artifacts.sha256`.
-The build runs the ELF/header/checksum/no-FP/no-dynamic-link checks. Rebuild twice in
+The build runs ELF/header/checksum/FP-confinement/no-dynamic-link checks. Rebuild twice in
 separate output directories and compare manifests before qualification. Output
 directories and diagnostics are build/scratch artifacts, not source.
 
@@ -36,15 +36,29 @@ Named variants keep exact hashes under the same hardware policy. The standard H
 image adds a rootflags token absent from its earlier development capture; both
 whole transcripts are explicit. No header bytes are masked or normalized.
 
+SHA-256 retains the complete transcript and scalar fallback. Its optional instruction
+backend runs only at EL3 with SHA2 support, FP traps clear, MMU/data cache enabled and
+alignment traps disabled. It reads, but never changes, these controls. An assembly
+wrapper preserves all touched full vector registers plus FPCR/FPSR, including on
+refusal. The ELF check permits FP instructions only inside the two bounded SHA
+assembly functions; all C remains general-register-only. This does not qualify an
+unmeasured CPU/board or replace real EL3/boot/suspend testing.
+
 ## Tests
 
 Portable, capture-free production SHA/profile-manifest and panel-policy sanitizer checks:
 
 ```sh
 python3 workspace/h700/loader/test/unit.py
+python3 workspace/h700/loader/test/sha_ce_test.py
 python3 tools/tests/test_h700_stage2_ack.py
 sh workspace/h700/boot-health/run-tests.sh
 ```
+
+On Linux arm64 with SHA2, add `--arm64` to `sha_ce_test.py` for the actual assembly
+state-preservation check. The actual-image profile harness runs real hashing and
+guard branches with narrowly modeled privileged MRS reads; it checks all Q0-Q31,
+FPCR/FPSR and x18-x29/SP on accept and refusal. This is not an EL3 trap/cache test.
 
 Full real-kernel/FDT/lifecycle tests require explicitly supplied saved fixtures, not a
 device or an implicit gitignored path. Use Linux arm64 with ASan/UBSan and dtc:
