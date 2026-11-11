@@ -179,8 +179,10 @@ static inline void SaveSettings(void) {
 	int fd = open(SettingsPath, O_CREAT|O_WRONLY, 0644);
 	if (fd>=0) {
 		write(fd, settings, shm_size);
+		// Targeted fsync, not a global sync(): this runs on every brightness and volume step, on every wake, and
+		// twice per process launch from InitSettings. Same change as the miyoomini copy of this function.
+		fsync(fd);
 		close(fd);
-		sync();
 	}
 }
 
