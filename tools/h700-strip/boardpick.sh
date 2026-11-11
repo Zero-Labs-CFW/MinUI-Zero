@@ -25,6 +25,9 @@ log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 
 [ -f "$CHOSEN" ] && exit 0
 [ -d "$B" ] || exit 0  # a single-board image: nothing to pick
+. /opt/minui-zero/spl-lock.sh || exit 1
+spl_lock_acquire /run/zero-spl-busy || exit 1
+[ ! -e /run/zero-spl-sleep ] && [ ! -e /opt/minui-zero/.spl-sleep-swapped ] || exit 1
 # install swaps the device files with two renames; a power cut between them leaves no /opt/muos/device. The new
 # set was unpacked whole before the first rename, so it is the one to finish with (else the old one).
 if [ ! -d /opt/muos/device ]; then
@@ -91,6 +94,7 @@ same() {
 
 # write <file> <device> <sector>: write, flush, drop the cache, read back and compare
 write() {
+	_spl_lock_dirty=1
 	dd if="$1" of="$2" bs=512 seek="$3" conv=notrunc 2>>"$LOG" || return 1
 	sync; echo 3 > /proc/sys/vm/drop_caches
 	same "$@" || { log "readback mismatch writing $1 to $2 at $3"; return 1; }

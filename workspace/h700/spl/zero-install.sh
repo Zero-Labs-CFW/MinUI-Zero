@@ -125,6 +125,13 @@ if [ -n "$LOADER" ]; then
 	[ "$(dd if="$LOADER" bs=1 skip=28 count=36 2>/dev/null | tr -d '\000' | wc -c)" -eq 0 ] || { echo "$LOADER: nonzero reserved header: refusing"; exit 1; }
 	[ "$(od -An -tu4 -v "$LOADER" | awk '{for(i=1;i<=NF;i++){n++; v=(n==5)?1594518585:$i; s=(s+v)%4294967296}} END{printf "%.0f", s}')" = "$(u32 "$LOADER" 16)" ] || { echo "$LOADER: bad loader checksum: refusing"; exit 1; }
 fi
+# Own the transaction before any card reads used to authorize it. The sleep intent
+# also covers an already-stock slot between the swap helper and echo mem.
+. /opt/minui-zero/spl-lock.sh
+spl_lock_acquire /run/zero-spl-busy || exit 75
+[ ! -e /run/zero-spl-sleep ] && [ ! -e /opt/minui-zero/.spl-sleep-swapped ] || {
+	echo "sleep swap in progress: refusing install"; exit 75;
+}
 # then the backup slot: a valid stock boot0 to pin
 T=/tmp/zi; rm -rf $T; mkdir -p $T
 dd if=$D of=$T/stock.bin bs=512 skip=512 count=128 2>/dev/null
@@ -177,6 +184,7 @@ if [ -n "$LOADER" ]; then
 	[ "$board" != h ] || echo "TRIAL: stage2 on LPDDR4 RG35XX H; this is not hardware qualification"
 fi
 want=$(md5sum < $T/stock.bin | cut -c1-32)
+_spl_lock_dirty=1
 for p in $PIN_A $PIN_B; do
 	dd if=$T/stock.bin of=$D bs=512 seek=$p conv=notrunc 2>/dev/null
 done

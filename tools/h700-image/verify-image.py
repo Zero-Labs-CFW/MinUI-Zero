@@ -381,13 +381,21 @@ def main():
         check('startup.sh quiet window', su_txt.split('\n')[1].count('zero-menu-frame') == 1)
         check('udev waits for the menu', b'zero-menu-frame' in cat('/opt/muos/script/init/S10udev'))
         check('inittab busybox mounts', '::sysinit:/bin/mount ' not in it and it.count('::sysinit:/bin/busybox mount ') >= 5)
-        # our SPL and deep sleep: the sleep swap and the boot acknowledgment (boot0-slot.sh), right after the remount
+        # /run must be mounted before a failed boot-slot transaction can retain a lock there.
         mode = debugfs_mode(img, off, '/opt/minui-zero/boot0-slot.sh')
         check('boot0-slot.sh current + executable', cat('/opt/minui-zero/boot0-slot.sh') ==
               open(os.path.join(REPO, 'tools/h700-strip/boot0-slot.sh'), 'rb').read() and mode is not None and mode & 0o111 == 0o111)
+        check('spl-lock.sh current', cat('/opt/minui-zero/spl-lock.sh') ==
+              open(os.path.join(REPO, 'tools/h700-strip/spl-lock.sh'), 'rb').read())
+        for marker in ('/run/zero-spl-busy', '/run/zero-spl-auto', '/run/zero-spl-sleep',
+                       '/opt/minui-zero/.spl-sleep-swapped'):
+            check('no initial ' + marker, debugfs_mode(img, off, marker) is None)
         check('inittab finishes a sleep swap and acknowledges our SPL',
-              'noauto_da_alloc /\n::sysinit:/opt/minui-zero/boot0-slot.sh boot\n'
+              '::sysinit:/bin/busybox mount -a\n::sysinit:/opt/minui-zero/boot0-slot.sh boot\n'
               '::sysinit:/bin/busybox setsid /opt/minui-zero/boot0-slot.sh ack\n' in it)
+        check('boot-slot recovery precedes frontend startup',
+              0 <= it.find('::sysinit:/opt/minui-zero/boot0-slot.sh boot\n') <
+              it.find('::sysinit:/opt/minui-zero/early.sh\n'))
         check('depmod only when missing', b'only when missing' in cat('/opt/muos/script/device/module.sh'))
         zc = cat('/opt/minui-zero/zero-codec')
         check('zero-codec', zc[:4] == b'\x7fELF' and len(zc) < 16384)

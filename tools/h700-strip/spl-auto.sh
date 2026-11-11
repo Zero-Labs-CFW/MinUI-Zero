@@ -24,7 +24,6 @@ B=$Z/boards
 S=$Z/spl
 STATE=$Z/spl-state
 FLAG=$Z/.spl-sleep-swapped
-BUSY=/run/zero-spl-busy
 CARD=/mnt/mmc
 OFF=$CARD/fast-boot-off.txt
 TRIAL=$CARD/fast-boot-trial.txt
@@ -38,19 +37,19 @@ is_spl() { [ "$(rd $1 1 | dd bs=1 skip=20 count=3 2>/dev/null)" = SPL ]; }
 [ -f "$B/chosen" ] || exit 0   # a single-board image, or no model chosen yet
 [ -f "$S/zero-install.sh" ] && [ -x $Z/boot0-slot.sh ] || exit 0
 grep -q " $CARD " /proc/mounts || exit 0
+# Serialize policy/state updates, but let each child own the raw-card lock itself.
+. "$Z/spl-lock.sh" || exit 1
+spl_lock_acquire /run/zero-spl-auto || exit 0
 st=$(cat "$STATE" 2>/dev/null)
 
 if [ -f "$OFF" ]; then
 	# after a refusal or a failed install nothing of ours is in slot 16: keep that state, so deleting the file later
 	# does not bring back a loader that already failed on this unit
 	case "$st" in off|failed|gaveup|unsupported) is_spl 16 || exit 0 ;; esac
-	: > $BUSY
 	if out=$($Z/boot0-slot.sh remove 2>&1); then
-		rm -f $BUSY
 		log "fast-boot-off.txt: $out"
 		case "$st" in failed|gaveup|unsupported) ;; *) setst off ;; esac
 	else
-		rm -f $BUSY
 		log "fast-boot-off.txt: could not take the loader off ($out); trying again next boot"
 	fi
 	exit 0
@@ -96,13 +95,16 @@ case "$n" in ''|*[!0-9]*) n=3 ;; esac
 # counted before the install: a power cut during it uses a try too
 setst "tries:$((n + 1))"
 sleep 5   # the menu's own start-up work first
-: > $BUSY
 if out=$(ZERO_SPL_TRIAL=$trial ZERO_SPL_KEYTEST= sh "$S/zero-install.sh" "$spl" 2>&1); then
-	rm -f $BUSY
 	setst installed
 	log "installed ${spl##*/} on $bd${trial:+ (trial)}: $(echo "$out" | tail -n 1)"
 else
-	rm -f $BUSY
+	_install_rc=$?
+	if [ "$_install_rc" = 75 ]; then
+		setst "$st"
+		log "$bd: install deferred (boot write or sleep in progress)"
+		exit 0
+	fi
 	log "$bd: install try $((n + 1)) refused: $(echo "$out" | tail -n 1)"
 fi
 exit 0

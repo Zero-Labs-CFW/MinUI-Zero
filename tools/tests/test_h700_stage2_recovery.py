@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import struct
 import subprocess
 import tempfile
@@ -117,7 +118,7 @@ class RecoveryTests(unittest.TestCase):
                        "gp5": 0, "gp13": 0x01A8C040, "gp14": 0, "gp15": 0, "wdt_mode": 0,
                        "background": {"spl_state": "failed", "busy": False, "sleep_swap": False,
                                       "actors": [], **{role + "_sha256": r.sha(self.artifacts[role])
-                                                       for role in ("spl_auto", "boot0_slot")}}}
+                                                       for role in ("spl_auto", "boot0_slot", "spl_lock")}}}
         self.reset_image()
 
     def seal(self, name, data):
@@ -451,6 +452,107 @@ class RecoveryTests(unittest.TestCase):
             if action == "cleanup":
                 self.assertIn("seek=16896 count=1 conv=notrunc,fsync", command)
                 self.assertNotIn("sh $T/installer", command)
+
+    def rendered_lock_scope(self, action):
+        state = self.recovered() if action == "cleanup" else copy.deepcopy(self.status)
+        if action == "guarded-reboot":
+            state["gp13"] = 0
+        lines = r.device_commands(self.cohort, state, action).splitlines()
+        admission = next(i for i, line in enumerate(lines)
+                         if line.startswith('test "$(cat /mnt/mmc/.system/h700/board)'))
+        acquire = next(i for i, line in enumerate(lines)
+                       if "spl_lock_acquire /run/zero-spl-busy" in line)
+        self.assertLess(acquire, admission)
+        busy = self.root / "shell-busy"
+        helper = self.root / "artifact-spl_lock"
+        # Execute only emitted definitions/acquisition, never device admission or reboot.
+        prefix = "\n".join(lines[:admission]) + "\n"
+        prefix = prefix.replace("D=/dev/mmcblk0", "D=" + shlex.quote(str(self.image_path)))
+        prefix = prefix.replace("/opt/minui-zero/spl-lock.sh", shlex.quote(str(helper)))
+        prefix = prefix.replace("/run/zero-spl-busy", shlex.quote(str(busy)))
+        return lines, prefix, busy, helper
+
+    def test_rendered_decisive_admission_runs_after_sealed_acquisition(self):
+        for action in ("cleanup", "guarded-reboot"):
+            with self.subTest(action=action):
+                lines, prefix, busy, _ = self.rendered_lock_scope(action)
+                acquire = next(i for i, line in enumerate(lines) if "spl_lock_acquire" in line)
+                dirty = lines.index("_spl_lock_dirty=1")
+                for i, line in enumerate(lines):
+                    if (line.startswith("regis ") or line.startswith("rd ")
+                            or line.startswith("if rd ")):
+                        if i < dirty:
+                            self.assertGreater(i, acquire)
+                before = self.image_path.read_bytes()
+                result = subprocess.run(
+                    ["sh", "-c", prefix +
+                     'test -f "$1"; test "$(cat "$1")" = "$$"; exit 23\n',
+                     "admission-refusal", str(busy)], capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 23, result.stderr.decode())
+                self.assertFalse(busy.exists())
+                self.assertEqual(self.image_path.read_bytes(), before)
+
+    def test_rendered_acquisition_preserves_peer_and_rejects_unsealed_helper(self):
+        for action in ("cleanup", "guarded-reboot"):
+            with self.subTest(action=action):
+                _, prefix, busy, helper = self.rendered_lock_scope(action)
+                busy.write_text("foreign-owner\n")
+                result = subprocess.run(["sh", "-c", prefix], capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 75, result.stderr.decode())
+                self.assertEqual(busy.read_text(), "foreign-owner\n")
+                busy.unlink()
+                sealed = helper.read_bytes()
+                try:
+                    helper.write_bytes(sealed + b"\nexit 99\n")
+                    result = subprocess.run(["sh", "-c", prefix], capture_output=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotEqual(result.returncode, 99)
+                    self.assertFalse(busy.exists())
+                finally:
+                    helper.write_bytes(sealed)
+
+    def test_rendered_cleanup_clean_refusal_and_dirty_write_failure(self):
+        lines, prefix, busy, _ = self.rendered_lock_scope("cleanup")
+        dirty = lines.index("_spl_lock_dirty=1")
+        self.assertEqual(lines[dirty - 2], "sync")
+        tail = "\n".join(lines[dirty - 2:]) + "\n"
+        intent = self.root / "shell-sleep"
+        flag = self.root / "shell-flag"
+        tail = tail.replace("/run/zero-spl-sleep", shlex.quote(str(intent)))
+        tail = tail.replace("/opt/minui-zero/.spl-sleep-swapped", shlex.quote(str(flag)))
+        writes = self.root / "shell-writes"
+        # Intercept every dd: this scope test cannot invoke a real raw writer.
+        stubs = ('_test_busy=$1; _test_writes=$2\nsync() { :; }\n'
+                 'dd() { test "$_spl_lock_dirty" = 1 || exit 87; '
+                 'test "$(cat "$_test_busy")" = "$$" || exit 88; '
+                 'printf "write-attempt\\n" >> "$_test_writes"; return 91; }\n')
+        before = self.image_path.read_bytes()
+        for sleeping in (True, False):
+            with self.subTest(sleeping=sleeping):
+                if sleeping:
+                    intent.touch()
+                else:
+                    intent.unlink()
+                result = subprocess.run(["sh", "-c", prefix + stubs + tail,
+                                         "cleanup-scope", str(busy), str(writes)],
+                                        capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 1 if sleeping else 91,
+                                 result.stderr.decode())
+                self.assertEqual(busy.exists(), not sleeping)
+                self.assertEqual(writes.exists(), not sleeping)
+                self.assertEqual(self.image_path.read_bytes(), before)
+        self.assertIn(b"retaining", result.stderr)
+
+    def test_rendered_install_postverify_owns_only_reacquired_snapshot(self):
+        lines = r.device_commands(self.cohort, self.status, "install-fatal").splitlines()
+        installer = next(i for i, line in enumerate(lines) if "sh $T/installer" in line)
+        acquire = next(i for i, line in enumerate(lines) if "spl_lock_acquire" in line)
+        self.assertGreater(acquire, installer)
+        self.assertIn(". /opt/minui-zero/spl-lock.sh", lines[acquire])
+        self.assertIn("snapshot only", "\n".join(lines[installer:acquire]))
+        self.assertIn("spl_lock_release", lines[acquire + 1:])
+        self.assertNotIn("rm /run/zero-spl-busy", "\n".join(lines))
+        self.assertFalse(any("set -C" in line for line in lines))
 
     def test_rendered_register_guards_fail_closed(self):
         state = copy.deepcopy(self.status)

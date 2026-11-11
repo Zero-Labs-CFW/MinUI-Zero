@@ -31,7 +31,8 @@ LOADER = 16896
 REPO = Path(__file__).resolve().parents[1]
 SHIPPING = {"installer": "workspace/h700/spl/zero-install.sh",
             "spl_auto": "tools/h700-strip/spl-auto.sh",
-            "boot0_slot": "tools/h700-strip/boot0-slot.sh"}
+            "boot0_slot": "tools/h700-strip/boot0-slot.sh",
+            "spl_lock": "tools/h700-strip/spl-lock.sh"}
 ROLES = ("spl", "normal", "fatal", *SHIPPING)
 REBOOT_RECIPE = (
     "set -eu; echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor; sleep 1; "
@@ -216,7 +217,7 @@ def guard(cohort, status, recovery=False):
     require(background["spl_state"] == "failed" and background["busy"] is False
             and background["sleep_swap"] is False and background["actors"] == [],
             "background rearm/sleep/ack/kit guard not quiescent")
-    for role in ("spl_auto", "boot0_slot"):
+    for role in ("spl_auto", "boot0_slot", "spl_lock"):
         require(background[role + "_sha256"] == sha(cohort.artifacts[role]), "installed helper mismatch")
 
 
@@ -345,14 +346,21 @@ def device_commands(cohort, status, action):
              "test \"$(cat /sys/block/mmcblk0/device/cid)\" = " + q(cohort.cid),
              "b=$(cat /sys/class/power_supply/axp2202-battery/capacity); test \"$b\" -gt 50; test \"$b\" -le 100",
              "test -e /run/zero-menu-frame; test -z \"$(pidof minarch.elf || :)\"",
-             "test ! -e /opt/minui-zero/.spl-sleep-swapped; test ! -e /run/zero-spl-busy",
+             "test ! -e /opt/minui-zero/.spl-sleep-swapped; test ! -e /run/zero-spl-sleep",
              "test \"$(cat /opt/minui-zero/spl-state)\" = failed",
              "for p in /proc/[0-9]*/cmdline; do",
              "  c=$(tr '\\000' ' ' < \"$p\" 2>/dev/null || :)",
              "  case \"$c\" in *spl-auto.sh*|*boot0-slot.sh*|*gp-mark-stage2.sh*|*zero-s2-dog*) echo 'STOP: background actor'; exit 1;; esac",
              "done"]
+    if action in ("cleanup", "guarded-reboot"):
+        # Hold exclusion across decisive admission, preservation checks and the write/reboot.
+        lines.insert(7, "hashis " + sha(cohort.artifacts["spl_lock"]) + " < /opt/minui-zero/spl-lock.sh; "
+                     ". /opt/minui-zero/spl-lock.sh; spl_lock_acquire /run/zero-spl-busy")
+    else:
+        lines.insert(4, "test ! -e /run/zero-spl-busy")
     for role, destination in (("spl_auto", "/opt/minui-zero/spl-auto.sh"),
-                              ("boot0_slot", "/opt/minui-zero/boot0-slot.sh")):
+                              ("boot0_slot", "/opt/minui-zero/boot0-slot.sh"),
+                              ("spl_lock", "/opt/minui-zero/spl-lock.sh")):
         lines.append("hashis " + sha(cohort.artifacts[role]) + " < " + destination)
     for address, name in ((0x07000114, "gp5"), (0x07000134, "gp13"),
                           (0x07000138, "gp14"), (0x0700013C, "gp15"), (0x030090B8, "wdt_mode")):
@@ -379,24 +387,28 @@ def device_commands(cohort, status, action):
         lines.append("test ! -e \"$R\"   # a consumed trial never installs again")
         for role in ("installer", "spl", "fatal"):
             lines.append("hashis %s < $T/%s" % (sha(cohort.artifacts[role]), role))
-        lines += ["( set -C; : > /run/zero-spl-busy )", "sync",
-                  "ZERO_SPL_TRIAL= ZERO_SPL_KEYTEST= ZERO_STAGE2_TRIAL= sh $T/installer $T/spl $T/fatal",
+        lines += ["ZERO_SPL_TRIAL= ZERO_SPL_KEYTEST= ZERO_STAGE2_TRIAL= sh $T/installer $T/spl $T/fatal",
+                  "# Installer owns its transaction. Reacquisition below proves a fresh snapshot only.",
+                  ". /opt/minui-zero/spl-lock.sh; spl_lock_acquire /run/zero-spl-busy", "sync",
+                  "test ! -e /opt/minui-zero/.spl-sleep-swapped; test ! -e /run/zero-spl-sleep",
                   "rd 16 %d | hashis %s" % (len(cohort.spl) // 512, sha(cohort.spl)),
                   "rd 16896 %d | hashis %s" % (len(fatal) // 512, sha(fatal))]
         for name in ("slot512.bin", "pinA.bin", "pinB.bin", "attempt.bin", "binding.bin", "store.bin"):
             lines.append("rd %d %d | hashis %s" % (*REGIONS[name], sha(cohort.saved[name])))
         for address in (0x07000134, 0x07000138, 0x0700013C):
             lines.append("regis %s 0" % hex(address))
-        lines += ["rm /run/zero-spl-busy", "sync"]
+        lines += ["spl_lock_release", "sync"]
     elif action == "cleanup":
-        lines += ["( set -C; : > /run/zero-spl-busy )", "sync",
+        lines += ["sync",
+                  "test ! -e /opt/minui-zero/.spl-sleep-swapped; test ! -e /run/zero-spl-sleep",
+                  "_spl_lock_dirty=1",
                   "dd if=/dev/zero of=$D bs=512 seek=16896 count=1 conv=notrunc,fsync",
                   "rd 16896 1 | hashis " + sha(ZERO)]
         for name, location in REGIONS.items():
             data = (cohort.trained if cohort.trained is not None else cohort.pin) if name in (
                 "slot16.bin", "slot512.bin") else cohort.saved[name]
             lines.append("rd %d %d | hashis %s" % (*location, sha(data)))
-        lines += ["rm /run/zero-spl-busy", "sync"]
+        lines += ["spl_lock_release", "sync"]
     elif action == "guarded-reboot":
         lines += ["# Atomic durable token: never remove it to retry this trial.",
                   "mkdir \"$R\"; sync; test -d \"$R\"",
@@ -404,7 +416,9 @@ def device_commands(cohort, status, action):
                   "cat /proc/uptime > \"$R/start-uptime\"; sync",
                   "test \"$(cat \"$R/boot-id\")\" = \"$(cat /proc/sys/kernel/random/boot_id)\"",
                   "# ONE invocation only. Owner must record boot ID/start time externally first.",
-                  "# Observe a new boot/menu for at most 180s, then STOP; never resend reboot.", REBOOT_RECIPE]
+                  "# Observe a new boot/menu for at most 180s, then STOP; never resend reboot.",
+                  "_spl_lock_dirty=1", REBOOT_RECIPE,
+                  "echo 'STOP: reboot command returned' >&2; exit 1"]
     lines.append("# STOP. Capture all output, raw regions and RTC; no retries or automatic rearm.")
     return "\n".join(lines) + "\n"
 

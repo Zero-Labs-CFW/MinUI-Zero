@@ -28,6 +28,7 @@ D=/dev/mmcblk0
 exec 0</dev/null
 SLOT=16; PIN=16384; PIN_B=16512; STORE=16768; STORE_N=96
 FLAG=/opt/minui-zero/.spl-sleep-swapped
+SLEEP=/run/zero-spl-sleep
 stage2_health_ok() {
 	# Stage1 is unchanged. Stage2 must provide matching producer/consumer evidence.
 	case "$1" in 0x5A560045|0x5a560045) _stage2=1 ;; *) _stage2=0 ;; esac
@@ -45,6 +46,15 @@ stage2_health_ok() {
 }
 # reads go around the page cache (iflag=direct): a readback sees the card, and nothing evicts the rest of the cache
 rd() { dd if=$D bs=512 skip=$1 count=$2 iflag=direct 2>/dev/null; }
+zero_sector() {
+	rd "$1" 1 > /tmp/b0-zero.bin || return 1
+	[ "$(wc -c < /tmp/b0-zero.bin)" -eq 512 ] || return 1
+	[ "$(tr -d '\000' < /tmp/b0-zero.bin | wc -c)" -eq 0 ]
+}
+rtc_clear_attempt() {
+	busybox devmem 0x0700013c 32 0 || return 1
+	[ "$(busybox devmem 0x0700013c)" = 0x00000000 ]
+}
 u32() { od -An -tu4 -j$2 -N4 "$1" | tr -d ' '; }
 # eGON checksum: sum of all 32-bit words with the checksum word read as 0x5F0A6C39 (busybox awk: %.0f, not %d)
 egon_sum_ok() {
@@ -81,15 +91,25 @@ put() { # put <image>: body first, header sector last, then verify the whole ima
 	dd if="$1" of=$D bs=512 count=1 seek=$SLOT conv=notrunc,fsync 2>/dev/null || return 1
 	slot_is "$1"
 }
-# set by spl-auto.sh while it installs or removes our SPL: a sleep then would swap a half-written slot 16
+# All raw reads which authorize writes and all their readbacks share one ownership scope.
 BUSY=/run/zero-spl-busy
+. /opt/minui-zero/spl-lock.sh || exit 1
+case "$1" in
+stock|ours|boot|remove|store) spl_lock_acquire "$BUSY" || exit 75 ;;
+esac
 case "$1" in
 store)
+	[ ! -e "$SLEEP" ] && [ ! -e "$FLAG" ] || exit 75
 	valid_ours "$2" || { echo "not a valid Zero SPL image: refusing"; exit 1; }
-	dd if="$2" of=$D bs=512 seek=$STORE conv=notrunc,fsync 2>/dev/null
-	stored && cmp -s /tmp/b0-ours.bin "$2" && echo stored ;;
+	_spl_lock_dirty=1
+	dd if="$2" of=$D bs=512 seek=$STORE conv=notrunc,fsync 2>/dev/null || exit 1
+	stored && cmp -s /tmp/b0-ours.bin "$2" || exit 1
+	echo stored ;;
 stock)	# nonzero = this sleep is not safe: the suspend script then stays awake (Codex review: never sleep on an SPL)
-	[ ! -e $BUSY ] || { echo "our SPL is being installed or removed"; exit 1; }
+	[ ! -e "$SLEEP" ] || { echo "a sleep is already in progress"; exit 1; }
+	# Persist through the gap between this process returning and the caller writing echo mem.
+	# stock and ours are synchronous children of the same suspend script.
+	echo "$PPID" > "$SLEEP" || exit 1
 	rd $SLOT 1 > /tmp/b0-slot.bin
 	[ "$(wc -c < /tmp/b0-slot.bin)" = 512 ] || { echo "cannot read slot 16"; exit 1; }	# unknown is not safe
 	[ "$(dd if=/tmp/b0-slot.bin bs=1 skip=20 count=3 2>/dev/null)" = SPL ] || exit 0	# stock boot0 in slot 16: it resumes
@@ -100,19 +120,28 @@ stock)	# nonzero = this sleep is not safe: the suspend script then stays awake (
 	if stored && slot_is /tmp/b0-ours.bin; then
 		: > $FLAG && sync && [ -f $FLAG ] || { echo "cannot record the swap"; exit 1; }
 	fi
-	put /tmp/b0-stock.bin ;;
+	_spl_lock_dirty=1
+	put /tmp/b0-stock.bin || exit 1 ;;
 ours|boot)
-	[ -f $FLAG ] || exit 0			# this sleep did not swap: never put ours back
+	[ "$1" != boot ] || [ ! -e "$SLEEP" ] || exit 75
+	if [ "$1" = ours ] && [ -e "$SLEEP" ]; then
+		[ "$(cat "$SLEEP")" = "$PPID" ] || { echo "another suspend owns the sleep intent"; exit 1; }
+	fi
+	[ -f $FLAG ] || { rm -f "$SLEEP"; exit $?; }	# no swap: never put ours back
 	# RTC GP14 nonzero = the loader's safety net has put stock back since the install (a failed attempt): a flag that
 	# outlived that (a power cut before its removal was durable) must not bring the failed loader back (Codex review)
-	if [ "$(busybox devmem 0x07000138)" != 0x00000000 ]; then
-		rm -f $FLAG && sync
+	_safety=$(busybox devmem 0x07000138) || exit 1
+	case "$_safety" in 0x[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]) ;; *) exit 1 ;; esac
+	if [ "$((_safety))" -ne 0 ]; then
+		rm -f $FLAG "$SLEEP" && sync || exit 1
 		echo "the loader's safety net restored stock since the install: not putting it back"; exit 0
 	fi
 	stored || exit 1
+	_spl_lock_dirty=1
 	slot_is /tmp/b0-ours.bin || put /tmp/b0-ours.bin || exit 1
-	rm -f $FLAG && sync || exit 1 ;;
+	rm -f $FLAG "$SLEEP" && sync || exit 1 ;;
 remove)	# for good, unlike a sleep swap: nothing is left that could put ours back (no flag, nothing stored)
+	[ ! -e "$SLEEP" ] && [ ! -e "$FLAG" ] || { echo "sleep swap in progress: refusing removal"; exit 75; }
 	rm -f $FLAG && sync || exit 1
 	rd $SLOT 1 > /tmp/b0-slot.bin
 	[ "$(wc -c < /tmp/b0-slot.bin)" = 512 ] || { echo "cannot read slot 16"; exit 1; }
@@ -121,19 +150,22 @@ remove)	# for good, unlike a sleep swap: nothing is left that could put ours bac
 		rd $PIN 128 > /tmp/b0-stock.bin
 		valid_stock /tmp/b0-stock.bin || { rd $PIN_B 128 > /tmp/b0-stock.bin; valid_stock /tmp/b0-stock.bin; } ||
 			{ rd 512 128 > /tmp/b0-stock.bin; valid_stock /tmp/b0-stock.bin; } || { echo "no valid stock boot0 to put back"; exit 1; }
+		_spl_lock_dirty=1
 		put /tmp/b0-stock.bin || { echo "putting stock boot0 back in slot 16 failed"; exit 1; }
 	fi
-	dd if=/dev/zero of=$D bs=512 seek=$STORE count=1 conv=notrunc,fsync 2>/dev/null
-	dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null
-	[ "$(rd $STORE 1 | tr -d '\000' | wc -c)" = 0 ] && [ "$(rd 16640 1 | tr -d '\000' | wc -c)" = 0 ] ||
+	_spl_lock_dirty=1
+	dd if=/dev/zero of=$D bs=512 seek=$STORE count=1 conv=notrunc,fsync 2>/dev/null || exit 1
+	dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null || exit 1
+	zero_sector "$STORE" && zero_sector 16640 ||
 		{ echo "clearing the stored copy or the attempt marker failed"; exit 1; }
-	busybox devmem 0x0700013c 32 0
+	rtc_clear_attempt || exit 1
 	echo "removed: stock boot0 in slot 16, nothing stored" ;;
 ack)
 	# 15 min: a first boot that expands the card, a long card check or a MinUI.zip install all come before the first
 	# frame; giving up early left the attempt unacknowledged and the next start put stock back (code review)
 	_w=0; until [ -e /run/zero-menu-frame ]; do sleep 1; _w=$((_w + 1)); [ $_w -ge 900 ] && exit 0; done
 	ack_boot() {
+		[ ! -e "$SLEEP" ] && [ ! -e "$FLAG" ] || return 75
 		# proof this boot came through our SPL: its attempt marker (set after DRAM, just before the hand-off) and slot
 		# 16 holding the stored copy; the marker is cleared and read back before GP15, or the next start restores stock
 		[ "$(rd 16640 1 | head -c 15)" = ZERO-ATTEMPT-V1 ] || return 0
@@ -143,11 +175,25 @@ ack)
 			/opt/minui-zero/loader/boot-health || {
 			echo 'stage2 health refused: keeping recovery markers' >&2; return 1;
 		}
-		dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null
-		[ "$(rd 16640 1 | tr -d '\000' | wc -c)" = 0 ] || return 1
-		busybox devmem 0x0700013c 32 0
+		_spl_lock_dirty=1
+		dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null || return 1
+		zero_sector 16640 || return 1
+		rtc_clear_attempt
 	}
-	ack_boot; _r=$?
+	# A peer may briefly own the card when the first frame arrives. Retry CLEAN
+	# contention only, never a failed health check or a partially written acknowledgment.
+	_ack_wait=0
+	while :; do
+		if spl_lock_acquire "$BUSY"; then
+			ack_boot; _r=$?
+			[ "$_r" = 75 ] || break
+			spl_lock_release || exit 1
+		fi
+		_ack_wait=$((_ack_wait + 1)); [ "$_ack_wait" -ge 15 ] && exit 1
+		sleep 1
+	done
+	[ "$_r" = 0 ] || exit "$_r"
+	spl_lock_release || exit 1
 	# the one image: install or take off our SPL (spl-auto.sh says when); after the ack, off the boot path
 	[ ! -f /opt/minui-zero/spl-auto.sh ] || sh /opt/minui-zero/spl-auto.sh
 	exit $_r ;;
