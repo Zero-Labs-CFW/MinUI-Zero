@@ -90,6 +90,25 @@ valid_table() {
 	' "$CHIP_DIR/table.stock" "$CHIP_DIR/table.conf"
 }
 
+# The screen for an armed campaign ($1 = message): B backs out, X cancels the campaign.
+# Plain confirm form on purpose: --ok takes a title first, which once shifted these labels
+# onto A and B and left no button that cancelled (run-tests.sh drives this function).
+armed_screen() {
+	confirm.elf "$1" "" "BACK" "CANCEL"
+	[ "$?" = "2" ] || return 0
+	confirm.elf "Cancel Measurement?
+
+Progress is kept; re-run
+Optimize CPU to resume later." "CANCEL IT" "BACK" || return 0
+	rm -f "$UV_DIR/ARMED"
+	sync
+	say.elf "Measurement cancelled.
+
+A running measurement restarts
+the device within a minute or two.
+Factory voltages remain active."
+}
+
 STATUS=$(cat /sys/class/power_supply/axp2202-battery/status 2>/dev/null)
 DEV_CHIP=$(grep sunxi_serial /sys/class/sunxi_info/sys_info 2>/dev/null | awk -F: '{print $2}' | tr -d ' \t\r\n')
 DEV_MODEL="$TRIMUI_MODEL"
@@ -285,31 +304,28 @@ if [ -f "$UV_DIR/ARMED" ]; then
 	DONE_N=$(grep -cE "^[0-9]+ (CLIFF|DONE)" "$MLOG" 2>/dev/null)
 	[ -n "$DONE_N" ] || DONE_N=0
 	LAST=$(grep "uV survived" "$MLOG" 2>/dev/null | tail -1 | awk '{f=$3; sub(/:/,"",f); printf "%d MHz: %.1f mV ok", f/1000, $4/1000}')
-	if [ "$STATUS" != "Charging" ] && [ "$STATUS" != "Full" ]; then
-		confirm.elf --ok "Measurement PAUSED
-
-Not charging. Progress: $DONE_N of 8
-steps done. Plug in the charger and
-restart to resume." "" "BACK" "CANCEL"
-		if [ "$?" = "2" ]; then
-			confirm.elf "Cancel Measurement?
-
-Progress is kept; re-run
-Optimize CPU to resume later." "CANCEL IT" "BACK" || exit 0
-			rm -f "$UV_DIR/ARMED"
-			sync
-			say.elf "Measurement cancelled.
-
-Stops within about a minute.
-Factory voltages remain active."
-		fi
-	else
-		say.elf "Measuring... $DONE_N of 8 steps done.
+	# uvmap.sh holds /tmp/uvmap.lock for as long as it measures and checks the charger once
+	# per boot, so armed without the lock means paused until a restart. Saying "Measuring"
+	# there (charger plugged in after the boot-time check) reads as a campaign stuck at 0 of 8.
+	if [ -d /tmp/uvmap.lock ]; then
+		armed_screen "Measuring... $DONE_N of 8 steps done.
 ${LAST:-Warming up.}
 
 Keep it charging. The device
 restarts itself several times.
 Check back here any time."
+	elif [ "$STATUS" != "Charging" ] && [ "$STATUS" != "Full" ]; then
+		armed_screen "Measurement PAUSED
+
+Not charging. $DONE_N of 8 steps done.
+Plug in the charger, then
+restart the device to resume."
+	else
+		armed_screen "Measurement PAUSED
+
+$DONE_N of 8 steps done. It was not
+charging at startup. Keep it
+charging and restart the device."
 	fi
 	exit 0
 fi

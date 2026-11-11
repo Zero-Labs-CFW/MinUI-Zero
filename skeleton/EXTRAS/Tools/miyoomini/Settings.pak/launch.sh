@@ -97,8 +97,15 @@ while :; do
 		UV_CHIP=$(grep sunxi_serial /sys/class/sunxi_info/sys_info 2>/dev/null | awk -F: '{print $2}' | tr -d ' \t\r\n')
 		UV_SLOT="$UV_DIR/chips/$UV_CHIP"
 		if [ -f "$UV_DIR/ARMED" ]; then
-			UV_VALUE="Measuring"
-			UV_DESC="$(grep -cE '^[0-9]+ (CLIFF|DONE)' "$UV_SLOT/margins.log" 2>/dev/null) of 8 steps done. Keep it charging.\nPress A for details."
+			UV_N=$(grep -cE '^[0-9]+ (CLIFF|DONE)' "$UV_SLOT/margins.log" 2>/dev/null)
+			# uvmap.sh holds this lock while it measures; armed without it = paused until a restart
+			if [ -d /tmp/uvmap.lock ]; then
+				UV_VALUE="Measuring"
+				UV_DESC="${UV_N:-0} of 8 steps done. Keep it charging.\nPress A for details."
+			else
+				UV_VALUE="Paused"
+				UV_DESC="${UV_N:-0} of 8 steps done. Plug in, then restart.\nPress A for details."
+			fi
 		elif [ -n "$UV_CHIP" ] && [ -f "$UV_SLOT/table.conf" ] && [ -f "$UV_SLOT/calibration" ] && [ "$(tr -d ' \t\r\n' < "$UV_SLOT/table.chip" 2>/dev/null)" = "$UV_CHIP" ]; then
 			UV_VALUE="Optimized"
 			UV_DESC="Undervolted to this chip's measured minimum.\nPress A to manage."
