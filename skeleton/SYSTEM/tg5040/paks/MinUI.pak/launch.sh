@@ -394,14 +394,31 @@ fi
 # (Found on the Brick Pro with wifi enabled, 2026-08-30; adbd carve-out added in review.)
 # ntpd is a procd service with "respawn": killed by pid alone it was back within about 6 s, with no network event
 # (measured on the Brick, 2026-11-11). Stopping the service removes it; the kill stays for firmware without the script.
-[ -x /etc/init.d/sysntpd ] && /etc/init.d/sysntpd stop >/dev/null 2>&1
+# The firmware starts both daemons AFTER it starts this script (S98mtp and S98sysntpd run behind the S99 hook: on the
+# Brick the service registered at 4.45 s and ntpd appeared at 4.8 s, 2026-11-12), so one stop made here can run before
+# the service exists and do nothing. The single pass used to win that race by about 0.25 s and lost it on every boot
+# once the menu started sooner. So wait for ntpd in the background, bounded (firmware with NTP off never starts it).
 # MinUI keeps its own clock. One builtin pass over /proc for both names: killall and pidof each rescan /proc
 # (about 50 ms per name on the Brick; 110 -> 70 ms for this block, 2026-11-11), and comm finds busybox applets,
 # which killall skips.
-for _c in /proc/[0-9]*/comm; do
-	read -r _n 2>/dev/null < "$_c" || continue
-	case "$_n" in MtpDaemon|ntpd) _k=${_c#/proc/}; kill "${_k%/comm}" 2>/dev/null ;; esac
-done
+(
+	_w=0
+	while [ $_w -lt 40 ]; do
+		_f=
+		for _c in /proc/[0-9]*/comm; do
+			read -r _n 2>/dev/null < "$_c" || continue
+			[ "$_n" = ntpd ] && { _f=1; break; }
+		done
+		[ -n "$_f" ] && break
+		sleep 0.25
+		_w=$((_w + 1))
+	done
+	[ -x /etc/init.d/sysntpd ] && /etc/init.d/sysntpd stop >/dev/null 2>&1
+	for _c in /proc/[0-9]*/comm; do
+		read -r _n 2>/dev/null < "$_c" || continue
+		case "$_n" in MtpDaemon|ntpd) _k=${_c#/proc/}; kill "${_k%/comm}" 2>/dev/null ;; esac
+	done
+) &
 # DEV MODE is now unified on devmode.txt (Dan, 2026-09-08: "stay awake should just be Dev Mode ...
 # add it to all the devices when devmode is active"). devmode.txt at the card root already arms
 # stay-awake in C (PWR_init), so gating SSH on the SAME flag is what stops the reconnect rodeo: the
