@@ -74,6 +74,10 @@ fi
 # power. Bluetooth is always disabled (no feature uses it); wifi stays up ONLY when the dev
 # enable-ssh flag is present (SSH access). Zero user-facing loss, less idle drain + heat.
 SHARED_UD="$SDCARD_PATH/.userdata/shared"
+# The Bluetooth part runs in the background so the menu does not wait for it (about 0.12 s of boot.sh on the
+# Brick, 2026-11-12). Nothing later depends on WHEN Bluetooth goes down. The WiFi part below stays in line:
+# launch.sh may bring WiFi back up, so its order matters.
+(
 # One builtin pass over /proc instead of killall: busybox killall rescans /proc per NAME, about 50 ms each
 # on the Brick (three names 100 ms, this loop 30 ms, 8 boots per arm, 2026-11-11).
 for _c in /proc/[0-9]*/comm; do
@@ -86,6 +90,7 @@ for r in /sys/class/rfkill/rfkill*; do
 	_t=; read -r _t 2>/dev/null < "$r/type"
 	[ "$_t" = "bluetooth" ] && echo 0 > "$r/state" 2>/dev/null
 done
+) &
 if [ ! -f "$SHARED_UD/enable-ssh" ]; then
 	killall -q wpa_supplicant 2>/dev/null
 	ifconfig wlan0 down 2>/dev/null

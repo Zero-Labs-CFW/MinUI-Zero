@@ -56,9 +56,13 @@ for _d in "$BIOS_PATH" "$ROMS_PATH" "$SAVES_PATH" "$USERDATA_PATH" "$LOGS_PATH" 
 	[ -d "$_d" ] || mkdir -p "$_d"
 done
 
+# MENU FIRST (2026-11-12). The late_* functions below hold boot work the menu does not need to start. They
+# are only DEFINED where they used to run and are called from one background chain right before the menu
+# loop (see "late boot work" there), so their bodies stay unindented and in their old place.
 # macs and windows leave droppings on any card they mount (Spotlight index, fsevents logs,
 # ._* resource forks, .DS_Store, System Volume Information). Sweep them each boot; the
 # .metadata_never_index and .fseventsd/no_log markers shipped in the zip prevent most of it.
+late_hygiene() {
 for _d in "$SDCARD_PATH/.Spotlight-V100" "$SDCARD_PATH/.Trashes" "$SDCARD_PATH/System Volume Information"; do
 	[ -e "$_d" ] && rm -rf "$_d" 2>/dev/null
 done
@@ -68,6 +72,7 @@ find "$SDCARD_PATH/.fseventsd" -type f ! -name no_log -exec rm -f {} + 2>/dev/nu
 for _d in "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._*; do
 	[ -e "$_d" ] && rm -f "$_d" 2>/dev/null
 done
+}
 # the & belongs OUTSIDE the subshell: inside it backgrounded only the find, and the sleep 15 ran in the
 # foreground of every boot (menu-ready 7 s -> 22 s on the Brick and Smart Pro, 2026-09-22)
 ( sleep 15; while pidof minarch.elf >/dev/null 2>&1; do sleep 30; done; nice -n 19 find "$ROMS_PATH" "$BIOS_PATH" "$SAVES_PATH" "$SDCARD_PATH/Collections" \( -name "._*" -o -name ".DS_Store" -o -name "Thumbs.db" -o -name "ehthumbs.db" -o -name "desktop.ini" \) -exec rm -f {} + 2>/dev/null ) &   # + Windows droppings, Collections (2026-09-22)
@@ -185,12 +190,14 @@ rm -f "$SHARED_USERDATA_PATH/.minui/model" # clean up the briefly-shipped cache
 # geometry, so first boot on new hardware is diagnosable from the card. One line per boot.
 # virtual_size alone is NOT enough: on the Brick Pro it read "1024,16384", where 16384 is the
 # virtual scrollback height, not the visible one (2026-08-28). Record the visible mode too.
+late_modeltxt() {
 printf 'model=%s\ndevice=%s\nvirtual_size=%s\nmodes=%s\nstride=%s\n' \
 	"${TRIMUI_MODEL:-<none>}" "${DEVICE:-<unset, using Smart Pro geometry>}" \
 	"$(cat /sys/class/graphics/fb0/virtual_size 2>/dev/null || echo '<unreadable>')" \
 	"$(m=$(cat /sys/class/graphics/fb0/modes 2>/dev/null) && [ -n "$m" ] && printf '%s' "$m" | tr '\n' ' ' || echo '<unreadable>')" \
 	"$(cat /sys/class/graphics/fb0/stride 2>/dev/null || echo '<unreadable>')" \
 	> "$LOGS_PATH/model.txt" 2>/dev/null
+}
 
 #######################################
 
@@ -365,6 +372,7 @@ echo $CPU_SPEED_PERF > $CPU_PATH 2>/dev/null || true
 # files keep working for anyone already set up.
 # A dev card that joins WiFi without wifi.txt (devmode, or the old enable-ssh + wifi.conf pair) gets one written from
 # the network it already uses, so Settings can show its On/Off row (bin/wifi-adopt.sh; no-op on every other card).
+late_wifi_cfg() {
 sh "$SYSTEM_PATH/bin/wifi-adopt.sh" 2>/dev/null
 if [ -f "$SDCARD_PATH/wifi.txt" ]; then
 	_w=$(sed '/^#/d;/^[[:space:]]*$/d' "$SDCARD_PATH/wifi.txt" | head -1)
@@ -386,6 +394,7 @@ elif [ -f "$SDCARD_PATH/wifi.txt.off" ]; then
 	# (enable-ssh + wifi.conf, no wifi.txt*) is untouched: it has neither wifi.txt nor wifi.txt.off.
 	rm -f "$SHARED_USERDATA_PATH/wifi.conf" "$SHARED_USERDATA_PATH/enable-ssh"
 fi
+}
 # MtpDaemon and ntpd are USB/clock daemons with NOTHING to do with wifi or SSH, and they used to
 # sit in the else branch below, so turning on wifi left them running for the whole session.
 # MtpDaemon is the expensive one, indexing the entire card while games stream from it. Those two
@@ -428,6 +437,9 @@ fi
 # /etc/rc.d/S50sshd at every boot; Brick: dropbear), so turning WiFi on put a password login on
 # the network (checked on-device 2026-09-24). Stop them on every non-dev card; SSH is then only
 # ours, key-only (dev-net.sh). devmode keeps them, so a dev card's access never changes.
+# Late since 2026-11-12, and still ordered: this stop runs before OUR WiFi bring-up below in the same chain,
+# a few tenths of a second after the menu starts, seconds before the radio can associate (5.8 s at best).
+late_net() {
 if ! devmode; then
 	[ -x /etc/init.d/sshd ] && /etc/init.d/sshd stop >/dev/null 2>&1
 	[ -x /etc/init.d/dropbear ] && /etc/init.d/dropbear stop >/dev/null 2>&1
@@ -449,6 +461,7 @@ else
 	rfkill block bluetooth
 	rfkill block wifi
 fi
+}
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
@@ -492,14 +505,23 @@ cd $(dirname "$0")
 # above). Drop the old paks from cards that had them. Those five are ours by name; the WiFi copy
 # is marker-guarded because FAT32 folds case, so "WiFi.pak" is also the community Wifi.pak, which
 # we must never delete.
+late_pakclean() {
 for _p in "Deep Sleep.pak" "Clock.pak" "Focus Mode.pak" "WiFi Toggle.pak" "Optimize CPU.pak"; do
 	[ -e "$SDCARD_PATH/Tools/tg5040/$_p" ] && rm -rf "$SDCARD_PATH/Tools/tg5040/$_p" 2>/dev/null
 done
 [ -f "$SDCARD_PATH/Tools/tg5040/WiFi.pak/launch.sh" ] && grep -q 'styled like Deep Sleep.pak' "$SDCARD_PATH/Tools/tg5040/WiFi.pak/launch.sh" 2>/dev/null && rm -rf "$SDCARD_PATH/Tools/tg5040/WiFi.pak" 2>/dev/null
+}
 # Boot receipt, DEV CARDS ONLY (devmode.txt at the card root): kernel seconds at menu launch,
 # one ~40-byte line per boot. Measured the fleet for the README table (2026-08-31); stays as a
 # regression canary on dev cards and costs users nothing.
 devmode && zero_boot_receipt
+# Late boot work: one ordered background chain, started here so the menu starts first. Brick, 8 vs 8 warm
+# boots (2026-11-12): hook handoff to menu start 0.95 -> 0.675 s median, ranges do not overlap. Network
+# first, so the marker clears early; a game launch waits for it (below). Everything else in this file stays
+# in line, including the boot logo write (internal storage, never concurrent with a power-off).
+# tg5040 only, Brick-measured; the Miyoo and Anbernic launchers are unchanged.
+: > /tmp/zero-boot-net # builtin, tmpfs
+( late_wifi_cfg; late_net; rm -f /tmp/zero-boot-net; late_hygiene; late_modeltxt; late_pakclean ) &
 EXEC_PATH="/tmp/minui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH" # tmpfs; a sync here would flush every filesystem for a file that never touches disk
@@ -557,6 +579,12 @@ while [ -f $EXEC_PATH ]; do
 			if [ -n "$MINARCH_PANEL_FPS" ]; then
 				export ZERO_AUDIO_SAMPLES=256 ZERO_AUDIO_TARGET_MS=40 ZERO_AUDIO_WARM_MS=80 ZERO_AUDIO_PREFILL_MS=100
 			fi
+			# The late boot chain (above the loop) may not have settled enable-ssh or started dev-net.sh yet when
+			# an auto-resumed game gets here; reading either too early would let WiFi come up mid-game. Bounded
+			# (about 6 s), and a stuck marker is dropped so it can cost that only once.
+			_bw=0
+			while [ -f /tmp/zero-boot-net ] && [ $_bw -lt 100 ]; do sleep 0.05; _bw=$((_bw + 1)); done
+			[ -f /tmp/zero-boot-net ] && rm -f /tmp/zero-boot-net
 			_dn=$(pgrep -f "bin/dev-net[.]sh" 2>/dev/null) # [.]: never matches a shell whose command line merely quotes it
 			# Only on a card that opted into WiFi, the SAME test boot uses to run dev-net.sh at all. Without it, the
 			# firmware's late S96 wpa_supplicant (running behind a blocked radio on a WiFi-off card) made this look
