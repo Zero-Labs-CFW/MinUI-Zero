@@ -176,7 +176,17 @@ void QuitSettings(void) {
 	if (is_host) shm_unlink(SHM_KEY);
 }
 static inline void SaveSettings(void) {
-	int fd = open(SettingsPath, O_CREAT|O_WRONLY, 0644);
+	// Skip the write and fsync when the file already holds these bytes: every process start runs SetVolume and
+	// SetBrightness with unchanged values (keymon 3 times, minui twice), and at boot those fsyncs queue on the card
+	// behind everything else. Compared with the file, not a per-process copy, so another process's save is seen.
+	int fd = open(SettingsPath, O_RDONLY);
+	if (fd>=0) {
+		Settings cur;
+		ssize_t n = read(fd, &cur, shm_size);
+		close(fd);
+		if (n==shm_size && !memcmp(&cur, settings, shm_size)) return;
+	}
+	fd = open(SettingsPath, O_CREAT|O_WRONLY, 0644);
 	if (fd>=0) {
 		write(fd, settings, shm_size);
 		// Targeted fsync, not a global sync(): this runs on every brightness and volume step, on every wake, and

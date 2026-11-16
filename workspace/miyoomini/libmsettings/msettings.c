@@ -183,7 +183,16 @@ void QuitSettings(void) {
 	if (is_host) shm_unlink(SHM_KEY);
 }
 static inline void SaveSettings(void) {
-	int fd = open(SettingsPath, O_CREAT|O_WRONLY, 0644);
+	// Skip the write and fsync when the file already holds these bytes (every process start re-applies
+	// unchanged volume and brightness). Compared with the file, so another process's save is seen. Same as tg5040.
+	int fd = open(SettingsPath, O_RDONLY);
+	if (fd>=0) {
+		Settings cur;
+		ssize_t n = read(fd, &cur, shm_size);
+		close(fd);
+		if (n==shm_size && !memcmp(&cur, settings, shm_size)) return;
+	}
+	fd = open(SettingsPath, O_CREAT|O_WRONLY, 0644);
 	if (fd>=0) {
 		write(fd, settings, shm_size);
 		// Targeted fsync, NOT a global sync(). This runs on EVERY brightness and volume step, on
