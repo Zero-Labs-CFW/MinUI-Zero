@@ -1675,8 +1675,6 @@ int main (int argc, char *argv[]) {
 	Menu_init();
 	if (boot_timing) LOG_info("- menu init: %lu\n", SDL_GetTicks() - main_begin);
 	
-	// now that (most of) the heavy lifting is done, take a load off
-	PWR_setCPUSpeed(CPU_SPEED_MENU);
 	UIMARK("pre_scan");
 	GFX_setVsync(VSYNC_STRICT);
 
@@ -2135,7 +2133,10 @@ int main (int argc, char *argv[]) {
 			}
 
 			GFX_flip(screen);
-			{ static int ui_first = 1; if (ui_first) { ui_first = 0; UIMARK("first_frame"); } }
+			{ static int ui_first = 1; if (ui_first) { ui_first = 0; UIMARK("first_frame");
+				// now that the heavy lifting is done, take a load off. After the first frame, not before it: the
+				// menu clock caps the whole cluster, so it slowed the first draw and every boot job beside it.
+				PWR_setCPUSpeed(CPU_SPEED_MENU); } }
 			dirty = 0;
 		}
 		else GFX_sync();
