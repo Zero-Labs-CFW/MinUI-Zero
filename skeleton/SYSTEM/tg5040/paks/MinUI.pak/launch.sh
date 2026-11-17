@@ -465,6 +465,25 @@ fi
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
+# Faster boot through two values in the vendor U-Boot env (bin/bootenv.sh: guards, undo, measurements). Runs in
+# the background and only while this boot still shows the stock loglevel=8. Builtin tests in this shell, so a
+# device that is done, skipped or stopped pays no process spawn here. restore-boot-env.txt at the card root undoes it.
+if [ -f "$SDCARD_PATH/restore-boot-env.txt" ]; then
+	sh "$SYSTEM_PATH/bin/bootenv.sh" revert &
+else
+	read -r _cl < /proc/cmdline
+	case " $_cl " in
+	*" loglevel=8 "*)
+		_sn=${_cl##*androidboot.serialno=}; _sn=${_sn%% *}
+		[ "$_sn" = "$_cl" ] && _sn=unknown # same rule as bootenv.sh
+		_bd="$SHARED_USERDATA_PATH/.minui/bootenv"
+		if [ ! -f "$_bd/done-$_sn" ] && [ ! -f "$_bd/skip-$_sn" ] && [ ! -f "$_bd/stop-$_sn" ]; then
+			sh "$SYSTEM_PATH/bin/bootenv.sh" apply &
+		fi
+	;;
+	esac
+fi
+
 #######################################
 
 # An armed calibration resumes from auto.sh below. Refresh its persistent harness from
