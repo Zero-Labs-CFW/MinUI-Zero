@@ -1205,7 +1205,7 @@ index 00000000..1d521539
 +	profile = ((u32 (*)(const struct zero_params *))(ulong)(ZL_LOAD_ADDR + h->preflight))(p);
 +	if (!had_icache)
 +		icache_disable();
-+	if (profile != 1 && profile != 2) {
++	if (!profile || profile > (ZP_PROFILE_MASK >> ZP_PROFILE_SHIFT)) {
 +		/* Separate from universal-SPL fdXX refusal/restore: this returns to intact vendor U-Boot. */
 +		writel(0x5a56fc01, (void *)ZV_RTC_GP14);
 +		return;

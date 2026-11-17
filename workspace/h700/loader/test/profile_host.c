@@ -281,6 +281,12 @@ static void image_tests(struct fixture f[2], const char *path, uintptr_t bss, si
             calls++;
             CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ|PROT_WRITE));
             *p = saved;
+            p->dram_words[1] = 0;
+            CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ));
+            CHECK(!profile_checked_call(loaded+entry, p, &result) && result == 0);
+            calls++;
+            CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ|PROT_WRITE));
+            *p = saved;
             /* Real binary rejection after content hashing, not just a guard return. */
             ((uint8_t *)(uintptr_t)ZL_HDR_ADDR)[100] ^= 1;
             CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ));
@@ -296,7 +302,7 @@ static void image_tests(struct fixture f[2], const char *path, uintptr_t bss, si
     CHECK(!munmap(loaded, ZL_LOAD_MAX));
     free(image);
     CHECK(cpu_reads > 0 && !sigaction(SIGILL, &prior, NULL));
-    printf("PASS ACTUAL zero-loader.bin preflight: %u calls, Plus/H accept + RAM/content refusal, 3 BSS poisons, RX image/read-only inputs, x18-x29/SP + Q0-Q31/FPCR/FPSR preserved; five CPU modes with privileged MRS emulation, NOT EL3 hardware proof\n", calls);
+    printf("PASS ACTUAL zero-loader.bin preflight: %u calls, Plus/H accept + RAM/type/content refusal, 3 BSS poisons, RX image/read-only inputs, x18-x29/SP + Q0-Q31/FPCR/FPSR preserved; five CPU modes with privileged MRS emulation, NOT EL3 hardware proof\n", calls);
 }
 #endif
 
