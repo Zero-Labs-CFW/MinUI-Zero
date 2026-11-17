@@ -36,9 +36,12 @@ mark() { touch "$1"; sync; } # rare (once per device), so a global sync is fine 
 envget() { echo "$ENV" | sed -n "s/^$1=//p"; }
 # U-Boot builds whose burn_key gate was measured on a device with blank secure storage (uboot_message in
 # /proc/cmdline). An unlisted build still gets loglevel; burn_key waits until that build is measured.
+# Brick 10/26/2025, Smart Pro 04/23/2024 (16.0 -> 12.0 s), Brick Pro 07/11/2026 (16.6 -> 12.3 s), 2026-11-17.
+# Off-state charging shows no charge screen on these devices with the stock env too (checked on the Brick Pro).
 BURN_OK_BUILDS="
 2018.05(10/26/2025-11:56:42)
 2018.05(04/23/2024-18:42:17)
+2018.05(07/11/2026-11:42:17)
 "
 
 case "$TRIMUI_MODEL" in
