@@ -9,6 +9,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#ifndef ZERO_HEALTH_BUILD_ID
+#error "Build the health helper with its loader source identity"
+#endif
+typedef char health_build_id_must_be_64_chars[(sizeof(ZERO_HEALTH_BUILD_ID) == 65) ? 1 : -1];
+
 /* O_NOFOLLOW protects the leaf; sysfs has legitimate symlink ancestors. */
 static const char *read_file(const char *path, unsigned char *data, size_t cap,
                              size_t *size) {
@@ -41,6 +46,10 @@ static void usage(const char *name) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--build-id")) {
+        puts(ZERO_HEALTH_BUILD_ID);
+        return 0;
+    }
     if (argc == 2 && !strcmp(argv[1], "--contract")) {
         puts("zero-stage2-health-v1");
         return 0;
@@ -70,7 +79,11 @@ int main(int argc, char **argv) {
         if (!error) {
             switch (i) {
             case 0: error = zero_boot_record(data, size, &record); break;
-            case 1: error = zero_boot_expected(data, size, &record); break;
+            case 1:
+                error = zero_boot_expected(data, size, &record);
+                if (!error)
+                    error = zero_boot_expected((const unsigned char *)ZERO_HEALTH_BUILD_ID, 64, &record);
+                break;
             case 2: error = zero_boot_cmdline(data, size, &record); break;
             case 3: error = zero_boot_display(data, size, &record); break;
             default: break; /* Current-boot PLAT_flip marker, not quiet-window release. */

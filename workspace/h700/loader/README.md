@@ -133,7 +133,7 @@ apart, so auto-resume may initialize its display. Missing/mismatched evidence fa
 This consistency check cannot prove physically illuminated/correctly oriented pixels.
 Fixed-panel profiles additionally reject a record carrying the other panel token.
 
-The build ID hashes source/recipes, not the final image (which would be circular).
+The build ID hashes loader and health-helper source/recipes, not the final image (which would be circular).
 Artifact SHA256 binds the sealed binary separately. This is provenance and consistency,
 not an authenticated boot chain.
 
@@ -154,7 +154,10 @@ The all-devices image carries the payload, but `spl-auto.sh` still installs SPL-
 No stage2 automatic/default-on policy is introduced by this integration.
 An explicit stage2 install requires the installed acknowledgment and health helper
 to advertise `zero-stage2-health-v1`, plus a valid expected build ID, before card
-writes. This refuses an older rootfs that could acknowledge without validation.
+writes. The helper's compiled `--build-id` must also match that installed identity;
+a protocol-compatible stale helper or a legacy helper without this query is refused.
+This binds the consumer's compiled profile policy to the loader source cohort, not
+just the record format. It does not authenticate an arbitrarily supplied loader image.
 Non-Plus profiles require `ZERO_STAGE2_TRIAL=1`; unqualified SPL board/type pairs
 also require `ZERO_SPL_TRIAL=1`. These are developer trial gates, not automatic
 model detection or a recommendation to enable untested hardware.

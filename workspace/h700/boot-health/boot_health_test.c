@@ -216,6 +216,12 @@ static void io_tests(const char *dir) {
         write_file(paths[i], data[i], sizes[i]);
     }
     cli_check(args, 0);
+    /* A record/file pair can agree while belonging to a different compiled helper. */
+    raw[32] ^= 0x10; expected[0] = '1';
+    write_file(paths[0], raw, 64); write_file(paths[1], expected, 65);
+    cli_check(args, 1);
+    baseline(1, 0);
+    write_file(paths[0], raw, 64); write_file(paths[1], expected, 65);
     for (profile = 1; profile <= 2; ++profile) {
         for (panel = 0; panel <= 1; ++panel) {
             const char *cmd = panel ? "lcd_type=boe" : "lcd_type=old";

@@ -44,6 +44,8 @@ stage2_consumer_ok() {
 	_id=$(cat "$3") || return 1
 	[ "${#_id}" = 64 ] || return 1
 	case "$_id" in *[!0-9a-f]*) return 1 ;; esac
+	_compiled_id=$("$2" --build-id) || return 1
+	[ "$_compiled_id" = "$_id" ] || return 1
 }
 egon_sum_ok() {
 	[ "$(od -An -tu4 -v "$1" | awk '{for(i=1;i<=NF;i++){n++; v=(n==4)?1594518585:$i; s=(s+v)%4294967296}} END{printf "%.0f", s}')" = "$(u32 "$1" 12)" ]

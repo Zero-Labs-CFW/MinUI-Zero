@@ -20,6 +20,7 @@ subprocess.run([sys.executable, '-I', ROOT / 'tools/profiles.py', '--check'], ch
 subprocess.run([sys.executable, '-I', ROOT / 'test/profile_policy_test.py'], check=True)
 subprocess.run([sys.executable, '-I', ROOT / 'test/packaged_test.py'], check=True)
 subprocess.run([sys.executable, '-I', ROOT / 'test/installer_policy_test.py'], check=True)
+subprocess.run([sys.executable, '-I', ROOT / 'test/build_id_test.py'], check=True)
 original = json.loads((ROOT / 'profiles.json').read_text())
 with tempfile.TemporaryDirectory(prefix='zero-loader-unit-') as directory:
     out = Path(directory)

@@ -18,7 +18,8 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
     python3 -I tools/profiles.py --check
     make -j2
     cp zero-loader.bin obj/zero-loader.elf obj/zero-loader.map obj/build-id obj/sources.json /out/
-    gcc -std=c11 -O2 -Wall -Wextra -Werror -static /tmp/boot-health/boot-health.c /tmp/boot-health/boot_health.c -o /out/boot-health
+    gcc -std=c11 -O2 -Wall -Wextra -Werror -static -DZERO_HEALTH_BUILD_ID=\"$(cat obj/build-id)\" /tmp/boot-health/boot-health.c /tmp/boot-health/boot_health.c -o /out/boot-health
+    [ "$(/out/boot-health --build-id)" = "$(cat obj/build-id)" ] || { echo "health-helper build identity mismatch"; exit 1; }
     gcc --version > /out/compiler.txt
     ld --version > /out/linker.txt
     cd /out

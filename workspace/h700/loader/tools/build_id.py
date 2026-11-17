@@ -12,6 +12,8 @@ def generate():
              not {'obj', 'build', '__pycache__'}.intersection(p.relative_to(ROOT).parts) and
              (p.suffix in ('.c', '.h', '.S', '.ld', '.inc', '.json', '.py', '.sh') or p.name in ('Makefile', 'Dockerfile'))]
     source = {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(files)}
+    for name in ('boot-health.c', 'boot_health.c', 'boot_health.h'):
+        source['../boot-health/' + name] = hashlib.sha256((ROOT.parent / 'boot-health' / name).read_bytes()).hexdigest()
     encoded = json.dumps(source, sort_keys=True, separators=(',', ':')).encode()
     digest = hashlib.sha256(encoded).digest()
     out = ROOT / 'obj'

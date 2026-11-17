@@ -154,8 +154,10 @@ def main():
         run(cc + ['-std=gnu11', '-O1', '-g', '-D__UBOOT__', '-DFREESTANDING', '-DZL_HOST_TEST',
                   '-fno-strict-aliasing', '-I' + str(LOADER), '-I' + str(LOADER / 'include'),
                   '-I' + str(LOADER / 'libfdt')] + sanitize + sources + ['-o', exe])
-        run(cc + ['-std=c99', '-O1', '-g', '-Wall', '-Wextra', '-Werror', '-pedantic'] + sanitize +
+        run(cc + ['-std=c99', '-O1', '-g', '-Wall', '-Wextra', '-Werror', '-pedantic',
+                  '-DZERO_HEALTH_BUILD_ID="' + build_id.hex() + '"'] + sanitize +
             [HEALTH / 'boot-health.c', HEALTH / 'boot_health.c', '-o', helper])
+        assert subprocess.check_output([helper, '--build-id'], text=True, env=env).strip() == build_id.hex()
         for cohort, row in zip(cohorts, rows):
             dram, provenance = boot0_metadata(gen.packaged_path(args.packaged.resolve(), cohort.folder, 'boot0.img'), row)
             case = tmp / cohort.folder
