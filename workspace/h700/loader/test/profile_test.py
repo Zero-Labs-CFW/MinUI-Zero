@@ -110,7 +110,7 @@ def protocol(rows):
 
 
 def snapshot(binary, artifacts):
-    names = ("profile.c", "profile.h", "zero_params.h", "profiles.inc", "profiles.json", "tools/profiles.py", "lib/sha256.c", "lib/sha256.h",
+    names = ("profile.c", "profile.h", "profile_policy.h", "profile_policy.inc", "zero_params.h", "profiles.inc", "profiles.json", "tools/profiles.py", "lib/sha256.c", "lib/sha256.h",
              "tools/genprofiles.py", "test/profile_test.py", "test/profile_host.c", "test/sha_ce_preserve_test.S",
              "lib/sha256_ce.c", "lib/sha256_ce_policy.h", "lib/sha256_ce_core.S", "lib/sha256_ce_preserve.S")
     paths = [LOADER / name for name in names]

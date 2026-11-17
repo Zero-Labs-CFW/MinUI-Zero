@@ -96,7 +96,7 @@ int zl_params_ok_at(const struct zero_params *p, uint64_t params_addr)
 	if (!p->dtb_len || !p->kernel_gz_len || !p->kernel_max || (p->dtb & 7) || (p->monitor & 3) ||
 	    (p->uboot & 3) || p->monitor > UINT32_MAX || p->kernel_addr > UINT32_MAX || p->dtb > UINT32_MAX)
 		return 0;	/* the monitor head holds 32-bit addresses */
-	/* This is a Plus-only experiment: reject unqualified placement before any write. */
+	/* All admitted profiles share this placement; reject it before any write. */
 	if (p->monitor != ZL_MONITOR_ADDR || p->uboot != ZL_STUB_ADDR || p->dtb != 0x4a200000 ||
 	    p->bootimg_hdr != ZL_HDR_ADDR || p->kernel_gz != ZL_KGZ_ADDR || p->kernel_addr != 0x40080000 ||
 	    p->ramdisk != 0x42000000 || p->kernel_gz_len > ZL_KGZ_MAX ||
@@ -147,7 +147,8 @@ void main(struct zero_params *p)
 	if ((uintptr_t)p != ZL_HDR_ADDR + 2048 || !zl_params_ok_at(p, (uintptr_t)p))
 		zl_fail(ZL_FAIL_PARAMS);
 	/* Only the returning, read-only preflight may select an admitted artifact profile. */
-	if (p->dram_mib != 1024 ||
+	if (!zero_profile_memory((p->flags & ZP_PROFILE_MASK) >> ZP_PROFILE_SHIFT,
+	                         p->dram_mib, p->dram_words[1]) ||
 	    zl_panel_rule_for_profile((p->flags & ZP_PROFILE_MASK) >> ZP_PROFILE_SHIFT) == ZL_PANEL_INVALID)
 		zl_fail(ZL_FAIL_PARAMS);
 	if (zl_prepare_hardware())

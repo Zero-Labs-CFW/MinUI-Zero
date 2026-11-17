@@ -107,6 +107,7 @@ static void fresh(void)
 		.ramdisk_len = 512, .kernel_addr = 0x40080000, .kernel_max = 0x1f80000,
 		.fdt_max = ZL_FDT_MAX, .dram_mib = 1024, .pmic_boot_regs = 1,
 	};
+	p->dram_words[1] = 8;
 	memset((void *)(uintptr_t)(p->kernel_addr + p->kernel_max), 0xa5, 16);
 }
 

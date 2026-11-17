@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "profile.h"
+#include "profile_policy.h"
 #include "lib/sha256.h"
 #include "profiles.inc"
 
@@ -62,7 +63,8 @@ unsigned int zl_preflight(const struct zero_params *p)
     uint32_t lengths[ZL_PROFILE_PARTS], seen = 0, n, i;
 
     if ((uintptr_t)p != ZL_HDR_ADDR+2048 || p->magic != ZP_MAGIC || p->version != ZP_VERSION ||
-        p->size != sizeof(*p) || p->flags != ZP_FLAG_CARD || p->dram_mib != 1024 ||
+        p->size != sizeof(*p) || p->flags != ZP_FLAG_CARD ||
+        (p->dram_mib != 1024 && p->dram_mib != 2048) ||
         p->monitor != 0x48000000 || p->uboot != 0x4a000000 ||
         p->dtb != 0x4a200000 || p->dtbo != 0x4a100000 ||
         p->toc1_head != 0x42e00000 || p->toc1_head_len < 64 || p->toc1_head_len > 64+16*368 ||
@@ -100,5 +102,6 @@ unsigned int zl_preflight(const struct zero_params *p)
     }
     if (seen != 3)
         return 0;
-    return zl_profile_match(parts, lengths, p->dram_mib);
+    unsigned int profile = zl_profile_match(parts, lengths, p->dram_mib);
+    return zero_profile_memory(profile, p->dram_mib, p->dram_words[1]) ? profile : 0;
 }

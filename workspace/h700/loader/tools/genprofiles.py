@@ -12,10 +12,15 @@ import gzip
 import json
 from pathlib import Path
 import struct
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 COHORTS = ((1, "plus", "plus-215203"), (2, "h", "h-215206"))
 PART_NAMES = ("toc", "monitor", "u-boot", "dtb", "dtbo", "boot-header", "gzip", "ramdisk")
+PACKAGED_BOARDS = {name: 'rg35xx-' + name for name in ('plus', 'h', 'pro', 'sp')}
+PACKAGED_BOARDS.update({name: name for name in
+                       ('rg40xx-h', 'rg40xx-v', 'rgcubexx-h', 'rg28xx-h',
+                        'rg34xx-h', 'rg34xx-sp', 'rgsp')})
 
 
 def require(condition, message):
@@ -131,54 +136,141 @@ def load_profiles(root):
     return tuple(load_cohort(root, *cohort) for cohort in COHORTS)
 
 
-def load_packaged(root):
-    """Artifact compatibility only: RAM is the profile's requirement, not a unit measurement."""
-    rows = []
-    for ident, name, _ in COHORTS:
-        directory = root / ('rg35xx-' + name)
-        package = (directory / 'package.fex').read_bytes()
-        require(len(package) >= 64 and package[:13] == b'sunxi-package', 'bad packaged TOC')
-        count, total = u32(package, 32), u32(package, 36)
-        require(0 < count <= 16 and total <= len(package), 'bad packaged TOC bounds')
-        table = span(package, 0, 64 + count * 368, 'packaged table')
-        items = {}
-        for i in range(count):
-            item = table[64 + i * 368:64 + (i + 1) * 368]
-            require(b'\0' in item[:64], 'unterminated packaged role')
+def packaged_path(root, *names):
+    path = root.joinpath(*names).resolve()
+    require(path.is_relative_to(root), 'packaged path escapes artifact root')
+    return path
+
+
+def packaged_gzip(data, limit, label):
+    inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        inflated = inflater.decompress(data, limit + 1)
+    except zlib.error as error:
+        raise ValueError(f'{label}: invalid gzip') from error
+    require(len(inflated) <= limit and inflater.eof and not inflater.unused_data and
+            not inflater.unconsumed_tail, f'{label}: oversized, truncated or trailing gzip')
+    return inflated
+
+
+def packaged_checksum(data, field):
+    require(len(data) % 4 == 0 and field + 4 <= len(data), 'unaligned checksum block')
+    return (sum(struct.unpack('<%dI' % (len(data) // 4), data)) - u32(data, field) + 0x5f0a6c39) & 0xffffffff
+
+
+def packaged_parts(package, boot):
+    require(len(package) >= 64 and len(package) <= 32 << 20 and
+            package[:16] == b'sunxi-package\0\0\0' and u32(package, 16) == 0x89119800,
+            'bad packaged TOC')
+    count, total = u32(package, 32), u32(package, 36)
+    require(count == 4 and total == len(package), 'bad packaged TOC bounds')
+    require(packaged_checksum(package, 20) == u32(package, 20), 'bad package checksum')
+    table = span(package, 0, 64 + count * 368, 'packaged table')
+    items, ranges = {}, []
+    for i in range(count):
+        item = table[64 + i * 368:64 + (i + 1) * 368]
+        require(b'\0' in item[:64], 'unterminated packaged role')
+        try:
             role = item[:64].split(b'\0', 1)[0].decode('ascii')
-            require(role in PART_NAMES[1:5] and role not in items, 'duplicate/unknown packaged role')
-            offset, length = u32(item, 64), u32(item, 68)
-            require(offset >= len(table) and not offset % 512 and length > 0, 'bad packaged role span')
-            items[role] = span(package[:total], offset, length, role)
-        require(set(items) == set(PART_NAMES[1:5]), 'missing packaged role')
-        kernel_name = (directory / 'kernel').read_text().strip()
-        require(Path(kernel_name).name == kernel_name and kernel_name not in ('', '.', '..'), 'unsafe kernel name')
-        boot = gzip.decompress((root / 'kernels' / kernel_name).read_bytes())
-        header = span(boot, 0, 2048, 'packaged header')
-        require(header[:8] == b'ANDROID!' and u32(header, 36) == 2048, 'bad packaged Android header')
-        ks, rs = u32(header, 8), u32(header, 16)
-        require(0 < ks <= 32 << 20 and 0 < rs <= 1 << 20, 'bad packaged payload size')
-        parts = (table, items['monitor'], items['u-boot'], items['dtb'], items['dtbo'], header,
-                 span(boot, 2048, ks, 'packaged gzip'),
-                 span(boot, 2048 + ((ks + 2047) // 2048) * 2048, rs, 'packaged ramdisk'))
-        rows.append(Cohort(ident, name, directory.name, 1024, parts,
+        except UnicodeDecodeError as error:
+            raise ValueError('non-ASCII packaged role') from error
+        require(role in PART_NAMES[1:5] and role not in items, 'duplicate/unknown packaged role')
+        offset, length = u32(item, 64), u32(item, 68)
+        require(offset >= len(table) and offset % 512 == 0 and length > 0 and
+                offset <= total and length <= total - offset, 'bad packaged role span')
+        require(all(offset >= end or offset + length <= start for start, end in ranges),
+                'overlapping packaged roles')
+        ranges.append((offset, offset + length))
+        items[role] = span(package, offset, length, role)
+    require(set(items) == set(PART_NAMES[1:5]), 'missing packaged role')
+    for role, address in (('monitor', 0x48000000), ('u-boot', 0x4a000000)):
+        require(len(items[role]) >= 0x30 and u32(items[role], 0x2c) == address,
+                f'wrong packaged {role} run address')
+    ub = items['u-boot']
+    require(u32(ub, 20) == len(ub) and packaged_checksum(ub, 12) == u32(ub, 12),
+            'bad packaged U-Boot checksum/length')
+
+    header = span(boot, 0, 2048, 'packaged header')
+    ks, ka, rs, ra, second = struct.unpack_from('<5I', header, 8)
+    require(header[:8] == b'ANDROID!' and u32(header, 36) == 2048 and
+            u32(header, 40) == 2 and ka == 0x40080000 and ra == 0x42000000 and
+            second == 0 and 0 < ks <= 32 << 20 and 0 < rs <= 1 << 20,
+            'bad packaged Android v2 layout')
+    require(struct.unpack_from('<IQ', header, 1632) == (0, 0) and u32(header, 1644) == 1660,
+            'unsupported packaged recovery payload or header size')
+    rd_offset = 2048 + ((ks + 2047) // 2048) * 2048
+    require(len(boot) == rd_offset + ((rs + 2047) // 2048) * 2048,
+            'bad packaged Android span/padding')
+    kernel = span(boot, 2048, ks, 'packaged gzip')
+    image = packaged_gzip(kernel, 32 << 20, 'packaged kernel')
+    require(len(image) >= 64 and image[0x38:0x3c] == b'ARM\x64', 'not a packaged ARM64 Image')
+    ramdisk = span(boot, rd_offset, rs, 'packaged ramdisk')
+    # Match load_cohort: appended-DTB metadata is hashed, but only the TOC DTB is consumed.
+    return (table, items['monitor'], items['u-boot'], items['dtb'], items['dtbo'],
+            header, kernel, ramdisk)
+
+
+def load_packaged(root, manifest_rows=None):
+    """Extract reviewed selections (default: public manifest), without granting admission.
+
+    RAM is the input requirement, not a unit measurement. Explicit offline rows
+    need not be admitted profiles; validate_public is a separate check.
+    """
+    root = Path(root).resolve()
+    if manifest_rows is None:
+        manifest_rows = json.loads((ROOT / 'profiles.json').read_text())['profiles']
+    rows, seen_ids, seen_boards = [], set(), set()
+    for item in manifest_rows:
+        ident, name, ram_mib = item['id'], item['board'], item['ram_mib']
+        require(type(ident) is int and 0 < ident <= 0xffffffff and ident not in seen_ids,
+                'duplicate/invalid packaged profile ID')
+        require(name in PACKAGED_BOARDS and name not in seen_boards, 'duplicate/unknown packaged board')
+        require(type(ram_mib) is int and ram_mib in (1024, 2048), 'unsupported packaged RAM requirement')
+        seen_ids.add(ident)
+        seen_boards.add(name)
+        directory = PACKAGED_BOARDS[name]
+        package = packaged_path(root, directory, 'package.fex').read_bytes()
+        kernel_name = packaged_path(root, directory, 'kernel').read_text().strip()
+        require(Path(kernel_name).name == kernel_name and kernel_name not in ('', '.', '..') and
+                '\\' not in kernel_name, 'unsafe kernel name')
+        boot = packaged_gzip(packaged_path(root, 'kernels', kernel_name).read_bytes(),
+                             2048 + (32 << 20) + (1 << 20), 'packaged boot')
+        parts = packaged_parts(package, boot)
+        rows.append(Cohort(ident, name, directory, ram_mib, parts,
                            hashlib.sha256(package).hexdigest(), hashlib.sha256(boot).hexdigest(),
                            '', '', 'packaged-artifact-only; unit RAM unmeasured'))
+    require(rows, 'empty packaged profile selection')
     return tuple(rows)
 
 
 def validate_public(rows):
     public = json.loads((ROOT / 'profiles.json').read_text())['profiles']
-    require(len(public) == len(rows), 'public profile count differs')
-    for row, item in zip(rows, public):
-        hashes = [item['sha256']] + [v['sha256'] for v in item.get('variants', [])]
-        require((row.id, row.name, row.ram_mib, row.lengths) ==
-                (item['id'], item['board'], item['ram_mib'], tuple(item['lengths'])) and row.digest.hex() in hashes,
+    by_id = {}
+    hashes = set()
+    for item in public:
+        require(type(item['id']) is int and item['id'] not in by_id, 'duplicate/invalid public profile ID')
+        by_id[item['id']] = item
+        for variant in [item] + item.get('variants', []):
+            require(variant['sha256'] not in hashes, 'duplicate public transcript identity')
+            hashes.add(variant['sha256'])
+    seen = set()
+    for row in rows:
+        require(type(row.id) is int and row.id not in seen, 'duplicate/invalid supplied profile ID')
+        seen.add(row.id)
+        require(row.id in by_id, 'unknown supplied profile ID')
+        item = by_id[row.id]
+        digest = row.digest.hex()
+        matches = [variant for variant in [item] + item.get('variants', []) if variant['sha256'] == digest]
+        require(len(matches) == 1 and row.name == item['board'] and
+                row.lengths == tuple(item['lengths']) and
+                row.ram_mib == matches[0].get('ram_mib', item['ram_mib']),
                 'capture differs from reviewed public profile')
-        for variant in item.get('variants', []):
-            if row.digest.hex() == variant['sha256']:
-                require(hashlib.sha256(row.parts[5]).hexdigest() == variant['boot_header_sha256'],
-                        'variant header differs from reviewed identity')
+        require(matches[0] is item or 'boot_header_sha256' in matches[0],
+                'variant missing reviewed header identity')
+        if 'boot_header_sha256' in matches[0]:
+            require(hashlib.sha256(row.parts[5]).hexdigest() == matches[0]['boot_header_sha256'],
+                    'variant header differs from reviewed identity')
+    require(seen, 'empty supplied profile subset')
 
 
 def render(profiles):
@@ -213,7 +305,7 @@ def main():
     for row in rows:
         ram_kind = 'measured RAM' if args.fixtures else 'required RAM (not measured)'
         print(f"ID {row.id} {row.name}: {ram_kind} {row.ram_mib} MiB, lengths {row.lengths}, SHA256 {row.digest.hex()}")
-    print("PASS inputs match reviewed public identities; no allowlist writes")
+    print("PASS supplied subset matches reviewed public identities; missing profiles are not verified; no allowlist writes")
 
 
 if __name__ == "__main__":

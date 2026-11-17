@@ -2,6 +2,8 @@
 #ifndef ZL_PANEL_POLICY_H
 #define ZL_PANEL_POLICY_H
 
+#include "profile_policy.h"
+
 /* Vendor rules, not model detection. Only admitted artifact profiles may select one. */
 enum zl_panel_rule {
 	ZL_PANEL_INVALID,
@@ -13,13 +15,8 @@ enum zl_panel_rule {
 
 static inline enum zl_panel_rule zl_panel_rule_for_profile(unsigned int profile)
 {
-	switch (profile) {
-	case 1: /* Plus */
-	case 2: /* H */
-		return ZL_PANEL_STRAP_PULL;
-	default:
-		return ZL_PANEL_INVALID;
-	}
+	const struct zero_profile_policy *p = zero_profile_policy(profile);
+	return p ? (enum zl_panel_rule)p->panel_rule : ZL_PANEL_INVALID;
 }
 
 #endif

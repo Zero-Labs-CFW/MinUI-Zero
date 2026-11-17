@@ -17,6 +17,8 @@ spec = importlib.util.spec_from_file_location('profiles', ROOT / 'tools/profiles
 profiles = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(profiles)
 subprocess.run([sys.executable, '-I', ROOT / 'tools/profiles.py', '--check'], check=True)
+subprocess.run([sys.executable, '-I', ROOT / 'test/profile_policy_test.py'], check=True)
+subprocess.run([sys.executable, '-I', ROOT / 'test/packaged_test.py'], check=True)
 original = json.loads((ROOT / 'profiles.json').read_text())
 with tempfile.TemporaryDirectory(prefix='zero-loader-unit-') as directory:
     out = Path(directory)

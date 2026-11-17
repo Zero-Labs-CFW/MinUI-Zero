@@ -257,6 +257,7 @@ static void image_tests(struct fixture f[2], const char *path, uintptr_t bss, si
             .bootimg_hdr=addresses[5], .kernel_gz=addresses[6], .kernel_gz_len=f[row].lengths[6],
             .ramdisk=addresses[7], .ramdisk_len=f[row].lengths[7], .kernel_addr=0x40080000,
             .kernel_max=0x42000000-0x40080000, .fdt_max=ZL_FDT_MAX};
+        p->dram_words[1] = 8;
         struct zero_params saved = *p;
         for (unsigned i = 0; i < 8; i++) CHECK(!mprotect((void *)addresses[i], sizes[i], PROT_READ));
         const unsigned char poison[] = {0xa5, 0x5a, 0};
