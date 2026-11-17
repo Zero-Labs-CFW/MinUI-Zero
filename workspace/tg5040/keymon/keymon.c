@@ -169,9 +169,18 @@ int main (int argc, char *argv[]) {
 
 	struct pollfd fds[INPUT_COUNT];
 	for (int i=0; i<INPUT_COUNT; i++) {
-		fds[i].fd = inputs[i];
+		fds[i].fd = inputs[i]; // a missing node stays -1, which poll() skips
 		fds[i].events = POLLIN;
 	}
+
+	// trimui_inputd creates the gamepad node (event3, which carries MENU and the volume keys on the Smart Pro)
+	// a moment after it starts, and launch.sh starts keymon right behind it. Once the menu started sooner, keymon
+	// opened its inputs before that node existed and never had the keys: brightness bar shown, MENU + volume did
+	// nothing (Smart Pro, v1.10.1 RC, 2026-11-17). So retry missing nodes for a few seconds after start, then go
+	// back to blocking with no timeout.
+	gettimeofday(&tod, NULL);
+	uint32_t reopen_until = tod.tv_sec * 1000 + tod.tv_usec / 1000 + 5000;
+	int reopening = 1;
 
 	while (!quit) {
 		// block until input arrives; wake early only to drive key-repeat
@@ -185,10 +194,22 @@ int main (int argc, char *argv[]) {
 			timeout = (at>now) ? (int)(at-now) : 0;
 			if (timeout>100) timeout = 100;
 		}
+		if (reopening && (timeout<0 || timeout>100)) timeout = 100;
 		poll(fds, INPUT_COUNT, timeout);
 
 		gettimeofday(&tod, NULL);
 		now = tod.tv_sec * 1000 + tod.tv_usec / 1000;
+		if (reopening) {
+			int missing = 0;
+			for (int i=0; i<INPUT_COUNT; i++) {
+				if (inputs[i] >= 0) continue;
+				sprintf(path, "/dev/input/event%i", i);
+				inputs[i] = fds[i].fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+				if (inputs[i] < 0) missing = 1;
+				else { printf("input: opened event%i late\n", i); fflush(stdout); }
+			}
+			if (!missing || (int32_t)(now - reopen_until) >= 0) reopening = 0;
+		}
 		// NO idle-based "we must have slept" reset here. It used to clear the held keys whenever
 		// now-then>1000, which was safe only while this loop spun at 60fps (upstream/NextUI still do).
 		// Since b8f15298 made poll() BLOCK, sitting idle for minutes is normal and says nothing about
