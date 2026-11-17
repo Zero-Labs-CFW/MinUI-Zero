@@ -1,13 +1,16 @@
 # H700 Stage-2 Loader
 
 Experimental SPL -> loader -> vendor monitor -> Linux path. Packaging this loader
-does not install or enable it. Plus/H are the only admitted artifact profiles.
-Other board/DRAM/panel combinations remain refused. This is not a release qualification.
+does not install or enable it. The manifest includes eleven exact firmware profiles
+covering the known H700 models; RG35XX 2024 shares the Plus artifact profile.
+The added profiles are source-backed trial paths, not hardware qualification.
+Unknown firmware, RAM/type or panel contracts remain refused.
 
 The memory-layout backend separates physical RAM from the first GiB mapped by the
 loader. Its bounds and FDT encoding are tested for 2 GiB, without mapping or touching
-the upper GiB. Preflight and main still reject unqualified 2 GiB sessions; this
-plumbing alone does not qualify RG34XX SP, its monitor, DRAM training or suspend.
+the upper GiB. The RG34XX SP profile requires 2 GiB; all other current profiles
+require 1 GiB. Exact RAM-dependent transcript matching and the unit's separate SPL
+binding remain mandatory. This does not qualify DRAM training or suspend on a new unit.
 
 ## Build
 
@@ -29,8 +32,9 @@ separate output directories and compare manifests before qualification. Output
 directories and diagnostics are build/scratch artifacts, not source.
 
 `profiles.json` is the reviewed input-identity allowlist. `tools/profiles.py` generates
-`profiles.inc`; `--check` rejects stale generated data. New rows require review and
-hardware qualification. Hash matching is accidental-mismatch protection, not secure boot
+`profiles.inc` and `profile_policy.inc`; `--check` rejects stale generated data.
+New trial rows require exact artifact and source-contract review; automatic/default-on
+eligibility requires separate qualification. Hash matching is accidental-mismatch protection, not secure boot
 or physical model detection. The SPL separately validates the unit binding and DRAM.
 Named variants keep exact hashes under the same hardware policy. The standard H
 image adds a rootflags token absent from its earlier development capture; both
@@ -67,6 +71,7 @@ device or an implicit gitignored path. Use Linux arm64 with ASan/UBSan and dtc:
 make -C workspace/h700/loader captured-test FIXTURES=/captures TEST_OUTPUT=/output
 python3 workspace/h700/loader/test/profile_test.py --fixtures /captures \
   --binary --artifacts /sealed-build --packaged /boards-stage
+make -C workspace/h700/loader fleet-test PACKAGED=/boards-stage TEST_OUTPUT=/output/fleet
 ```
 
 The fixture root contains `devices/plus-215203`, `devices/h-215206` (each with validated
@@ -76,6 +81,10 @@ Fixtures contain vendor/device captures and are deliberately not shipped. Tests 
 their transcript hashes to the tracked public identities before accepting them. Missing
 fixtures are an error, not a skipped passing gate. The captured tests include the actual
 production entry body; MMIO/cache/monitor entry remain modeled and cannot qualify hardware.
+The fleet target uses archived package/boot0 metadata, not measured unit training.
+It checks production FDT fixups for both strap values, preserves unrelated properties,
+and passes the emitted records through the real health CLI. Display/menu evidence in
+that test is explicitly synthetic expected state, not physical scanout.
 
 ## Contract and Memory
 
@@ -93,8 +102,18 @@ and arm64 Image headers are checked. Existing panel power/reset minimum waits re
 
 Panel selection has four tested vendor-policy primitives: strap with pull-up, strap with
 pull unchanged, constant old, and constant BOE. `panel_policy.h` maps admitted profile IDs
-to policies; only Plus/H currently map, both to strap with pull-up. The other primitives
-do not enable any board or its geometry, memory, monitor or power behavior. Constant
+to the same generated policy used by memory and display acceptance:
+
+| Models | Panel Rule | Native Scanout |
+| --- | --- | --- |
+| RG35XX Plus / 2024, H, Pro | Strap with pull-up | 640x480 |
+| RG35XX SP, RG40XX H/V | Strap with pull unchanged | 640x480 |
+| RG CubeXX | Constant BOE | 720x720 |
+| RG28XX | Constant old | 480x640 |
+| RG34XX, RG34XX SP, RG SP | Strap with pull-up | 720x480 |
+
+These dimensions are code-expected contracts for the exact staged firmware, not new
+on-device measurements. Logical frontend rotation is separate from scanout. Constant
 policies do not sample/configure PE6; the unchanged-pull policy does not touch its pull.
 
 ## Boot Acceptance
@@ -112,6 +131,7 @@ It never writes card/RTC state and does not require WiFi. The existing
 Stage1 behavior is unchanged. Stage2 retries acceptance up to 15 checks, one second
 apart, so auto-resume may initialize its display. Missing/mismatched evidence fails closed.
 This consistency check cannot prove physically illuminated/correctly oriented pixels.
+Fixed-panel profiles additionally reject a record carrying the other panel token.
 
 The build ID hashes source/recipes, not the final image (which would be circular).
 Artifact SHA256 binds the sealed binary separately. This is provenance and consistency,
@@ -135,6 +155,9 @@ No stage2 automatic/default-on policy is introduced by this integration.
 An explicit stage2 install requires the installed acknowledgment and health helper
 to advertise `zero-stage2-health-v1`, plus a valid expected build ID, before card
 writes. This refuses an older rootfs that could acknowledge without validation.
+Non-Plus profiles require `ZERO_STAGE2_TRIAL=1`; unqualified SPL board/type pairs
+also require `ZERO_SPL_TRIAL=1`. These are developer trial gates, not automatic
+model detection or a recommendation to enable untested hardware.
 SPL-only installation is unchanged. A card ZIP does not upgrade the rootfs consumer.
 
 ## Provenance

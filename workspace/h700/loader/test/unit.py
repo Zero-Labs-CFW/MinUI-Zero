@@ -19,10 +19,11 @@ spec.loader.exec_module(profiles)
 subprocess.run([sys.executable, '-I', ROOT / 'tools/profiles.py', '--check'], check=True)
 subprocess.run([sys.executable, '-I', ROOT / 'test/profile_policy_test.py'], check=True)
 subprocess.run([sys.executable, '-I', ROOT / 'test/packaged_test.py'], check=True)
+subprocess.run([sys.executable, '-I', ROOT / 'test/installer_policy_test.py'], check=True)
 original = json.loads((ROOT / 'profiles.json').read_text())
 with tempfile.TemporaryDirectory(prefix='zero-loader-unit-') as directory:
     out = Path(directory)
-    cases = [(0, 'id', 3), (1, 'id', 1), (0, 'ram_mib', 2048), (0, 'board', 'rgcubexx'),
+    cases = [(0, 'id', 3), (1, 'id', 1), (0, 'ram_mib', 4096), (0, 'board', 'rgcubexx'),
              (0, 'sha256', 'x'*64), (0, 'lengths', [1]*7), (0, 'lengths', [True]*8),
              (0, 'panel_rule', 'constant-boe'), (0, 'qualification', 'qualified'),
              (1, 'variants', [{'name': 'x', 'sha256': original['profiles'][0]['sha256'], 'boot_header_sha256': '0'*64}]),

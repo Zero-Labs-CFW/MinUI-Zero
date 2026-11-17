@@ -14,6 +14,7 @@
 #include <ucontext.h>
 #endif
 #include "profile.h"
+#include "profile_policy.h"
 #include "lib/sha256.h"
 
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #c); exit(1); } } while (0)
@@ -129,7 +130,7 @@ static void profile_tests(struct fixture f[2])
                 region_protect(r, PROT_READ);
             }
         }
-        const uint32_t bad_ram[] = {0, 512, 1023, 1025, 2048, UINT32_MAX};
+        const uint32_t bad_ram[] = {0, 512, 1023, 1025, 3072 - a->ram, UINT32_MAX};
         for (unsigned j = 0; j < sizeof(bad_ram)/sizeof(bad_ram[0]); j++)
             expect_match(a->parts, a->lengths, bad_ram[j], 0);
         const void *unreadable[8] = {(void *)1, (void *)1, (void *)1, (void *)1,
@@ -148,7 +149,7 @@ static void profile_tests(struct fixture f[2])
             parts[i] = f[row].parts[i]; lengths[i] = f[row].lengths[i];
         }
         unsigned expected = same_fixture(parts, lengths, &f[0]) ? f[0].id :
-                            same_fixture(parts, lengths, &f[1]) ? f[1].id : 0;
+                            f[1].ram == f[0].ram && same_fixture(parts, lengths, &f[1]) ? f[1].id : 0;
         expect_match(parts, lengths, f[0].ram, expected);
     }
     printf("PASS production matcher: %u checks, all 256 component mixes, byte/length/RAM/null mutations; inputs read-only\n", checks);
@@ -257,7 +258,7 @@ static void image_tests(struct fixture f[2], const char *path, uintptr_t bss, si
             .bootimg_hdr=addresses[5], .kernel_gz=addresses[6], .kernel_gz_len=f[row].lengths[6],
             .ramdisk=addresses[7], .ramdisk_len=f[row].lengths[7], .kernel_addr=0x40080000,
             .kernel_max=0x42000000-0x40080000, .fdt_max=ZL_FDT_MAX};
-        p->dram_words[1] = 8;
+        p->dram_words[1] = zero_profile_memory(f[row].id, f[row].ram, 8) ? 8 : 7;
         struct zero_params saved = *p;
         for (unsigned i = 0; i < 8; i++) CHECK(!mprotect((void *)addresses[i], sizes[i], PROT_READ));
         const unsigned char poison[] = {0xa5, 0x5a, 0};
@@ -275,7 +276,7 @@ static void image_tests(struct fixture f[2], const char *path, uintptr_t bss, si
             CHECK(!memcmp(p, &saved, sizeof(saved)));
             calls++;
             CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ|PROT_WRITE));
-            p->dram_mib = 2048;
+            p->dram_mib = 3072 - f[row].ram;
             CHECK(!mprotect((void *)(uintptr_t)ZL_HDR_ADDR, sizes[5], PROT_READ));
             CHECK(!profile_checked_call(loaded+entry, p, &result) && result == 0);
             calls++;
@@ -302,7 +303,7 @@ static void image_tests(struct fixture f[2], const char *path, uintptr_t bss, si
     CHECK(!munmap(loaded, ZL_LOAD_MAX));
     free(image);
     CHECK(cpu_reads > 0 && !sigaction(SIGILL, &prior, NULL));
-    printf("PASS ACTUAL zero-loader.bin preflight: %u calls, Plus/H accept + RAM/type/content refusal, 3 BSS poisons, RX image/read-only inputs, x18-x29/SP + Q0-Q31/FPCR/FPSR preserved; five CPU modes with privileged MRS emulation, NOT EL3 hardware proof\n", calls);
+    printf("PASS ACTUAL zero-loader.bin preflight: %u calls, profile accept + RAM/type/content refusal, 3 BSS poisons, RX image/read-only inputs, x18-x29/SP + Q0-Q31/FPCR/FPSR preserved; five CPU modes with privileged MRS emulation, NOT EL3 hardware proof\n", calls);
 }
 #endif
 
@@ -315,7 +316,8 @@ int main(int argc, char **argv)
     sha_tests();
     struct fixture f[2];
     for (unsigned i = 0; i < 2; i++) fixture_read(&f[i]);
-    CHECK(f[0].id == 1 && f[1].id == 2 && f[0].ram == 1024 && f[1].ram == 1024);
+    CHECK(f[0].id && f[1].id && f[0].id != f[1].id);
+    CHECK((f[0].ram == 1024 || f[0].ram == 2048) && (f[1].ram == 1024 || f[1].ram == 2048));
     CHECK(fgetc(stdin) == EOF);
     profile_tests(f);
     if (argc == 4) {

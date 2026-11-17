@@ -190,7 +190,9 @@ def main():
     if args.packaged:
         packaged = gen.load_packaged(args.packaged.resolve())
         gen.validate_public(packaged)
-        cases.append(('packaged (RAM requirement only, not a unit measurement)', packaged))
+        for row in packaged[1:]:
+            cases.append((f'packaged {packaged[0].name}/{row.name} (RAM requirement, not measured)',
+                          (packaged[0], row)))
     subprocess.run([sys.executable, '-I', LOADER / 'tools/profiles.py', '--check'], check=True)
     print("PASS all cohort manifest size/SHA256 checks; measured RAM; deterministic profiles.inc", flush=True)
     generator_negative_tests(gen)

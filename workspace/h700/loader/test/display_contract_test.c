@@ -7,14 +7,16 @@
 int main(void)
 {
     struct zero_display_contract c, before;
+    const unsigned expected[][2] = {{0,0}, {640,480}, {640,480}, {640,480},
+        {640,480}, {640,480}, {640,480}, {720,720}, {480,640}, {720,480}, {720,480}, {720,480}};
     for (unsigned int profile = 0; profile <= 256; profile++) {
         memset(&c, 0xa5, sizeof(c));
         before = c;
         assert(!zero_display_profile(profile, NULL));
-        if (profile == 1 || profile == 2) {
+        if (profile > 0 && profile < sizeof(expected) / sizeof(expected[0])) {
             assert(zero_display_profile(profile, &c));
             assert(zero_display_v1_compatible(&c));
-            assert(c.lcd_width == 640 && c.lcd_height == 480);
+            assert(c.lcd_width == expected[profile][0] && c.lcd_height == expected[profile][1]);
         } else {
             assert(!zero_display_profile(profile, &c));
             assert(!memcmp(&c, &before, sizeof(c)));

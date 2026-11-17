@@ -88,7 +88,9 @@ int main(int argc, char **argv)
 	health = fdt_getprop(fdt, fdt_path_offset(fdt, "/chosen"), "zero,loader", &len);
 	CHECK(health && len == 64 && fdt32_to_cpu(*(const fdt32_t *)(health + 16)) == 1);
 	/* Unknown profiles and unqualified dimensions must never get a healthy record. */
-	for (unsigned profile = 0; profile < 4; ++profile) {
+	const unsigned profile_cases[] = {0, 1, 2, 255};
+	for (unsigned i = 0; i < sizeof(profile_cases)/sizeof(profile_cases[0]); ++i) {
+		unsigned profile = profile_cases[i];
 		p = good; p.flags = ZP_FLAG_CARD | (profile << 8); fresh(fdt, pkg, pkg_len);
 		mock_reset();
 		CHECK((zl_build_fdt(&p) == 0) == (profile == 1 || profile == 2));

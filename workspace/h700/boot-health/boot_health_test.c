@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE
 #include "boot_health.h"
+#include "../loader/panel_policy.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -90,7 +91,7 @@ static void display_change(const char *from, const char *to) {
 static void pure_tests(void) {
     size_t i;
     const size_t fields[] = {4, 8, 12, 16, 20, 24, 28};
-    const uint32_t bad[] = {2, 63, 3, 2, 0, 0, 1};
+    const uint32_t bad[] = {2, 63, 255, 2, 0, 0, 1};
     const char *bad_cmd[] = {
         "", "quiet", "lcd_type", "lcd_type=", "lcd_type=OLD", "lcd_type=other",
         "lcd_type=boe", "lcd_type=oldx", "lcd_type=old lcd_type=old",
@@ -258,9 +259,35 @@ static void io_tests(const char *dir) {
     for (i = 0; i < 5; ++i) CHECK(unlink(paths[i]) == 0);
 }
 
+static void family_tests(void) {
+    unsigned i, panel;
+    for (i = 0; i < sizeof(zero_profile_policies)/sizeof(zero_profile_policies[0]); ++i) {
+        const struct zero_profile_policy *p = &zero_profile_policies[i];
+        for (panel = 0; panel <= 1; ++panel) {
+            int allowed = (p->panel_rule != ZL_PANEL_OLD || panel == 0) &&
+                          (p->panel_rule != ZL_PANEL_BOE || panel == 1);
+            char text[256];
+            baseline(1, panel);
+            put32(raw + 12, p->id); put32(raw + 20, p->display.lcd_width);
+            put32(raw + 24, p->display.lcd_height);
+            CHECK((zero_boot_record(raw, 64, &record) == NULL) == allowed);
+            if (!allowed) continue;
+            CHECK(snprintf(text, sizeof(text),
+                "screen 0:\n mgr0: %ux%u err[0] unblank\n lcd output backlight(88) fps:60.0 %ux %u\n err:0\n BUF enable frame[0,0,%u,%u]\n",
+                p->display.manager_width, p->display.manager_height,
+                p->display.lcd_width, p->display.lcd_height,
+                p->display.frame_width, p->display.frame_height) > 0);
+            CHECK(zero_boot_display((const unsigned char *)text, strlen(text), &record) == NULL);
+            put32(raw + 20, p->display.lcd_width + 1);
+            CHECK(zero_boot_record(raw, 64, &record) != NULL);
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     CHECK(argc == 2);
     pure_tests();
+    family_tests();
     io_tests(argv[1]);
     printf("boot-health: %u checks passed\n", checks);
     return 0;

@@ -6,8 +6,8 @@
 # our hand-off inside. (Codex review 2026-11-05: the generic upstream SPL and the 800 KB u-boot-sunxi-with-spl.bin
 # both passed the old magic-only check; the second would have overwritten the backup slot at sector 512.)
 #   sh zero-install.sh /tmp/zero-spl.bin [/tmp/zero-loader.bin]
-# Stage2: Plus development path; LPDDR4 H requires ZERO_STAGE2_TRIAL=1 for an attended bench trial.
-# Other boards still refuse. Omitting the loader disables it by clearing its first sector.
+# Stage2: Plus development path; every other known model requires ZERO_STAGE2_TRIAL=1.
+# Source-backed profiles are not hardware qualification. Omitting the loader disables its header.
 # Universal SPL (2026-11-06): two builds, one per DRAM type (zero-spl.bin LPDDR4, zero-spl-lp3.bin LPDDR3; the SPL says
 # which with "zero: dram lp4|lp3"). This unit's own stock boot0 (backup slot) must describe exactly what that build
 # trains (dram_check: the rules of the SPL's zero_dram_check.h), and the SPL is bound to this unit: a binding sector at
@@ -30,6 +30,8 @@ stage2_board_ok() {
 	case "${1-}:${2-}" in
 	plus:7|plus:8) return 0 ;;
 	h:8) [ "${ZERO_STAGE2_TRIAL-}" = 1 ] ;;
+	pro:7|pro:8|sp:8|rg40xx-h:7|rg40xx-v:7|rgcubexx-h:8|rg28xx-h:8|rg34xx-h:8|rg34xx-sp:8|rgsp:7|rgsp:8|2024:7|2024:8)
+		[ "${ZERO_STAGE2_TRIAL-}" = 1 ] ;;
 	*) return 1 ;;
 	esac
 }
@@ -178,10 +180,10 @@ else
 	esac
 fi
 if [ -n "$LOADER" ]; then
-	stage2_board_ok "$board" "$ST" || { echo "stage2 needs RG35XX Plus, or LPDDR4 H with ZERO_STAGE2_TRIAL=1: refusing"; exit 1; }
+	stage2_board_ok "$board" "$ST" || { echo "stage2 needs a supported model/DRAM pair; non-Plus models need ZERO_STAGE2_TRIAL=1: refusing"; exit 1; }
 	stage2_consumer_ok /opt/minui-zero/boot0-slot.sh /opt/minui-zero/loader/boot-health \
 		/opt/minui-zero/loader/build-id || { echo 'stage2 needs the health-v1 acknowledgment rootfs: refusing'; exit 1; }
-	[ "$board" != h ] || echo "TRIAL: stage2 on LPDDR4 RG35XX H; this is not hardware qualification"
+	[ "$board" = plus ] || echo "TRIAL: stage2 on $board (DRAM type $ST); source-backed is not hardware qualification"
 fi
 want=$(md5sum < $T/stock.bin | cut -c1-32)
 _spl_lock_dirty=1

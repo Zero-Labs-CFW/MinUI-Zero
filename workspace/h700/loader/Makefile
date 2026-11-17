@@ -5,6 +5,7 @@
 #                                elsewhere: make CROSS_COMPILE=aarch64-linux-gnu-)
 #   make hosttest                capture-free sanitizer tests (host cc)
 #   make captured-test FIXTURES=... TEST_OUTPUT=...  real-kernel/FDT/lifecycle tests
+#   make fleet-test PACKAGED=... TEST_OUTPUT=...    exact packaged fleet FDT/health tests
 #   Always make clean before changing OPTS. The only supported handoff is the default real A32 stub.
 #   make clean                   removes obj/ and zero-loader.bin (nothing else in this directory)
 
@@ -91,8 +92,13 @@ captured-test: identity
 	@test -n "$(FIXTURES)" -a -n "$(TEST_OUTPUT)" || { echo 'FIXTURES and TEST_OUTPUT are required'; exit 1; }
 	$(PY) test/validation.py --fixtures "$(FIXTURES)" --output "$(TEST_OUTPUT)"
 
+fleet-test: identity
+	@test -n "$(PACKAGED)" -a -n "$(TEST_OUTPUT)" || { echo 'PACKAGED and TEST_OUTPUT are required'; exit 1; }
+	$(PY) test/packaged_test.py --packaged "$(PACKAGED)"
+	$(PY) test/fleet_fdt.py --packaged "$(PACKAGED)" --output "$(TEST_OUTPUT)"
+
 clean:
 	rm -rf $(O) zero-loader.bin
 
-.PHONY: all clean hosttest captured-test
+.PHONY: all clean hosttest captured-test fleet-test
 -include $(OBJS:.o=.d)

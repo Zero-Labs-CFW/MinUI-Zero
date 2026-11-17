@@ -55,7 +55,7 @@ static void policies(void)
 	assert(zl_panel_rule_for_profile(1) == ZL_PANEL_STRAP_PULL);
 	assert(zl_panel_rule_for_profile(2) == ZL_PANEL_STRAP_PULL);
 	assert(zl_panel_rule_for_profile(0) == ZL_PANEL_INVALID);
-	assert(zl_panel_rule_for_profile(3) == ZL_PANEL_INVALID);
+	assert(zl_panel_rule_for_profile(255) == ZL_PANEL_INVALID);
 	assert(zl_panel_rule_for_profile(UINT32_MAX) == ZL_PANEL_INVALID);
 	for (unsigned rule = ZL_PANEL_STRAP_PULL; rule <= ZL_PANEL_BOE; rule++) {
 		for (unsigned high = 0; high <= 1; high++) {
@@ -94,7 +94,7 @@ static void policies(void)
 		assert(zl_lcd_type_rule(invalid[i]) == NULL);
 		assert(mock_count == 0);
 	}
-	puts("PASS panel policies: 16 rule/strap/elapsed cases, 4 stalls, 3 invalid rules; only Plus/H admitted");
+	puts("PASS panel policies: 16 rule/strap/elapsed cases, 4 stalls, 3 invalid rules");
 }
 
 int main(void)

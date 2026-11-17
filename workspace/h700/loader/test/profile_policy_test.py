@@ -15,6 +15,9 @@ profiles = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(profiles)
 
 legacy = json.loads((ROOT / 'profiles.json').read_text())
+legacy['version'] = 1
+legacy['profiles'] = legacy['profiles'][:2]
+legacy.pop('artifact_aliases', None)
 family = {'version': 2, 'profiles': []}
 for ident, board in profiles.BOARDS.items():
     row = copy.deepcopy(legacy['profiles'][0])

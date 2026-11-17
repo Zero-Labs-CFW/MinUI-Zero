@@ -2,6 +2,7 @@
 """Feed the production FDT output to the real Linux acceptance CLI, offline."""
 import argparse
 import importlib.util
+import json
 from pathlib import Path
 import struct
 import subprocess
@@ -22,7 +23,8 @@ def main():
     record = nodes['/chosen']['zero,loader']
     cmdline = nodes['/chosen']['bootargs'].rstrip(b'\0') + b'\n'
     _, _, profile, panel, width, height, _ = struct.unpack('>7I', record[4:32])
-    assert profile in (1, 2) and panel in (0, 1)
+    profiles = json.loads((Path(__file__).resolve().parents[1] / 'profiles.json').read_text())['profiles']
+    assert profile in {row['id'] for row in profiles} and panel in (0, 1)
     display = (f'screen 0:\n mgr0: {width}x{height} err[0] unblank\n'
                f' lcd output backlight(88) fps:60.0 {width}x {height}\n'
                ' err:0\n'
@@ -45,7 +47,7 @@ def main():
             assert (result.returncode == 0) == accepted, result.stderr
 
         check({}, True)
-        for offset, value in ((0, b'BAD!'), (12, struct.pack('>I', 3)),
+        for offset, value in ((0, b'BAD!'), (12, struct.pack('>I', 255)),
                               (16, struct.pack('>I', 1 - panel)),
                               (20, struct.pack('>I', width + 1)),
                               (32, bytes([record[32] ^ 1]))):

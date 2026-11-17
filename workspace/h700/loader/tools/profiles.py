@@ -73,6 +73,10 @@ def load(path=ROOT / 'profiles.json'):
             if not re.fullmatch('[0-9a-f]{64}', digest) or digest in hashes:
                 raise ValueError('duplicate/invalid transcript SHA256')
             hashes.add(digest)
+    aliases = data.get('artifact_aliases', {})
+    if not isinstance(aliases, dict) or (aliases and
+            (data['version'] != 2 or aliases != {'2024': 'plus'} or 1 not in seen or 12 in seen)):
+        raise ValueError('unsupported artifact alias')
     return data['profiles']
 
 

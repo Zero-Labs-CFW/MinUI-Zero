@@ -1,5 +1,6 @@
 #include "boot_health.h"
 #include "../loader/display_contract.h"
+#include "../loader/panel_policy.h"
 
 #include <limits.h>
 #include <string.h>
@@ -22,6 +23,9 @@ const char *zero_boot_record(const unsigned char *data, size_t size,
     record->height = be32(data + 24);
     if (!zero_display_profile(record->profile, &display)) return "record profile";
     if (record->panel > 1) return "record panel";
+    if ((zl_panel_rule_for_profile(record->profile) == ZL_PANEL_OLD && record->panel != 0) ||
+        (zl_panel_rule_for_profile(record->profile) == ZL_PANEL_BOE && record->panel != 1))
+        return "record fixed panel";
     if (!zero_display_v1_compatible(&display) ||
         record->width != display.lcd_width || record->height != display.lcd_height)
         return "record geometry";
