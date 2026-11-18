@@ -13,6 +13,7 @@ HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/../../.." && pwd)
 SCRIPT="${ZK_SCRIPT:-$ROOT/skeleton/SYSTEM/tg5040/bin/zerokernel.sh}"   # ZK_SCRIPT: run a mutant (harness self-check)
 SHUTDOWN="$ROOT/skeleton/SYSTEM/tg5040/bin/shutdown"
+KCLEAN="$ROOT/workspace/tg5040/zerokernel/K01zeroclean"
 
 if [ "${1:-}" != --inner ]; then
 	if command -v docker >/dev/null 2>&1 && docker image inspect busybox:1.36 >/dev/null 2>&1; then
@@ -50,6 +51,7 @@ EOF
 cat > "$BIN/fw_setenv" <<'EOF'
 #!/bin/sh
 [ "$1" = --script ] || exit 1
+[ -f "$ZK_T/setenv.fail" ] && { echo "fake fw_setenv: write failed" >&2; exit 1; }
 n=0; [ -f "$ZK_T/setenv.count" ] && read -r n < "$ZK_T/setenv.count"; n=$((n + 1)); echo "$n" > "$ZK_T/setenv.count"
 if [ -n "${ZK_CUT_SETENV:-}" ] && [ "$n" = "$ZK_CUT_SETENV" ]; then   # power cut: a torn write loses (redundant env)
 	kill -9 "$(cat "$ZK_T/main.pid")"; exit 1
@@ -69,6 +71,9 @@ for a in "\$@"; do
 	case "\$a" in conv=*) [ "$REALDD" = /bin/dd ] && a=\$(echo "\$a" | sed 's/fsync,\{0,1\}//; s/,\$//; s/^conv=\$//') ;; esac
 	[ -n "\$a" ] && args="\$args \$a"
 done
+case "\$of" in *recovery-orig-*.tmp)
+	if [ -f "$T/fail.backup" ]; then $REALDD if="\$inf" of="\$of" bs=4096 count=1 2>/dev/null; exit 1; fi ;;
+esac
 case "\$of" in "$T/root/dev/"*)
 	case "\$args" in *notrunc*) ;; *conv=*) args=\$(echo "\$args" | sed 's/conv=/conv=notrunc,/') ;; *) args="\$args conv=notrunc" ;; esac
 	if [ -n "\${ZK_CUT_DD:-}" ] && [ "\$inf" = "\$ZK_CUT_DD" ]; then
@@ -77,6 +82,16 @@ case "\$of" in "$T/root/dev/"*)
 	fi ;;
 esac
 exec $REALDD \$args
+EOF
+cat > "$BIN/df" <<'EOF'
+#!/bin/sh
+# real df, unless the test set a free-space figure for the card or the overlay
+for a in "$@"; do last=$a; done
+f=; case "$last" in "$SDCARD_PATH") f="$ZK_T/df.card" ;; */overlay) f="$ZK_T/df.overlay" ;; esac
+if [ -n "$f" ] && [ -f "$f" ]; then
+	echo "Filesystem 1K-blocks Used Available Use% Mounted on"; echo "/dev/fake 99999999 1 $(cat "$f") 1% $last"; exit 0
+fi
+exec /bin/df "$@"
 EOF
 printf '#!/bin/sh\ncat "$ZK_T/dmesg.txt" 2>/dev/null\n' > "$BIN/dmesg"
 printf '#!/bin/sh\nexit 0\n' > "$BIN/sleep"
@@ -94,7 +109,7 @@ mkpayload() { # $1 = release id, $2 = image seed
 	echo "srv $1" > "$P/root/usr/lib/zero/gpu/lib/libsrv_um.so"
 	echo "fw $1" > "$P/root/usr/lib/zero/gpu/firmware/rgx.fw.22.102.54.38"
 	echo "procd $1" > "$P/root/usr/lib/zero/procd"
-	echo "#!/bin/sh" > "$P/root/etc/rc.d/S01zerogpu"
+	echo "#!/bin/sh" > "$P/root/etc/rc.d/S01zerogpu"; cp "$KCLEAN" "$P/root/etc/rc.d/K01zeroclean"
 	echo "$1" > "$P/root/usr/lib/zero/VERSION"; echo "$1" > "$P/VERSION"
 	( cd "$P/root" && find . -type f ! -path ./usr/lib/zero/VERSION | sort | while read -r p; do echo "$(md5 "$p")  ${p#.}"; done
 	  echo "$(md5 ./usr/lib/zero/VERSION)  /usr/lib/zero/VERSION" ) > "$P/manifest.md5"
@@ -108,7 +123,9 @@ mkpayload() { # $1 = release id, $2 = image seed
 
 # ---------------- fake device ----------------
 fresh_device() {
-	rm -rf "$R" "$CARD" "$T/known.prev" "$T/env.badcrc" "$T/broken" "$T/loader.nosave" "$T/setenv.count"; : > "$T/known.prev"
+	rm -rf "$R" "$CARD" "$T/known.prev" "$T/env.badcrc" "$T/broken" "$T/loader.nosave" "$T/setenv.count" \
+		"$T/setenv.fail" "$T/df.card" "$T/df.overlay" "$T/fail.backup"; : > "$T/known.prev"
+	export TRIMUI_MODEL="Trimui Brick"; PARTS="boot@mmcblk0p4:rootfs@mmcblk0p5:recovery@mmcblk0p8:pstore@mmcblk0p9"
 	mkdir -p "$R/proc/sys/kernel" "$R/proc/sys/vm" "$R/proc/device-tree/soc@03000000/lcd0@01c0c000" "$R/sbin" \
 		"$R/dev/by-name" "$R/sys/class/block/mmcblk0p8" "$R/sys/class/power_supply/axp2202-battery" \
 		"$R/sys/class/power_supply/axp2202-usb" "$R/sys/class/net/wlan0" "$R/etc/wifi" "$R/overlay" "$R/tmp" \
@@ -138,8 +155,9 @@ zero_fast_boot=2
 EOF
 	UBOOT='2018.05(10/26/2025-11:56:42)'; LCD=jd9168
 	mkpayload ship2 A
-	# the real script, with the allowlist's rootfs fingerprint pointed at the fake procd
-	sed "s/48214f500f9d8061e2966228263b054d/$(md5 "$R/sbin/procd")/" "$SCRIPT" > "$T/zk.sh"
+	# the real script, with every allowlist rootfs fingerprint pointed at the fake procd
+	FP=$(md5 "$R/sbin/procd")
+	sed "s/48214f500f9d8061e2966228263b054d/$FP/; s/d2e5cca321ff95589de6f2ac0e24918c/$FP/; s/1c6b94986901b124f3ca0a9752351b06/$FP/" "$SCRIPT" > "$T/zk.sh"
 }
 envv() { sed -n "s/^$1=//p" "$T/env.txt"; }
 envhas_t() { grep -q "^$1=" "$T/env.txt"; }
@@ -156,24 +174,29 @@ power_on() {
 		KERNEL=stock
 	fi
 }
-# Userspace of one boot. $1 = kernel, rest: nocard | nomenu | nogpu | cut-setenv=N | cut-dd
+# Userspace of one boot. $1 = kernel, rest: nocard | nomenu | nogpu | gles (minui wrote /tmp/zero-gles-ok) |
+# cut-setenv=N | cut-dd
 userspace() {
 	us_k=$1; shift
-	us_card=1; us_menu=1; us_gpu=1; unset ZK_CUT_SETENV ZK_CUT_DD
-	for o in "$@"; do case "$o" in nocard) us_card=0 ;; nomenu) us_menu=0 ;; nogpu) us_gpu=0 ;;
+	us_card=1; us_menu=1; us_gpu=1; us_gles=0; unset ZK_CUT_SETENV ZK_CUT_DD
+	for o in "$@"; do case "$o" in nocard) us_card=0 ;; nomenu) us_menu=0 ;; nogpu) us_gpu=0 ;; gles) us_gles=1 ;;
 		cut-setenv=*) export ZK_CUT_SETENV=${o#cut-setenv=} ;; cut-dd) export ZK_CUT_DD="$SYSTEM_PATH/kernel/zero-recovery.img" ;; esac; done
 	rm -f "$T/setenv.count"; rm -rf "$R/tmp"; mkdir -p "$R/tmp"
 	[ "$us_k" = hang ] && return 0
 	if [ "$us_k" = zero ]; then echo 4.9.191-zero > "$R/proc/sys/kernel/osrelease"; else echo 4.9.191 > "$R/proc/sys/kernel/osrelease"; fi
-	echo "console=ttyS0 androidboot.serialno=$SERIAL uboot_message=$UBOOT lcd=$LCD loglevel=1 rdinit=/rdinit" > "$R/proc/cmdline"
+	echo "console=ttyS0 partitions=$PARTS androidboot.serialno=$SERIAL uboot_message=$UBOOT lcd=$LCD loglevel=1 rdinit=/rdinit" > "$R/proc/cmdline"
 	: > "$R/proc/modules"; : > "$R/proc/mounts"
 	if [ "$us_k" = zero ] && [ $us_gpu = 1 ]; then echo "pvrsrvkm 1000 0 - Live" > "$R/proc/modules"
 		echo "/dev/by-name/rootfs_data /usr/lib/libsrv_um.so ext4 rw 0 0" > "$R/proc/mounts"; fi
 	[ $us_card = 1 ] || return 0               # no card: MinUI never runs
 	[ $us_menu = 1 ] && : > "$R/tmp/zero-menu-start"
-	# launch.sh's spawn decision (builtin marker tests), then the chain
+	[ $us_menu = 1 ] && [ $us_gles = 1 ] && : > "$R/tmp/zero-gles-ok"
+	# launch.sh's spawn decision (builtin marker tests), then the chain. bootenv.sh revert removes the trigger.
+	SPAWNED=0
 	if [ -f "$CARD/restore-boot-env.txt" ]; then
 		sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" revert'; rm -f "$CARD/restore-boot-env.txt"; return 0
+	elif [ -f "$ZD/revert-pending-$SERIAL" ]; then
+		sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" revert'; return 0
 	fi
 	us_spawn=0
 	if [ "$us_k" = zero ]; then us_spawn=1
@@ -184,8 +207,14 @@ userspace() {
 	unset ZK_CUT_SETENV ZK_CUT_DD
 	return 0
 }
-clean_off() { # bin/shutdown's Zero lines, against the fake root
-	sed -n '/^_zo=/,/^fi$/p' "$SHUTDOWN" | sed "s|/proc/|$R/proc/|g; s|/etc/|$R/etc/|g" > "$T/sd.sh"; sh "$T/sd.sh"
+zblock() { # the Zero lines of bin/shutdown or K01zeroclean, against the fake root
+	sed -n '/^_zo=/,/^fi$/p' "$1" | sed "s|/proc/|$R/proc/|g; s|/etc/|$R/etc/|g; s|/tmp/|$R/tmp/|g" > "$T/zb.sh"; sh "$T/zb.sh"
+}
+clean_off() { zblock "$SHUTDOWN"; }   # menu power-off (PMIC cut, rc.d K* never runs)
+reboot_k() { zblock "$KCLEAN"; }      # orderly reboot: procd runs /etc/rc.d/K* (File Transfer, update, dev)
+stock_armed_boot() { # the loader booted stock without running an ARMED bootcmd (charger power-on?)
+	rm -rf "$R/tmp"; mkdir -p "$R/tmp"; echo 4.9.191 > "$R/proc/sys/kernel/osrelease"; : > "$R/tmp/zero-menu-start"
+	sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" boot'
 }
 boot() { power_on; userspace "$KERNEL" "$@"; }
 
@@ -213,7 +242,9 @@ expect_rec "$IMGMD5"; expect_state armed
 expect_file "$ZD/recovery-orig-$SERIAL.bin"; [ "$(cat "$ZD/recovery-orig-$SERIAL.bin.md5")" = "$STOCKREC" ] && ok || bad "backup md5"
 expect_file "$R/usr/lib/zero/procd"; expect_file "$R/usr/lib/zero/VERSION"; expect_file "$R/etc/rc.d/S01zerogpu"
 [ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:60:38:9a:91" ] && ok || bad "MAC file"
-[ -x "$R/etc/rc.d/S01zerogpu" ] && ok || bad "rc.d not executable"
+[ -x "$R/etc/rc.d/S01zerogpu" ] && [ -x "$R/etc/rc.d/K01zeroclean" ] && ok || bad "rc.d not executable"
+expect_nofile "$R/usr/lib/zero/.stage"; ls "$R"/etc/rc.d/*.zk-new >/dev/null 2>&1 && bad "zk-new left in rc.d" || ok
+expect_nofile "$ZD/recovery-orig-$SERIAL.bin.tmp"
 
 CASE="healthy boot re-arm (3 boots, clean power-offs)"
 for i in 1 2 3; do boot; expect_kernel zero; expect_armed; expect_state zarmed; expect_env zero_k_fail ""; clean_off; expect_state zclean; done
@@ -262,6 +293,7 @@ install_device; boot; clean_off
 expect_kernel zero; expect_stock; expect_env zero_once ""; expect_env zero_k off; expect_env zero_k_img ""
 [ "$(md5 "$R/dev/mmcblk0p8")" = "$STOCKREC" ] && ok || bad "recovery not restored"
 expect_nofile "$R/usr/lib/zero"; expect_nofile "$R/lib/modules/4.9.191-zero"; expect_nofile "$R/etc/zero-kernel.state"
+expect_nofile "$R/etc/rc.d/K01zeroclean"; expect_nofile "$R/etc/rc.d/S01zerogpu"
 expect_file "$ZD/off-$SERIAL"
 for i in 1 2 3; do boot; expect_kernel stock; [ "$SPAWNED" = 0 ] && ok || bad "spawned after undo"; done
 CASE="undo without a card backup (Brick regenerates the stock content)"
@@ -302,10 +334,14 @@ rm -f "$T/loader.nosave"; boot; expect_kernel stock; expect_stock; [ "$SPAWNED" 
 CASE="stuck env: boot_partition persisted"
 install_device; boot; setenv_raw boot_partition recovery; boot   # (env shows recovery, as if the loader saved late)
 expect_stock; expect_env zero_k failed; expect_env zero_k_bad loader-partition
-CASE="stuck env: armed under stock (loader skipped the one-shot)"
-install_device; rm -rf "$R/tmp"; mkdir -p "$R/tmp"; echo 4.9.191 > "$R/proc/sys/kernel/osrelease"; : > "$R/tmp/zero-menu-start"
-sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" boot'
-expect_stock; expect_env zero_k failed; expect_env zero_k_bad loader-skip
+CASE="armed under stock once (charger power-on?): disarmed and re-armed, not final (M4)"
+install_device; stock_armed_boot
+expect_armed; expect_env zero_k on; expect_env zero_k_fail ""; expect_file "$ZD/loader-skip-$SERIAL"; expect_nofile "$CARD/zero-kernel-FAILED.txt"
+boot; expect_kernel zero; expect_armed; expect_nofile "$ZD/loader-skip-$SERIAL"
+stock_armed_boot; expect_armed; expect_env zero_k on
+CASE="stuck env: armed under stock twice before a Zero start (loader skips the one-shot)"
+stock_armed_boot
+expect_stock; expect_env zero_k failed; expect_env zero_k_bad loader-skip; expect_file "$CARD/zero-kernel-FAILED.txt"
 CASE="zero_once missing at a re-arm: every arm write puts it back (C2)"
 install_device; power_on; setenv_raw zero_once ""; userspace "$KERNEL"
 expect_kernel zero; expect_armed
@@ -326,16 +362,106 @@ grep -q '|gles$' "$T/zk.sh" && ok || bad "test setup: gles tuple not made"
 boot; expect_armed
 boot; expect_kernel zero; expect_stock; expect_env zero_k_fail 1; expect_state bad
 
-CASE="three unclean zero sessions in a row (escape hatch)"
-install_device
-boot; expect_armed; boot; expect_armed; boot; expect_armed; expect_env zero_k on
-boot; expect_kernel zero; expect_stock; expect_env zero_k failed; expect_env zero_k_bad unclean-x3; expect_file "$CARD/zero-kernel-FAILED.txt"
+CASE="three held starts in a row: the third is the last on our kernel (escape hatch, M1)"
+install_device; ZIMG=$(envv zero_k_img)
+boot; expect_kernel zero; expect_armed; boot; expect_kernel zero; expect_armed; expect_env zero_k on
+boot; expect_kernel zero; expect_stock; expect_env zero_k failed; expect_env zero_k_bad "unclean:$ZIMG"; expect_file "$CARD/zero-kernel-FAILED.txt"
+boot; expect_kernel stock; expect_stock; [ "$SPAWNED" = 0 ] && ok || bad "spawned after the unclean stop"
+CASE="unclean stop is for that image only: a new release tries again (H3)"
+mkpayload ship3 E
+boot; expect_kernel stock; expect_armed; expect_env zero_k on; expect_rec "$IMGMD5"
+boot; expect_kernel zero; expect_armed
 CASE="clean power-off resets the unclean count"
 install_device; boot; boot; clean_off; boot; boot; expect_armed; expect_env zero_k on
 
 CASE="foreign recovery content is never written"
 fresh_device; printf 'SOMEOTHEROS' | $REALDD of="$R/dev/mmcblk0p8" conv=notrunc 2>/dev/null; H=$(md5 "$R/dev/mmcblk0p8")
 boot; expect_stock; [ "$(md5 "$R/dev/mmcblk0p8")" = "$H" ] && ok || bad "foreign recovery overwritten"
+
+
+CASE="orderly reboots are not unclean sessions (K01zeroclean, H3)"
+install_device
+for i in 1 2 3 4; do boot; expect_kernel zero; expect_armed; reboot_k; expect_state zclean; done
+expect_env zero_k on; expect_nofile "$CARD/zero-kernel-FAILED.txt"
+CASE="orderly reboot before the re-arm is benign, not a fallback (L8)"
+boot nomenu; expect_kernel zero; expect_stock; reboot_k; expect_state menu
+boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed
+CASE="a zarmed state left from an earlier session is not called clean"
+boot; expect_kernel zero; expect_state zarmed            # session ends uncleanly (held power)
+boot nomenu; expect_kernel zero; reboot_k; expect_state menu   # this boot never re-armed
+clean_off; expect_state menu
+
+CASE="undo before the first boot keeps the kernel from ever installing (H1 A)"
+fresh_device; : > "$CARD/restore-boot-env.txt"; boot
+expect_env zero_k off; expect_file "$ZD/off-$SERIAL"; expect_stock
+boot; expect_kernel stock; [ "$SPAWNED" = 0 ] && ok || bad "spawned after the opt-out"; expect_stock
+[ "$($REALDD if="$R/dev/mmcblk0p8" bs=24 count=1 2>/dev/null)" = "recovery part not used!" ] && ok || bad "recovery touched"
+rm -rf "$ZD"; boot; expect_env zero_k off; expect_stock; expect_nofile "$R/usr/lib/zero"   # another card: the env holds it
+CASE="boot settings undone before this release (zero_fast_boot=off) keeps the kernel off (H1 B)"
+fresh_device; setenv_raw zero_fast_boot off; boot
+expect_stock; expect_env zero_k off; expect_file "$ZD/off-$SERIAL"; expect_nofile "$R/usr/lib/zero"
+[ "$($REALDD if="$R/dev/mmcblk0p8" bs=24 count=1 2>/dev/null)" = "recovery part not used!" ] && ok || bad "recovery touched"
+CASE="zero_fast_boot=off after an install stops the re-arm"
+install_device; setenv_raw zero_fast_boot off
+boot; expect_kernel zero; expect_stock; expect_env zero_k off
+boot; expect_kernel stock; expect_stock
+
+CASE="card too full for the recovery backup: deferred, nothing written (H2)"
+fresh_device; echo 70000 > "$T/df.card"; cp "$T/env.txt" "$T/env.before"; boot
+cmp -s "$T/env.txt" "$T/env.before" && ok || bad "env written"
+expect_nofile "$ZD/recovery-orig-$SERIAL.bin"; expect_nofile "$ZD/recovery-orig-$SERIAL.bin.tmp"; expect_nofile "$ZD/skip-$SERIAL-ship2"
+rm -f "$T/df.card"; boot; expect_armed; expect_file "$ZD/recovery-orig-$SERIAL.bin"
+CASE="a failed recovery backup leaves no partial file (H2)"
+fresh_device; : > "$T/fail.backup"; boot
+expect_stock; expect_nofile "$ZD/recovery-orig-$SERIAL.bin"; expect_nofile "$ZD/recovery-orig-$SERIAL.bin.tmp"
+expect_nofile "$ZD/recovery-orig-$SERIAL.bin.md5"
+rm -f "$T/fail.backup"; boot; expect_armed
+
+CASE="update with a short overlay: no stage and no zk-new left, retried (M2)"
+install_device; boot; clean_off; mkpayload ship3 F; boot
+echo 100 > "$T/df.overlay"; boot; expect_kernel stock; expect_stock
+expect_nofile "$R/usr/lib/zero/.stage"; ls "$R"/etc/rc.d/*.zk-new >/dev/null 2>&1 && bad "zk-new left in rc.d" || ok
+[ "$(cat "$R/usr/lib/zero/VERSION")" = ship2 ] && ok || bad "overlay VERSION changed"
+rm -f "$T/df.overlay"; boot; expect_kernel stock; expect_armed; [ "$(cat "$R/usr/lib/zero/VERSION")" = ship3 ] && ok || bad "overlay VERSION"
+
+CASE="failed undo is retried at every start and nothing arms meanwhile (M5)"
+install_device; boot; clean_off
+: > "$CARD/restore-boot-env.txt"; : > "$T/setenv.fail"; boot
+expect_kernel zero; expect_stock; expect_env zero_k on; expect_file "$ZD/revert-pending-$SERIAL"
+grep -q "tries again at every start" "$CARD/zero-kernel-restore-FAILED.txt" && ok || bad "FAILED text"
+expect_nofile "$CARD/restore-boot-env.txt"     # bootenv.sh revert removed the trigger
+rm -f "$T/setenv.fail"; boot
+expect_kernel stock; expect_stock; expect_env zero_k off; expect_nofile "$ZD/revert-pending-$SERIAL"; expect_nofile "$R/usr/lib/zero"
+[ "$(md5 "$R/dev/mmcblk0p8")" = "$STOCKREC" ] && ok || bad "recovery not restored"
+CASE="boot never arms while an undo is pending"
+install_device; : > "$ZD/revert-pending-$SERIAL"; rm -f "$ZD/revert-pending-$SERIAL.x"
+power_on; setenv_raw bootcmd "$STOCKBC"; rm -rf "$R/tmp"; mkdir -p "$R/tmp"; echo 4.9.191 > "$R/proc/sys/kernel/osrelease"
+sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" boot'; expect_stock
+
+CASE="a failed re-arm write is not counted as a fallback (L1)"
+install_device; power_on; : > "$T/setenv.fail"; userspace "$KERNEL"; rm -f "$T/setenv.fail"
+expect_kernel zero; expect_stock; expect_state menu
+boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed
+
+CASE="recovery link that disagrees with the loader's partition map is never written (L7)"
+fresh_device; PARTS="boot@mmcblk0p4:recovery@mmcblk0p9"; cp "$T/env.txt" "$T/env.before"; boot
+cmp -s "$T/env.txt" "$T/env.before" && ok || bad "env written"; expect_file "$ZD/skip-$SERIAL-ship2"
+
+CASE="Smart Pro: installs, re-arms only with the GLES-present marker"
+fresh_device; export TRIMUI_MODEL="Trimui Smart Pro"; UBOOT='2018.05(04/23/2024-18:42:17)'; LCD=er68576
+boot; expect_kernel stock; expect_armed; expect_env zero_k on
+boot; expect_kernel zero; expect_stock; expect_state bad; expect_env zero_k_fail 1
+boot; expect_kernel stock; expect_armed
+boot gles; expect_kernel zero; expect_armed; expect_state zarmed; expect_env zero_k_fail ""
+CASE="Brick Pro: installs, re-arms only with the GLES-present marker"
+fresh_device; export TRIMUI_MODEL="Trimui Brick Pro"; UBOOT='2018.05(07/11/2026-11:42:17)'; LCD=gh7003
+boot; expect_kernel stock; expect_armed
+boot gles; expect_kernel zero; expect_armed; expect_state zarmed
+CASE="Smart Pro with another U-Boot build is skipped"
+fresh_device; export TRIMUI_MODEL="Trimui Smart Pro"; UBOOT='2018.05(10/26/2025-11:56:42)'; LCD=er68576
+cp "$T/env.txt" "$T/env.before"; boot
+cmp -s "$T/env.txt" "$T/env.before" && ok || bad "env written"; expect_file "$ZD/skip-$SERIAL-ship2"
+export TRIMUI_MODEL="Trimui Brick"
 
 echo "zerokernel harness: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

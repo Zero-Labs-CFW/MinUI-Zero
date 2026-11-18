@@ -474,8 +474,11 @@ keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 read -r _cl < /proc/cmdline
 _sn=${_cl##*androidboot.serialno=}; _sn=${_sn%% *}
 [ "$_sn" = "$_cl" ] && _sn=unknown # same rule as bootenv.sh and zerokernel.sh
+_zd="$SHARED_USERDATA_PATH/.minui/zerokernel"
 if [ -f "$SDCARD_PATH/restore-boot-env.txt" ]; then
 	( sh "$SYSTEM_PATH/bin/zerokernel.sh" revert; sh "$SYSTEM_PATH/bin/bootenv.sh" revert ) &
+elif [ -f "$_zd/revert-pending-$_sn" ]; then
+	sh "$SYSTEM_PATH/bin/zerokernel.sh" revert & # an undo whose env write failed: retried until it lands
 else
 	_be=0
 	case " $_cl " in
@@ -489,7 +492,6 @@ else
 		_zk=1
 	elif [ -f "$SYSTEM_PATH/kernel/VERSION" ]; then
 		_zv=; read -r _zv < "$SYSTEM_PATH/kernel/VERSION"
-		_zd="$SHARED_USERDATA_PATH/.minui/zerokernel"
 		[ -n "$_zv" ] && [ ! -f "$_zd/off-$_sn" ] && [ ! -f "$_zd/skip-$_sn-$_zv" ] && [ ! -f "$_zd/stop-$_sn-$_zv" ] && _zk=1
 	fi
 	if [ $_be = 1 ] || [ $_zk = 1 ]; then

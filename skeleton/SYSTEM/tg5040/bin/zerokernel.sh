@@ -44,19 +44,23 @@ BOOT_NORMAL='sunxi_flash read 45000000 ${boot_partition};bootm 45000000'
 
 # ---- per-model allowlist, checked on EVERY boot before any arm (critique-gaps finding 1) ----
 # model | uboot_message | lcd= | DT lcd0 lcd_driver_name | md5 of /sbin/procd (rootfs fingerprint) | menu path
-# Only the Brick tuple is VERIFIED: uboot_message and lcd= from recon/live.txt, lcd_driver_name from
-# recon/live.dts L4332, procd md5 = fastinit/bin/procd (the Brick's 353800-byte procd, the build zinit's
-# patched procd gate keys on). menu path: fb0 = software menu (no GLES marker needed), gles = the menu is GLES and
-# health also needs /tmp/zero-gles-ok (no producer ships yet, so a gles model can never re-arm: safe by default).
+# Every value VERIFIED from the 2026-11-18 read-only recon (.notes/2026-11-18-own-kernel-ship/recon/): model =
+# TRIMUI_MODEL as launch.sh sets it, uboot_message and lcd= from /proc/cmdline (<dev>-recon.txt line 10), DT
+# lcd0 lcd_driver_name = "otm1289a" on all three (<dev>.dts), procd md5 from the "rootfs gates" block of each
+# <dev>-recon.txt (Brick 48214f50 = fastinit/bin/procd, the size zinit's patched-procd gate keys on; the Brick Pro
+# and Smart Pro procd differ in size, so zinit runs their stock procd). menu path: fb0 = software menu (no GLES
+# marker needed), gles = the menu is GLES and health also needs /tmp/zero-gles-ok, written by minui after its
+# first accelerated GLES present (workspace/tg5040/platform/platform.c PLAT_menuPresented), so a menu that never
+# presents on GLES never re-arms.
 ZK_ALLOW="
 Trimui Brick|2018.05(10/26/2025-11:56:42)|jd9168|otm1289a|48214f500f9d8061e2966228263b054d|fb0
+Trimui Brick Pro|2018.05(07/11/2026-11:42:17)|gh7003|otm1289a|d2e5cca321ff95589de6f2ac0e24918c|gles
+Trimui Smart Pro|2018.05(04/23/2024-18:42:17)|er68576|otm1289a|1c6b94986901b124f3ca0a9752351b06|gles
 "
-# PLACEHOLDERS, NOT ENABLED. Add each line to ZK_ALLOW only after that model's bring-up and gate run.
-# uboot_message and lcd= are VERIFIED (.notes/2026-11-17-boot-env-ship/<dev>/check0.txt); the rest is UNMEASURED.
-#   Trimui Brick Pro|2018.05(07/11/2026-11:42:17)|gh7003|<lcd_driver_name: recon>|<procd md5: recon>|gles
-#   Trimui Smart Pro|2018.05(04/23/2024-18:42:17)|er68576|<lcd_driver_name: recon>|<procd md5: recon>|gles
 # Recovery content each model ships with ("recovery part not used!" + fill), for the no-backup undo path.
-# Brick VERIFIED (recon/recovery.bin). Others UNMEASURED: no regenerate, the card backup is the only undo source.
+# Brick VERIFIED (recon/recovery.bin). The Brick Pro (abf49584...) and Smart Pro (e580852e...) hold the same
+# "recovery part not used!" text but a different fill, not reproduced here: no regenerate, the card backup is
+# their only undo source.
 stock_rec_md5() { case "$TRIMUI_MODEL" in "Trimui Brick") echo 78f6f12ee2772c57527b38a71599e58a ;; *) echo none ;; esac; }
 
 cmdline=; read -r cmdline < "$R/proc/cmdline"
@@ -77,8 +81,9 @@ failnote() { # card-root note, same pattern as restore-boot-env-FAILED.txt
 
 case "$TRIMUI_MODEL" in
 	"Trimui Brick"|"Trimui Brick Pro"|"Trimui Smart Pro") ;;
-	*) exit 0 ;;
+	*) [ "$CMD" = disarm ] || exit 0 ;;  # disarm keys on zero_k only (critique L9)
 esac
+PEND="$DIR/revert-pending-$serial"  # an undo that has not finished: retried at every start, nothing arms meanwhile
 
 # ---- env checks ----
 # sane_base: everything except where bootcmd/boot_partition point. Used before ANY write, revert and repair
@@ -123,7 +128,9 @@ write_checked() {
 }
 # Build script/want/inverse for a set of changes. Each arg: "key|newvalue" ("key|" deletes the key).
 plan() {
-	: > "$DIR/w.script"; : > "$DIR/w.inv"; WANT=
+	# not `: >`: busybox ash exits the whole script when a special builtin's redirect fails (read-only card, L5)
+	printf '' 2>/dev/null > "$DIR/w.script" && printf '' 2>/dev/null > "$DIR/w.inv" || { log "card not writable, nothing written"; return 1; }
+	WANT=
 	for pl_kv in "$@"; do
 		pl_k=${pl_kv%%|*}; pl_v=${pl_kv#*|}
 		pl_old=$(envget "$pl_k"); pl_had=0; envhas "$pl_k" && pl_had=1
@@ -135,7 +142,14 @@ plan() {
 - $pl_k=$pl_old"; else echo "$pl_k" >> "$DIR/w.inv"; fi
 	done
 }
-setenv_checked() { plan "$@"; [ -s "$DIR/w.script" ] || return 0; write_checked "$DIR/w.script" "$WANT" "$DIR/w.inv"; }
+# Plans from a fresh read, never from a snapshot taken before a wait (critique L2: another writer in between).
+setenv_checked() {
+	ENV=$(fw_printenv 2>&1) || { log "fw_printenv failed, nothing written"; return 1; }
+	echo "$ENV" | grep -qiE "bad crc|warning|cannot|error" && { log "env read failed its checks, nothing written"; return 1; }
+	plan "$@" || return 1
+	[ -s "$DIR/w.script" ] || return 0
+	write_checked "$DIR/w.script" "$WANT" "$DIR/w.inv"
+}
 
 # ---- boot-progress state on the overlay: "<word> <image id> <unclean count>" ----
 #   armed   armed from the stock path (install, update, retry)
@@ -166,6 +180,8 @@ EOF
 # ---- recovery partition ----
 rec_dev() {
 	rd_l=$(readlink "$R/dev/by-name/recovery" 2>/dev/null) || return 1
+	# the by-name link must agree with the loader's own partition map (critique L7: zinit makes /dev/by-name)
+	case ":${cmdline##*partitions=}" in *":recovery@${rd_l##*/}:"*|*":recovery@${rd_l##*/} "*) ;; *) return 1 ;; esac
 	REC="$R/dev/${rd_l##*/}"
 	rd_s=; read -r rd_s 2>/dev/null < "$R/sys/class/block/${rd_l##*/}/size"
 	{ [ -b "$REC" ] || [ -n "$R" ]; } && [ -e "$REC" ] && [ "$rd_s" = $((REC_BYTES / 512)) ]
@@ -181,10 +197,13 @@ rec_kind() {
 		[ "$(dd if="$REC" bs="$rk_n" count=1 2>/dev/null | md5sum | cut -d' ' -f1)" = "$rk_m" ] && { REC_KIND="ours:$rk_r"; return; }
 	done < "$PAY/known-images.txt"
 }
-img_id() { # shipped image: the last line of known-images.txt
+img_parse() { # shipped image: the last line of known-images.txt. No hashing: every boot runs this (critique M6)
 	IMG_LINE=$(tail -n 1 "$PAY/known-images.txt" 2>/dev/null)
 	IMG_N=${IMG_LINE%% *}; IMG_ID=${IMG_LINE##* }; IMG_M=${IMG_LINE#* }; IMG_M=${IMG_M%% *}
-	[ -n "$IMG_LINE" ] && [ "$(wc -c < "$IMG" | tr -d ' ')" = "$IMG_N" ] && [ "$(md5sum < "$IMG" | cut -d' ' -f1)" = "$IMG_M" ]
+	[ -n "$IMG_LINE" ] && [ -n "$IMG_ID" ]
+}
+img_id() { # + the image on the card really is that one: only right before it is written to recovery
+	img_parse && [ "$(wc -c < "$IMG" | tr -d ' ')" = "$IMG_N" ] && [ "$(md5sum < "$IMG" | cut -d' ' -f1)" = "$IMG_M" ]
 }
 # The readback must come from flash, not the page cache (critique H3). conv=fsync is UNVERIFIED on the device
 # busybox: a dd that refuses it is run again without it, followed by sync.
@@ -200,18 +219,28 @@ write_image() {
 }
 
 # ---- overlay payload (manifest.md5 lines: "<md5>  <overlay path>", source = $PAY/root/<overlay path>) ----
+# Staged in ONE directory, never next to the targets: a power cut mid-copy must not leave an S* script in rc.d or
+# a list in modules.d that stock would run (critique M2). The stage coexists with the installed files, so the
+# free-space check covers the whole new payload on an update too. Any failure removes the stage.
 install_overlay() {
+	io_st="$R$ZDIR/.stage"
+	rm -rf "$io_st"; rm -f "$R"/etc/rc.d/*.zk-new "$R"/etc/modules.d/*.zk-new
+	io_free=$(df -k "$R/overlay" 2>/dev/null | awk 'END {print $(NF-2)}')  # last line, from the end: a long device name wraps
+	io_need=$(du -sk "$PAY/root" 2>/dev/null | cut -f1)
+	[ -n "$io_free" ] && [ -n "$io_need" ] && [ "$io_free" -ge $((io_need + 2048)) ] \
+		|| { why="overlay has ${io_free:-?} KB free, needs ${io_need:-?} + 2048"; return 1; }
 	while read -r io_m io_p; do
 		[ -n "$io_p" ] || continue
-		mkdir -p "$(dirname "$R$io_p")" || return 1
-		cp "$PAY/root$io_p" "$R$io_p.zk-new" || return 1
-		[ "$(md5sum < "$R$io_p.zk-new" | cut -d' ' -f1)" = "$io_m" ] || { log "overlay md5 mismatch $io_p"; return 1; }
-		case "$io_p" in /etc/rc.d/*|$ZDIR/procd) chmod 755 "$R$io_p.zk-new" ;; *) chmod 644 "$R$io_p.zk-new" ;; esac
+		mkdir -p "$(dirname "$io_st$io_p")" "$(dirname "$R$io_p")" || { why="mkdir $io_p"; rm -rf "$io_st"; return 1; }
+		cp "$PAY/root$io_p" "$io_st$io_p" || { why="copy $io_p"; rm -rf "$io_st"; return 1; }
+		[ "$(md5sum < "$io_st$io_p" | cut -d' ' -f1)" = "$io_m" ] || { why="md5 mismatch $io_p"; rm -rf "$io_st"; return 1; }
+		case "$io_p" in /etc/rc.d/*|$ZDIR/procd) chmod 755 "$io_st$io_p" ;; *) chmod 644 "$io_st$io_p" ;; esac
 	done < "$PAY/manifest.md5"
 	# swap: VERSION is the manifest's last line, so a half-done swap never claims the new release
 	while read -r io_m io_p; do
-		[ -n "$io_p" ] && { mv -f "$R$io_p.zk-new" "$R$io_p" || return 1; }
+		[ -n "$io_p" ] && { mv -f "$io_st$io_p" "$R$io_p" || { why="move $io_p"; rm -rf "$io_st"; return 1; }; }
 	done < "$PAY/manifest.md5"
+	rm -rf "$io_st"
 	# files a newer payload no longer ships
 	for io_f in "$R$MODDIR"/* "$R$ZDIR"/* "$R$ZDIR"/gpu/lib/* "$R$ZDIR"/gpu/firmware/*; do
 		[ -f "$io_f" ] || continue
@@ -272,12 +301,22 @@ arm() {
 	uv_armed && { log "not armed: Optimize CPU calibration armed"; return 1; }
 	allow_ok || { log "not armed: $why"; return 1; }
 	st_write "$ar_w" "$ar_n" || { log "not armed: state write failed"; return 1; }
-	setenv_checked "zero_once|$ONCE" "boot_partition|boot" "$@" "bootcmd|$ARMED" || { log "arm write failed: next power-on is stock"; return 1; }
+	# a failed write is not a kernel fault: the state goes back to benign "menu" (critique L1)
+	setenv_checked "zero_once|$ONCE" "boot_partition|boot" "$@" "bootcmd|$ARMED" \
+		|| { log "arm write failed: next power-on is stock"; st_write menu "$ar_n"; return 1; }
 	if [ "$(envget bootcmd)" != "$ARMED" ] || [ "$(envget zero_once)" != "$ONCE" ] || [ "$(envget boot_partition)" != boot ]; then
 		log "arm readback wrong, disarming"
 		setenv_checked "bootcmd|$STOCK_BOOTCMD" || log "disarm after a bad arm FAILED"
-		return 1
+		st_write menu "$ar_n"; return 1
 	fi
+	if uv_armed; then  # Optimize CPU armed itself between the check above and the write (critique L3)
+		log "Optimize CPU armed during the arm: disarming"
+		setenv_checked "bootcmd|$STOCK_BOOTCMD" || log "disarm FAILED"
+		st_write menu "$ar_n"; return 1
+	fi
+	# this boot armed: bin/shutdown and K01zeroclean may then call the session clean (a zarmed state left over
+	# from an earlier session must not be, critique H3)
+	[ "$ar_w" = zarmed ] && printf '' 2>/dev/null > "$R/tmp/zero-armed"
 	return 0
 }
 # A stuck env (critique C1): the loader did not clear the one-shot, or persisted boot_partition. Put stock back at
@@ -289,9 +328,12 @@ repair_stuck() {
 	failnote "the boot loader did not clear the one-shot start"
 	mark "$DIR/stop-$serial-${REL:-none}"
 }
-stop_image() { # $1 = reason text, $2 = zero_k_bad value
+stop_image() { # $1 = reason text, $2 = zero_k_bad value, $3 = the image that failed
 	setenv_checked "zero_k|failed" "zero_k_bad|$2" "zero_k_fail|" || log "failed-state write failed"
-	failnote "$1"; mark "$DIR/stop-$serial-$REL"
+	failnote "$1"
+	# stop marker only when the failed image is the card's: a newer release on the card still gets its retry (L4)
+	[ "$3" = "$IMG_ID" ] && mark "$DIR/stop-$serial-$REL"
+	return 0
 }
 
 # Write image + overlay with the env saying "writing" first, then arm in ONE write. bootcmd stays stock throughout.
@@ -307,24 +349,40 @@ update_and_arm() {
 	esac
 	battery_ok || { log "deferred: battery low"; return 1; }
 	setenv_checked "zero_once|$ONCE" "zero_k|$ua_state" "zero_k_img|writing" || { mark "$DIR/stop-$serial-$REL"; return 1; }
-	install_overlay || { log "overlay install failed (bootcmd stock, retried next boot)"; return 1; }
+	install_overlay || { log "overlay install failed: $why (bootcmd stock, retried next boot)"; return 1; }
 	write_image || { log "STOP: image write failed twice"; mark "$DIR/stop-$serial-$REL"; return 1; }
 	arm armed 0 "zero_k|on" "zero_k_img|$IMG_ID" "zero_k_fail|" "zero_k_bad|" || return 1
 	log "image $IMG_ID written and armed; next power-on boots it"
 }
 
 # ================================ revert ================================
+# An undo that cannot finish its env write leaves $PEND: launch.sh then runs revert again at every start (also once
+# restore-boot-env.txt is gone, critique M5), and boot never arms while it exists.
+rv_fail() { # $1 = log text, $2 = what the user reads
+	log "revert: $1"; mark "$PEND"
+	printf '%s\nZero tries again at every start and does not arm its kernel in the meantime. Details: .userdata/shared/.minui/zerokernel/log.txt. Delete this file.\n' "$2" > "$SD/zero-kernel-restore-FAILED.txt"
+	exit 0
+}
 if [ "$CMD" = revert ]; then
-	FAILF="$SD/zero-kernel-restore-FAILED.txt"
 	ENV=$(fw_printenv 2>/dev/null)
-	if ! envhas zero_k && ! envhas zero_once && [ ! -d "$R$ZDIR" ] && [ ! -d "$R$MODDIR" ]; then exit 0; fi  # never installed
-	sane_base || { log "revert refused: $why"; touch "$FAILF"; exit 0; }
-	case "$(envget bootcmd)" in "$STOCK_BOOTCMD"|"$ARMED") ;; *) log "revert refused: bootcmd is neither stock nor ours"; touch "$FAILF"; exit 0 ;; esac
+	if ! envhas zero_k && ! envhas zero_once && [ ! -d "$R$ZDIR" ] && [ ! -d "$R$MODDIR" ]; then
+		# never installed: keep it that way (critique H1). zero_k=off covers any card, the off marker this card,
+		# and bootenv.sh revert (next in the chain) adds zero_fast_boot=off, which boot also honors.
+		if sane_base; then setenv_checked "zero_k|off" || log "revert: zero_k=off write failed (the off marker still holds)"
+		else log "revert: $why, zero_k=off not written (the off marker still holds)"; fi
+		mark "$DIR/off-$serial"; rm -f "$PEND"; sync
+		log "revert: never installed, kept off on this device"
+		exit 0
+	fi
+	sane_base || rv_fail "refused: $why" "The Zero kernel could not be removed yet: the boot settings did not pass their checks."
+	case "$(envget bootcmd)" in "$STOCK_BOOTCMD"|"$ARMED") ;;
+	*) rv_fail "refused: bootcmd is neither stock nor ours" "The Zero kernel could not be removed yet: the boot settings are not what Zero expects." ;; esac
 	rv_img=$(envget zero_k_img)  # read before step 1 clears it: "writing" means a half image of ours
 	# 1. env: from here on every power-on is stock
 	setenv_checked "bootcmd|$STOCK_BOOTCMD" "boot_partition|boot" "zero_once|" "zero_k_img|" "zero_k_fail|" "zero_k_bad|" "zero_k|off" \
-		|| { log "revert: env write failed"; touch "$FAILF"; exit 0; }
+		|| rv_fail "env write failed" "The Zero kernel could not be removed yet: writing the boot settings failed."
 	# 2. recovery back to its original content, only when it holds ours or a half write of ours (critique M4)
+	rv_bad=
 	if rec_dev; then
 		rec_kind
 		case "$REC_KIND" in
@@ -340,8 +398,9 @@ if [ "$CMD" = revert ]; then
 				want_md5=$bkm
 			elif [ "$(stock_rec_md5)" != none ] && [ -f "$PAY/recovery-stock-head.bin" ]; then  # Brick only (L4)
 				ddw if=/dev/zero of="$REC" bs=1M count=16
+				# plain fallback without conv=: a block device needs no notrunc (critique L6)
 				dd if="$PAY/recovery-stock-head.bin" of="$REC" bs=512 count=1 conv=notrunc,fsync 2>>"$LOG" \
-					|| dd if="$PAY/recovery-stock-head.bin" of="$REC" bs=512 count=1 conv=notrunc 2>>"$LOG"
+					|| { dd if="$PAY/recovery-stock-head.bin" of="$REC" bs=512 count=1 2>>"$LOG"; sync; }
 				want_md5=$(stock_rec_md5)
 			else
 				log "revert: no backup and no known stock content for this model, recovery left as is (inert: bootcmd is stock)"
@@ -349,15 +408,18 @@ if [ "$CMD" = revert ]; then
 			if [ -n "$want_md5" ]; then
 				dropcache
 				[ "$(dd if="$REC" bs=1M count=16 2>/dev/null | md5sum | cut -d' ' -f1)" = "$want_md5" ] \
-					|| { log "revert: recovery readback mismatch"; touch "$FAILF"; }
+					|| { log "revert: recovery readback mismatch"; rv_bad=1; }
 			fi
 		fi
 	else
 		log "revert: no recovery partition of the expected size, left alone"
 	fi
 	# 3. overlay files (all inert under stock; removal is safe while running ours)
-	rm -rf "$R$MODDIR" "$R$ZDIR" "$R/etc/modules.d/zero-xr829" "$R/etc/rc.d/S01zerogpu" "$R/etc/wifi/xr_wifi.conf" "$STATE"; sync
-	mark "$DIR/off-$serial"
+	rm -rf "$R$MODDIR" "$R$ZDIR" "$R/etc/modules.d/zero-xr829" "$R/etc/rc.d/S01zerogpu" "$R/etc/rc.d/K01zeroclean" \
+		"$R/etc/wifi/xr_wifi.conf" "$STATE"
+	rm -f "$R"/etc/rc.d/*.zk-new "$R"/etc/modules.d/*.zk-new; sync
+	mark "$DIR/off-$serial"; rm -f "$PEND"; sync
+	[ -n "$rv_bad" ] && printf 'The Zero kernel is off: this device starts the stock kernel from now on.\nIts spare partition could not be put back exactly, which is harmless. Details: .userdata/shared/.minui/zerokernel/log.txt. Delete this file.\n' > "$SD/zero-kernel-restore-FAILED.txt"
 	log "revert: done, stock kernel from the next power-on"
 	exit 0  # restore-boot-env.txt stays for bootenv.sh revert, which runs next in the same chain and removes it
 fi
@@ -383,8 +445,15 @@ case "$osr" in 4.9.191|4.9.191-zero) ;; *) exit 0 ;; esac
 # 1. Stuck-env repair, first and before any wait (critique C1). Userspace must only ever see a disarmed env.
 if sane_base; then
 	if [ "$(envget bootcmd)" = "$ARMED" ]; then
-		if [ "$osr" = 4.9.191-zero ]; then repair_stuck loader-save; else repair_stuck loader-skip; fi
-		exit 0
+		[ "$osr" = 4.9.191-zero ] && { repair_stuck loader-save; exit 0; }
+		# ARMED under the stock kernel: the loader booted without running bootcmd. That may be a normal loader path
+		# (a charger power-on, design gate B10), so the first time it only disarms and this boot re-arms as usual.
+		# Final only when it happens again before any Zero start clears the marker (critique M4).
+		[ -f "$DIR/loader-skip-$serial" ] && { repair_stuck loader-skip; exit 0; }
+		log "armed env under the stock kernel (charger power-on?): disarming, re-armed below; final if it repeats before a Zero start"
+		setenv_checked "bootcmd|$STOCK_BOOTCMD" "boot_partition|boot" || { repair_stuck loader-skip; exit 0; }
+		mark "$DIR/loader-skip-$serial"
+		st_read; IMG_ID=$ST_I; st_write menu "$ST_N"  # benign: not a kernel failure
 	fi
 	if [ "$(envget boot_partition)" != boot ] && envhas zero_k; then repair_stuck loader-partition; exit 0; fi
 else
@@ -392,14 +461,23 @@ else
 fi
 
 [ -n "$REL" ] || exit 0
+[ -f "$PEND" ] && { log "undo pending: not arming"; exit 0; }
 [ -f "$DIR/off-$serial" ] || [ -f "$DIR/skip-$serial-$REL" ] || [ -f "$DIR/stop-$serial-$REL" ] && exit 0
 sane || { log "skip: $why"; mark "$DIR/skip-$serial-$REL"; exit 0; }
 zk=$(envget zero_k); zimg=$(envget zero_k_img); zfail=$(envget zero_k_fail); zbad=$(envget zero_k_bad)
 case "$zfail" in ''|*[!0-9]*) zfail=0 ;; esac
-img_id || { log "STOP: shipped image fails its own md5"; mark "$DIR/stop-$serial-$REL"; exit 0; }
+img_parse || { log "STOP: no shipped image id"; mark "$DIR/stop-$serial-$REL"; exit 0; }  # hashed before a write
+# The boot settings were put back to stock on this device (bootenv.sh revert, zero_fast_boot=off): that opt-out
+# covers the kernel too, also when it came before this release (critique H1).
+if [ "$(envget zero_fast_boot)" = off ] && [ "$zk" != off ]; then
+	log "boot settings restored to stock earlier (zero_fast_boot=off): the Zero kernel stays off on this device"
+	setenv_checked "zero_k|off" || log "zero_k=off write failed (the off marker still holds)"
+	mark "$DIR/off-$serial"; exit 0
+fi
 
 case "$osr" in
 4.9.191-zero)
+	rm -f "$DIR/loader-skip-$serial"  # a Zero start ends any run of loader skips
 	[ "$zk" = on ] || { log "running zero with zero_k='$zk' (recovery key at power-on?), not arming"; exit 0; }
 	st_read
 	case "$ST_W" in zarmed) un=$((ST_N + 1)) ;; *) un=0 ;; esac  # zarmed at start = the last zero session ended uncleanly
@@ -407,16 +485,19 @@ case "$osr" in
 	zw=0; while [ ! -f "$R/tmp/zero-menu-start" ] && [ $zw -lt 150 ]; do sleep 0.2; zw=$((zw + 1)); done
 	[ -f "$R/tmp/zero-menu-start" ] || { log "menu never started: not re-armed, next power-on is stock"; exit 0; }
 	st_write menu "$un"
-	if [ "$un" -ge "$MAXUNCLEAN" ]; then
-		log "STOP: $un zero sessions in a row ended without a clean power-off"
-		stop_image "$un starts in a row with the Zero kernel ended without a normal power-off" "unclean-x$un"; exit 0
+	# This session is start $un+1 in a row: when that is the MAXUNCLEANth, it is not re-armed, so the MAXUNCLEANth
+	# held start is the last one on our kernel (README: three, critique M1). Scoped to the running image: a later
+	# release with a new image tries again (critique H3).
+	if [ $((un + 1)) -ge "$MAXUNCLEAN" ]; then
+		log "STOP: $un zero sessions in a row ended without a clean power-off, this is start $((un + 1)): not re-armed"
+		stop_image "$((un + 1)) starts in a row with the Zero kernel ended without a normal power-off" "unclean:$zimg" "$zimg"; exit 0
 	fi
 	uv_armed && { log "deferred: Optimize CPU calibration armed"; exit 0; }
 	allow_ok || { log "not re-armed: $why"; exit 0; }
 	if ! health; then
 		zfail=$((zfail + 1)); st_write bad "$un"
 		log "unhealthy ($why): attempt $zfail of $MAXFAIL, next power-on is stock"
-		if [ "$zfail" -ge "$MAXFAIL" ]; then stop_image "$MAXFAIL failed starts with the Zero kernel" "$IMG_ID"
+		if [ "$zfail" -ge "$MAXFAIL" ]; then stop_image "$MAXFAIL failed starts with the Zero kernel" "$zimg" "$zimg"
 		else setenv_checked "zero_k_fail|$zfail" || log "fail count write failed"; fi
 		exit 0
 	fi
@@ -438,7 +519,7 @@ case "$osr" in
 			zfail=$((zfail + 1))
 			log "FELL BACK to stock: the zero boot did not reach the menu (state '$ST_W'), attempt $zfail of $MAXFAIL on $zimg"
 			if [ "$zfail" -ge "$MAXFAIL" ] && [ "$zimg" = "$IMG_ID" ]; then
-				stop_image "$MAXFAIL failed starts with the Zero kernel" "$zimg"; exit 0
+				stop_image "$MAXFAIL failed starts with the Zero kernel" "$zimg" "$zimg"; exit 0
 			fi
 			setenv_checked "zero_k_fail|$zfail" || { log "fail count write failed: not re-armed"; exit 0; }
 			;;
@@ -452,8 +533,10 @@ case "$osr" in
 		arm armed 0 || exit 0
 		;;
 	failed)
-		[ "$zbad" = "$IMG_ID" ] || [ -z "$zbad" ] && { mark "$DIR/stop-$serial-$REL"; exit 0; }
-		case "$zbad" in loader-*|unclean-*) mark "$DIR/stop-$serial-$REL"; exit 0 ;; esac  # not image faults: final
+		# loader-*: the loader's one-shot does not work on this device, final. unclean:<image>: that image ended
+		# MAXUNCLEAN sessions in a row uncleanly (also the dark-screen escape), stopped for that image only.
+		case "$zbad" in loader-*) mark "$DIR/stop-$serial-$REL"; exit 0 ;; esac
+		[ "${zbad#unclean:}" = "$IMG_ID" ] || [ -z "$zbad" ] && { mark "$DIR/stop-$serial-$REL"; exit 0; }
 		log "retrying with new image $IMG_ID (failed before on $zbad)"
 		update_and_arm on
 		;;
@@ -474,10 +557,19 @@ case "$osr" in
 			|| { log "skip: overlay has ${ov_free:-?} KB free, needs ${ov_need:-?} + 2048"; mark "$DIR/skip-$serial-$REL"; exit 0; }
 		capture_mac || { log "deferred install: stock WiFi MAC not found yet"; exit 0; }
 		if [ "$REC_KIND" = unused ] && [ ! -f "$DIR/recovery-orig-$serial.bin.md5" ]; then
-			dd if="$REC" of="$DIR/recovery-orig-$serial.bin" bs=1M count=16 2>>"$LOG" \
-				&& md5sum < "$DIR/recovery-orig-$serial.bin" | cut -d' ' -f1 > "$DIR/recovery-orig-$serial.bin.md5" \
-				|| { log "deferred: recovery backup to card failed"; exit 0; }
-			echo "$ENV" > "$DIR/env-before-zk-$serial.txt"; sync
+			# 16 MiB to the card that holds the saves: only with room to spare, never left half-written (critique H2)
+			bk="$DIR/recovery-orig-$serial.bin"
+			sd_free=$(df -k "$SD" 2>/dev/null | awk 'END {print $(NF-2)}')
+			[ -n "$sd_free" ] && [ "$sd_free" -ge $((REC_BYTES / 1024 + 65536)) ] \
+				|| { log "deferred: the card has ${sd_free:-?} KB free, the recovery backup needs 16 MiB + 64 MiB spare"; exit 0; }
+			rm -f "$bk.tmp" "$bk.md5.tmp"
+			if dd if="$REC" of="$bk.tmp" bs=1M count=16 2>>"$LOG" && [ "$(wc -c < "$bk.tmp" | tr -d ' ')" = "$REC_BYTES" ] \
+				&& md5sum < "$bk.tmp" | cut -d' ' -f1 > "$bk.md5.tmp" && [ -s "$bk.md5.tmp" ] \
+				&& mv -f "$bk.tmp" "$bk" && mv -f "$bk.md5.tmp" "$bk.md5"; then
+				echo "$ENV" > "$DIR/env-before-zk-$serial.txt"; sync
+			else
+				rm -f "$bk.tmp" "$bk.md5.tmp"; sync; log "deferred: recovery backup to card failed (partial removed)"; exit 0
+			fi
 		fi
 		log "install $IMG_ID (U-Boot $ub, lcd $lcd)"
 		update_and_arm installing
