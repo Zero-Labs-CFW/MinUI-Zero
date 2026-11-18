@@ -67,6 +67,13 @@ while dev_on; do
 		hold=8
 	fi
 	[ "${hold:-0}" -gt 0 ] && hold=$((hold - 1))
+	# heartbeat every 20 checks (about 5 min): when the Mac cannot reach a device, this shows whether the device
+	# itself thought it was connected (a 2026-11-18 outage logged no restart at all)
+	beat=$((${beat:-0} + 1))
+	if [ "$beat" -ge 20 ]; then
+		beat=0
+		say "beat addr=${a:-none} gw=${g:-none} fails=$fails rx=$rx ap=$(iw dev wlan0 link 2>/dev/null | sed -n 's/^Connected to \([^ ]*\).*/\1/p')"
+	fi
 	# our key-only daemon on 2022 (dev-net.sh step 5); restart it if it died
 	if ! pgrep -f "dropbear.*2022" >/dev/null 2>&1; then
 		DBM="$SD/.system/tg5040/bin/dropbearmulti"
