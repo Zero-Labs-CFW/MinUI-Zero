@@ -3,7 +3,7 @@
 # where you cannot connect to these devices"). Seen on the Brick Pro and Smart Pro that day: dev-net.sh joined WiFi
 # at boot, the link was gone later, and only a WiFi Off/On in Settings (which reruns the full wpa_supplicant +
 # udhcpc start) brought it back. This watches the link every 15 s and does that same full restart when the device
-# has no address or cannot reach its gateway twice in a row. It also restarts our SSH daemon if it died.
+# has no address, or cannot reach its gateway three checks in a row while no big transfer is running. It also restarts our SSH daemon if it died.
 # Started by dev-net.sh; one instance per boot; exits when dev mode is turned off.
 SD=/mnt/SDCARD
 SHARED="$SD/.userdata/shared"
@@ -30,29 +30,38 @@ gw() { ip route 2>/dev/null | awk '/^default/ {print $3; exit}'; }
 
 say "start (pid $$)"
 fails=0
+last_rx=
 while dev_on; do
 	sleep 15
 	if radio_held; then fails=0; continue; fi
 	a=$(addr); g=$(gw)
-	if [ -n "$a" ] && [ -n "$g" ] && ping -c 1 -W 3 "$g" >/dev/null 2>&1; then
+	# A big transfer (more than 64 KB received since the last check) proves the link is alive: under one the gateway
+	# ping can time out, and bouncing WiFi then killed the transfer itself (an ssh copy to the Brick, 2026-11-18).
+	# Small counts do not count: broadcast traffic keeps arriving on a link that is otherwise wedged.
+	read -r rx < /sys/class/net/wlan0/statistics/rx_bytes 2>/dev/null || rx=0
+	busy=0
+	[ -n "$last_rx" ] && [ "$rx" -gt $((last_rx + 65536)) ] 2>/dev/null && busy=1
+	last_rx=$rx
+	if [ -n "$a" ] && { [ "$busy" = 1 ] || { [ -n "$g" ] && ping -c 1 -W 3 "$g" >/dev/null 2>&1; }; }; then
 		fails=0
 	else
 		fails=$((fails + 1))
-		if [ "$fails" -ge 2 ]; then
-			say "link lost (addr=${a:-none} gw=${g:-none}), restarting WiFi"
-			rfkill unblock wifi 2>/dev/null
-			for p in $(pidof wpa_supplicant udhcpc 2>/dev/null); do kill "$p" 2>/dev/null; done # by pid: busybox killall skips applets
-			ifconfig wlan0 down 2>/dev/null
-			sleep 1
-			ifconfig wlan0 up 2>/dev/null
-			wpa_supplicant -B -D nl80211 -iwlan0 -c /etc/wifi/wpa_supplicant.conf -O /etc/wifi/sockets >/dev/null 2>&1
-			( udhcpc -i wlan0 >/dev/null 2>&1 & )
-			iw dev wlan0 set power_save off 2>/dev/null
-			i=0
-			while [ $i -lt 20 ] && [ -z "$(addr)" ]; do sleep 1; i=$((i + 1)); done
-			say "after restart: addr=$(addr)"
-			fails=0
-		fi
+	fi
+	if [ "$fails" -ge 3 ]; then
+		say "link lost (addr=${a:-none} gw=${g:-none}), restarting WiFi"
+		rfkill unblock wifi 2>/dev/null
+		for p in $(pidof wpa_supplicant udhcpc 2>/dev/null); do kill "$p" 2>/dev/null; done # by pid: busybox killall skips applets
+		ifconfig wlan0 down 2>/dev/null
+		sleep 1
+		ifconfig wlan0 up 2>/dev/null
+		wpa_supplicant -B -D nl80211 -iwlan0 -c /etc/wifi/wpa_supplicant.conf -O /etc/wifi/sockets >/dev/null 2>&1
+		( udhcpc -i wlan0 >/dev/null 2>&1 & )
+		iw dev wlan0 set power_save off 2>/dev/null
+		i=0
+		while [ $i -lt 20 ] && [ -z "$(addr)" ]; do sleep 1; i=$((i + 1)); done
+		say "after restart: addr=$(addr)"
+		fails=0
+		last_rx=
 	fi
 	# our key-only daemon on 2022 (dev-net.sh step 5); restart it if it died
 	if ! pgrep -f "dropbear.*2022" >/dev/null 2>&1; then
