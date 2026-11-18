@@ -247,8 +247,8 @@ system:
 	fi
 	# Zero kernel payload -> .system/tg5040/kernel (consumer: bin/zerokernel.sh). Staged from the kernel build by
 	# workspace/tg5040/zerokernel/stage-payload.sh into payload/ (ignored: 17 MB of binaries) and pinned byte for
-	# byte by the tracked payload.sha256: a mismatch fails the build. No staged payload = an artifact without the
-	# kernel (zerokernel.sh then does nothing), said loudly here so it is never a silent choice.
+	# byte by the tracked payload.sha256: a mismatch fails the build. No staged payload fails the build too (critique
+	# M3: a release from a fresh worktree would ship without the kernel); ZERO_KERNEL=0 builds without it on purpose.
 	@if [ "$(PLATFORM)" = "tg5040" ]; then \
 		if [ -d ./workspace/tg5040/zerokernel/payload ]; then \
 			( cd ./workspace/tg5040/zerokernel/payload && { shasum -a 256 -c --quiet ../payload.sha256 2>/dev/null || sha256sum -c --quiet ../payload.sha256; } ) \
@@ -257,8 +257,12 @@ system:
 				|| { echo "ERROR: workspace/tg5040/zerokernel/payload has files payload.sha256 does not list"; exit 1; }; \
 			rm -rf ./build/SYSTEM/tg5040/kernel; cp -R ./workspace/tg5040/zerokernel/payload ./build/SYSTEM/tg5040/kernel; \
 			echo "tg5040 kernel payload: $$(cat ./build/SYSTEM/tg5040/kernel/VERSION), verified"; \
+		elif [ "$(ZERO_KERNEL)" = 0 ]; then \
+			echo "WARNING: ZERO_KERNEL=0: this tg5040 artifact ships WITHOUT the Zero kernel"; \
 		else \
-			echo "WARNING: no workspace/tg5040/zerokernel/payload: this tg5040 artifact ships WITHOUT the Zero kernel"; \
+			echo "ERROR: no workspace/tg5040/zerokernel/payload. Stage it with workspace/tg5040/zerokernel/stage-payload.sh"; \
+			echo "       (kernel build: .notes/2026-11-14-tg5040-own-kernel), or pass ZERO_KERNEL=0 to build without the kernel"; \
+			exit 1; \
 		fi; \
 	fi
 
