@@ -13,6 +13,14 @@ case "$0" in
     ;;
 esac
 
+# Zero kernel (bin/zerokernel.sh): a clean power-off ends the session cleanly. Three sessions in a row that end
+# without one (forced 10 s hold, crash, flat battery) send the device back to the stock kernel for good, which is
+# also the escape from a dark screen. Builtins only, plus one small write to the overlay (mounted sync).
+_zo=; read -r _zo < /proc/sys/kernel/osrelease
+if [ "$_zo" = 4.9.191-zero ] && read -r _zw _zi _zn 2>/dev/null < /etc/zero-kernel.state && [ "$_zw" = zarmed ]; then
+	echo "zclean $_zi 0" > /etc/zero-kernel.state
+fi
+
 sync && umount -f -l /mnt/SDCARD
 
 # execute poweroff
