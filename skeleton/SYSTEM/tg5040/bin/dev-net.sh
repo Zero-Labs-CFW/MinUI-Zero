@@ -142,3 +142,6 @@ fi
   killall ntpd 2>/dev/null
   echo "ntpd: $(pgrep ntpd >/dev/null 2>&1 && echo STILL-RUNNING || echo stopped)"
 } >> "$LOG" 2>&1
+
+# Keep the link up for the rest of the boot (bin/net-keeper.sh; one instance, exits when dev mode is off)
+( sh "$(dirname "$0")/net-keeper.sh" </dev/null >/dev/null 2>&1 & )
