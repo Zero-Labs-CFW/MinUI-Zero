@@ -41,6 +41,7 @@ done
 cp "$GPU/firmware/rgx.fw.22.102.54.38" "$OUT/root/usr/lib/zero/gpu/firmware/"
 cp "$PROCD" "$OUT/root/usr/lib/zero/procd"
 cp "$HERE/S01zerogpu" "$OUT/root/etc/rc.d/S01zerogpu"
+cp "$HERE/K01zeroclean" "$OUT/root/etc/rc.d/K01zeroclean"
 echo "$REL" > "$OUT/root/usr/lib/zero/VERSION"
 echo "$REL" > "$OUT/VERSION"
 
