@@ -58,9 +58,10 @@ Trimui Brick Pro|2018.05(07/11/2026-11:42:17)|gh7003|otm1289a|d2e5cca321ff95589d
 Trimui Smart Pro|2018.05(04/23/2024-18:42:17)|er68576|otm1289a|1c6b94986901b124f3ca0a9752351b06|gles
 "
 # Recovery content each model ships with ("recovery part not used!" + fill), for the no-backup undo path.
-# Brick VERIFIED (recon/recovery.bin). The Brick Pro (abf49584...) and Smart Pro (e580852e...) hold the same
-# "recovery part not used!" text but a different fill, not reproduced here: no regenerate, the card backup is
-# their only undo source.
+# Brick VERIFIED (recon/recovery.bin: the text, then zeros). The Brick Pro (abf495843c9be93262a44a87d8634bf0) and
+# Smart Pro (e580852e45d1a70a4769ca173386a9a2, both 2026-11-18 recon) hold the same text, then leftover build-tool
+# bytes that differ per firmware and are not reproduced here: no regenerate. Their undo source is the card backup,
+# which install always takes first (an install without it is deferred, never done).
 stock_rec_md5() { case "$TRIMUI_MODEL" in "Trimui Brick") echo 78f6f12ee2772c57527b38a71599e58a ;; *) echo none ;; esac; }
 
 cmdline=; read -r cmdline < "$R/proc/cmdline"
@@ -192,6 +193,11 @@ rec_kind() {
 	rk_h=$(dd if="$REC" bs=24 count=1 2>/dev/null)
 	[ "$rk_h" = "recovery part not used!" ] && { REC_KIND=unused; return; }  # $(...) strips the trailing \n
 	[ "$(dd if="$REC" bs=8 count=1 2>/dev/null)" = "ANDROID!" ] || return
+	# the shipped image (the last line) first: in steady state that is the match, and every dev image before it
+	# would cost an 8 MB hash
+	if img_parse && [ "$(dd if="$REC" bs="$IMG_N" count=1 2>/dev/null | md5sum | cut -d' ' -f1)" = "$IMG_M" ]; then
+		REC_KIND="ours:$IMG_ID"; return
+	fi
 	while read -r rk_n rk_m rk_r; do
 		[ -n "$rk_n" ] || continue
 		[ "$(dd if="$REC" bs="$rk_n" count=1 2>/dev/null | md5sum | cut -d' ' -f1)" = "$rk_m" ] && { REC_KIND="ours:$rk_r"; return; }
@@ -524,6 +530,9 @@ case "$osr" in
 			setenv_checked "zero_k_fail|$zfail" || { log "fail count write failed: not re-armed"; exit 0; }
 			;;
 		esac
+		# the stock MAC file, kept current on every stock start: an overlay wipe or a lost file must not leave our
+		# driver on a random MAC. Not a gate here: WiFi may be off and the serial line rolled out of dmesg.
+		capture_mac || log "stock WiFi MAC not found this boot, xr_wifi.conf left as is"
 		if [ "$zimg" != "$IMG_ID" ] || ! overlay_current; then  # new release, or the overlay was wiped (M1)
 			log "update $zimg -> $IMG_ID"
 			update_and_arm on; exit 0

@@ -457,6 +457,44 @@ CASE="Brick Pro: installs, re-arms only with the GLES-present marker"
 fresh_device; export TRIMUI_MODEL="Trimui Brick Pro"; UBOOT='2018.05(07/11/2026-11:42:17)'; LCD=gh7003
 boot; expect_kernel stock; expect_armed
 boot gles; expect_kernel zero; expect_armed; expect_state zarmed
+CASE="Brick Pro and Smart Pro: undo puts back each one's own recovery from the card backup"
+for m in "Trimui Brick Pro|2018.05(07/11/2026-11:42:17)|gh7003|priv" "Trimui Smart Pro|2018.05(04/23/2024-18:42:17)|er68576|:;I"; do
+	fresh_device; export TRIMUI_MODEL="${m%%|*}"; r=${m#*|}; UBOOT=${r%%|*}; r=${r#*|}; LCD=${r%%|*}; FILL=${r#*|}
+	# the real BP/SP partitions: the same text, then build-tool leftovers (not zeros) all the way through
+	i=0; while [ $i -lt 4000 ]; do printf '%s %s ' "$FILL" "$i"; i=$((i + 1)); done | $REALDD of="$R/dev/mmcblk0p8" bs=1 seek=24 conv=notrunc 2>/dev/null
+	ORIG=$(md5 "$R/dev/mmcblk0p8"); [ "$ORIG" != "$STOCKREC" ] && ok || bad "test setup: fill not changed"
+	boot; expect_armed; [ "$(cat "$ZD/recovery-orig-$SERIAL.bin.md5")" = "$ORIG" ] && ok || bad "$TRIMUI_MODEL backup md5"
+	boot gles; expect_kernel zero; expect_armed; clean_off
+	: > "$CARD/restore-boot-env.txt"; boot
+	expect_stock; expect_env zero_k off; [ "$(md5 "$R/dev/mmcblk0p8")" = "$ORIG" ] && ok || bad "$TRIMUI_MODEL recovery not its original"
+	expect_nofile "$CARD/zero-kernel-restore-FAILED.txt"
+done
+CASE="Smart Pro undo without a card backup: no regenerate, recovery left inert, kernel off"
+fresh_device; export TRIMUI_MODEL="Trimui Smart Pro"; UBOOT='2018.05(04/23/2024-18:42:17)'; LCD=er68576
+boot; expect_armed; rm -f "$ZD/recovery-orig-$SERIAL.bin" "$ZD/recovery-orig-$SERIAL.bin.md5"
+: > "$CARD/restore-boot-env.txt"; boot
+expect_stock; expect_env zero_k off; expect_rec "$IMGMD5"; expect_nofile "$R/usr/lib/zero"
+boot; expect_kernel stock; [ "$SPAWNED" = 0 ] && ok || bad "spawned after undo"
+export TRIMUI_MODEL="Trimui Brick"
+
+CASE="stock MAC file comes back after an overlay wipe (update path)"
+install_device; boot; clean_off
+rm -rf "$R/usr/lib/zero" "$R/lib/modules/4.9.191-zero" "$R/etc/wifi"; echo "DC:44:60:57:7F:91" > "$R/sys/class/net/wlan0/address"
+boot; expect_kernel zero; expect_stock       # the wiped overlay is not current: no re-arm under ours (M2)
+boot; expect_kernel stock; expect_armed
+[ "$(cat "$R/etc/wifi/xr_wifi.conf" 2>/dev/null)" = "dc:44:60:57:7f:91" ] && ok || bad "MAC file not rewritten"
+CASE="no live MAC on a re-arm is not a gate"
+setenv_raw bootcmd "$STOCKBC"; echo "menu x 0" > "$R/etc/zero-kernel.state"   # a benign stock start, zero_k=on
+rm -f "$R/sys/class/net/wlan0/address"; : > "$T/dmesg.txt"; userspace stock
+expect_armed; [ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:60:57:7f:91" ] && ok || bad "MAC file changed"
+echo "DC:44:60:38:9A:91" > "$R/sys/class/net/wlan0/address"
+
+CASE="a device holding an older listed dev image updates to the shipped one"
+fresh_device; mkpayload ship9 G; OLDMD5=$IMGMD5; $REALDD if="$IMGPATH" of="$R/dev/mmcblk0p8" conv=notrunc 2>/dev/null
+mkpayload ship10 H
+boot; expect_kernel stock; expect_armed; expect_rec "$IMGMD5"; expect_env zero_k_img "ship10-$(echo "$IMGMD5" | cut -c1-8)"
+[ "$OLDMD5" != "$IMGMD5" ] && ok || bad "test setup: same image"
+
 CASE="Smart Pro with another U-Boot build is skipped"
 fresh_device; export TRIMUI_MODEL="Trimui Smart Pro"; UBOOT='2018.05(10/26/2025-11:56:42)'; LCD=er68576
 cp "$T/env.txt" "$T/env.before"; boot
