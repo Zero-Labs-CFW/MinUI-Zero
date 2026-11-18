@@ -3,7 +3,7 @@
 # where you cannot connect to these devices"). Seen on the Brick Pro and Smart Pro that day: dev-net.sh joined WiFi
 # at boot, the link was gone later, and only a WiFi Off/On in Settings (which reruns the full wpa_supplicant +
 # udhcpc start) brought it back. This watches the link every 15 s and does that same full restart when the device
-# has no address, or cannot reach its gateway three checks in a row while no big transfer is running. It also restarts our SSH daemon if it died.
+# has no address, or cannot reach its gateway eight checks in a row (about 2 min) while no big transfer is running, then holds off 2 min. It also restarts our SSH daemon if it died.
 # Started by dev-net.sh; one instance per boot; exits when dev mode is turned off.
 SD=/mnt/SDCARD
 SHARED="$SD/.userdata/shared"
@@ -47,7 +47,9 @@ while dev_on; do
 	else
 		fails=$((fails + 1))
 	fi
-	if [ "$fails" -ge 3 ]; then
+	# 8 checks (about 2 min) before acting, and a 2 min hold after each restart: an early version restarted every
+	# 45 s while DHCP was still running, which itself kept the device off the network (2026-11-18).
+	if [ "$fails" -ge 8 ] && [ "${hold:-0}" -le 0 ]; then
 		say "link lost (addr=${a:-none} gw=${g:-none}), restarting WiFi"
 		rfkill unblock wifi 2>/dev/null
 		for p in $(pidof wpa_supplicant udhcpc 2>/dev/null); do kill "$p" 2>/dev/null; done # by pid: busybox killall skips applets
@@ -58,11 +60,13 @@ while dev_on; do
 		( udhcpc -i wlan0 >/dev/null 2>&1 & )
 		iw dev wlan0 set power_save off 2>/dev/null
 		i=0
-		while [ $i -lt 20 ] && [ -z "$(addr)" ]; do sleep 1; i=$((i + 1)); done
+		while [ $i -lt 45 ] && [ -z "$(addr)" ]; do sleep 1; i=$((i + 1)); done
 		say "after restart: addr=$(addr)"
 		fails=0
 		last_rx=
+		hold=8
 	fi
+	[ "${hold:-0}" -gt 0 ] && hold=$((hold - 1))
 	# our key-only daemon on 2022 (dev-net.sh step 5); restart it if it died
 	if ! pgrep -f "dropbear.*2022" >/dev/null 2>&1; then
 		DBM="$SD/.system/tg5040/bin/dropbearmulti"
