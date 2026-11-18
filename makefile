@@ -90,6 +90,8 @@ test-ff-audio:
 	sh ./workspace/all/common/run-ff-audio-tests.sh
 test-undervolt:
 	sh ./workspace/tg5040/undervolt/run-tests.sh
+test-zerokernel:
+	sh ./workspace/tg5040/zerokernel/run-tests.sh
 test-reproducibility:
 	sh ./workspace/all/cores/run-source-verifier-tests.sh
 test-wakeup:
