@@ -65,7 +65,7 @@ We don't build or tune these cores ourselves, but Zero's governor still runs the
 | Miyoo Mini / Plus / Flip | `MinUI-Zero-miyoo-*.zip` | copy onto the card |
 | Anbernic RG35XX Plus / 2024 / H / Pro / SP, RG40XX H / V, RG34XX / SP, RG SP, RG CubeXX, RG28XX | `MinUI-Zero-h700-*-all.img.xz` to install, `MinUI-Zero-h700-*-update.zip` to update | flash the card once, then copy onto the card |
 
-**TrimUI and Miyoo** ride along with the stock firmware, nothing is erased: unzip onto a blank FAT32 card, or drop `MinUI.zip` on the card root to update. On TrimUI, Zero also changes two boot settings on the device, which make it start about 3 to 4 seconds sooner: a quiet boot log and no wait for factory key programming. They stay if you remove Zero, and they're harmless on stock. To undo them, put `restore-boot-env.txt` on the card root and boot once. Doing that before the first boot keeps them from ever being set.
+**TrimUI and Miyoo** ride along with the stock firmware, nothing is erased: unzip onto a blank FAT32 card, or drop `MinUI.zip` on the card root to update. On TrimUI, Zero also changes two boot settings on the device, which make it start about 3 to 4 seconds sooner: a quiet boot log and no wait for factory key programming. They stay if you remove Zero, and they're harmless on stock. To undo them, put `restore-boot-env.txt` on the card root and boot once. Doing that before the first boot keeps them from ever being set. On the TrimUI Brick, Zero also installs its own kernel in a spare internal partition and starts it from then on (the stock kernel stays where it was). If it ever fails to reach the menu, the next start uses the stock kernel by itself; if the screen stays dark, turn the device off by holding power three starts in a row and it goes back to stock for good. `restore-boot-env.txt` removes it too.
 
 **Anbernic** *is* the operating system: flash the `.img.xz` with Raspberry Pi Imager, balenaEtcher, or `dd`, which erases the card. One image serves every board: on first boot, pick your model and hold START (a dark screen moves on to the next screen type by itself). To update later, drop the Anbernic zip on the card root, as downloaded or renamed to `MinUI.zip`, and restart; a few rare changes still need a reflash, and the update says so.
 
@@ -91,7 +91,7 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 | `wifi.txt` | one network per line as `SSID:password`; the password is yours to type |
 | `timezone` | an IANA name like `America/New_York`, for the clock and DST (TrimUI) |
 | `devmode` | stays awake and starts SSH; for development, costs idle battery |
-| `restore-boot-env.txt` | puts the TrimUI boot settings back to stock and keeps Zero from setting them again on that device; removed once done (TrimUI) |
+| `restore-boot-env.txt` | puts the TrimUI boot settings and kernel back to stock and keeps Zero from setting them again on that device; removed once done (TrimUI) |
 | `authorized_keys` | your SSH public key; SSH accepts only this key, never a password (TrimUI keeps it in `.userdata/shared/`) |
 | `.userdata/shared/enable-simple-mode` | hides Tools and replaces Options with Reset in the game menu; no escape hatch and no Settings row on purpose, for a locked-down or kid's device |
 
