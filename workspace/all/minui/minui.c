@@ -2134,6 +2134,9 @@ int main (int argc, char *argv[]) {
 
 			GFX_flip(screen);
 			{ static int ui_first = 1; if (ui_first) { ui_first = 0; UIMARK("first_frame");
+#ifdef HAS_MENU_PRESENTED
+				PLAT_menuPresented(); // tg5040: GLES-present marker for the Zero kernel's health check
+#endif
 				// now that the heavy lifting is done, take a load off. After the first frame, not before it: the
 				// menu clock caps the whole cluster, so it slowed the first draw and every boot job beside it.
 				PWR_setCPUSpeed(CPU_SPEED_MENU); } }
