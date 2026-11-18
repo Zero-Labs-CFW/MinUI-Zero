@@ -7,7 +7,7 @@
 # refuses a payload that does not match it.
 #
 # Usage: sh workspace/tg5040/zerokernel/stage-payload.sh <kernel notes dir> <release id> <image name>
-#   e.g. sh workspace/tg5040/zerokernel/stage-payload.sh .notes/2026-11-14-tg5040-own-kernel ship2 ship2
+#   e.g. sh workspace/tg5040/zerokernel/stage-payload.sh .notes/2026-11-14-tg5040-own-kernel ship10 ship10
 set -eu
 K=$(cd "$1" && pwd); REL=$2; NAME=$3
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -50,9 +50,11 @@ echo "$REL" > "$OUT/VERSION"
 	echo "$(md5f "$p")  ${p#.}"; done
   echo "$(md5f ./usr/lib/zero/VERSION)  /usr/lib/zero/VERSION" ) > "$OUT/manifest.md5"
 
-# known-images.txt: "<bytes> <md5> <id>", every image Zero or the dev Brick ever put in recovery; the shipped one LAST
+# known-images.txt: "<bytes> <md5> <id>", every image Zero or a dev device ever put in recovery (dev installs:
+# .notes/2026-11-18-own-kernel-ship/b0/install-*.txt, Brick ship3/5/8, Brick Pro ship3/6/8, Smart Pro ship3 to ship10),
+# so an update or undo knows them as ours; the shipped one LAST
 {
-	for old in trim8 ship1; do
+	for old in trim8 ship1 ship2 ship3 ship4 ship5 ship6 ship6d ship7 ship7d ship8 ship9 ship10; do
 		f="$K/work/zero-recovery-$old.img"; [ "$old" = "$NAME" ] && continue
 		[ -f "$f" ] && echo "$(sizef "$f") $(md5f "$f") dev-$old-$(md5f "$f" | cut -c1-8)"
 	done
