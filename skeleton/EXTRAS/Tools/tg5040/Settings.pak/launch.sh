@@ -153,8 +153,8 @@ opens Tools anyway." "HIDE" "BACK"; then touch "$HIDE_TOOLS"; else AGAIN=1; fi ;
 			hints=Off)     touch "$NO_HINTS" ;;
 			deepsleep=On)  rm -f "$DEEP_SLEEP_OFF" ;;
 			deepsleep=Off) touch "$DEEP_SLEEP_OFF" ;;
-			wifi=On)       [ -f "$WOFF" ] && wifi_on; AGAIN=1 ;;
-			wifi=Off)      [ -f "$WTXT" ] && wifi_off; AGAIN=1 ;;
+			wifi=On)       [ -f "$WOFF" ] && wifi_on ;; # B leaves Settings: reopening it to show the new state needed a second B (Dan, 2026-11-19)
+			wifi=Off)      [ -f "$WTXT" ] && wifi_off ;;
 			OPEN=datetime) clock.elf; AGAIN=1 ;;
 			OPEN=optimize) sh "$UV_PAK"; AGAIN=1 ;;
 		esac
