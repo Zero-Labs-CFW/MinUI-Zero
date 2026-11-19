@@ -175,11 +175,12 @@ power_on() {
 	fi
 }
 # Userspace of one boot. $1 = kernel, rest: nocard | nomenu | nogpu | gles (minui wrote /tmp/zero-gles-ok) |
-# cut-setenv=N | cut-dd
+# gles-late | hang-health (the device hangs, or is held off, inside the GLES health wait) | cut-setenv=N | cut-dd
 userspace() {
 	us_k=$1; shift
-	us_card=1; us_menu=1; us_gpu=1; us_gles=0; unset ZK_CUT_SETENV ZK_CUT_DD
+	us_card=1; us_menu=1; us_gpu=1; us_gles=0; us_hang=0; unset ZK_CUT_SETENV ZK_CUT_DD
 	for o in "$@"; do case "$o" in nocard) us_card=0 ;; nomenu) us_menu=0 ;; nogpu) us_gpu=0 ;; gles) us_gles=1 ;; gles-late) us_gles=2 ;;
+		hang-health) us_hang=1 ;;
 		cut-setenv=*) export ZK_CUT_SETENV=${o#cut-setenv=} ;; cut-dd) export ZK_CUT_DD="$SYSTEM_PATH/kernel/zero-recovery.img" ;; esac; done
 	rm -f "$T/setenv.count"; rm -rf "$R/tmp"; mkdir -p "$R/tmp"
 	[ "$us_k" = hang ] && return 0
@@ -205,7 +206,17 @@ userspace() {
 	elif [ -f "$SYSTEM_PATH/kernel/VERSION" ]; then read -r us_v < "$SYSTEM_PATH/kernel/VERSION"
 		[ ! -f "$ZD/off-$SERIAL" ] && [ ! -f "$ZD/skip-$SERIAL-$us_v" ] && [ ! -f "$ZD/stop-$SERIAL-$us_v" ] && us_spawn=1; fi
 	SPAWNED=$us_spawn
+	# hang-health: the device hangs (or is held off) 2 s into the GLES health wait (ZK_GLES_WAIT=6, no marker).
+	# busybox ash runs sleep as an applet, not the fake on PATH, so the waits here are real.
+	# The pid file is removed here in the foreground (a backgrounded rm can land after the spawn has written it), and
+	# the killer gives up after about 5 s instead of spinning forever.
+	rm -f "$T/main.pid"
+	if [ $us_spawn = 1 ] && [ $us_hang = 1 ]; then
+		( i=0; until [ -s "$T/main.pid" ] || [ $i -ge 50 ]; do sleep 0.1; i=$((i + 1)); done
+		  sleep 2; [ -s "$T/main.pid" ] && kill -9 "$(cat "$T/main.pid")" 2>/dev/null ) &
+	fi
 	[ $us_spawn = 1 ] && sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" boot'
+	wait
 	unset ZK_CUT_SETENV ZK_CUT_DD
 	return 0
 }
@@ -507,6 +518,61 @@ fresh_device; export TRIMUI_MODEL="Trimui Smart Pro"; UBOOT='2018.05(10/26/2025-
 cp "$T/env.txt" "$T/env.before"; boot
 cmp -s "$T/env.txt" "$T/env.before" && ok || bad "env written"; expect_file "$ZD/skip-$SERIAL-ship2"
 export TRIMUI_MODEL="Trimui Brick"
+
+CASE="Smart Pro: a hang inside the health window is counted, and twice stops the kernel (finding 3)"
+fresh_device; export TRIMUI_MODEL="Trimui Smart Pro"; UBOOT='2018.05(04/23/2024-18:42:17)'; LCD=er68576; ZIMG=
+boot; expect_kernel stock; expect_armed; ZIMG=$(envv zero_k_img)
+boot hang-health; expect_kernel zero; expect_stock; expect_state health
+boot; expect_kernel stock; expect_env zero_k_fail 1; expect_armed
+grep -q "did not reach the menu (state 'health')" "$ZD/log.txt" && ok || bad "fallback log line"
+boot hang-health; expect_kernel zero; expect_state health
+boot; expect_kernel stock; expect_stock; expect_env zero_k failed; expect_env zero_k_bad "$ZIMG"; expect_file "$CARD/zero-kernel-FAILED.txt"
+CASE="Smart Pro: an orderly power-off or reboot inside the health window is benign (finding 3)"
+fresh_device; export TRIMUI_MODEL="Trimui Smart Pro"; UBOOT='2018.05(04/23/2024-18:42:17)'; LCD=er68576
+boot; expect_armed
+boot hang-health; expect_state health; clean_off; expect_state menu
+boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed
+boot hang-health; expect_state health; reboot_k; expect_state menu
+boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed
+boot gles; expect_kernel zero; expect_armed; expect_state zarmed
+export TRIMUI_MODEL="Trimui Brick"
+
+stock_start() { setenv_raw bootcmd "$STOCKBC"; echo "menu x 0" > "$R/etc/zero-kernel.state"; userspace stock; }  # a benign stock start, zero_k=on
+CASE="a derived MAC never replaces a stock-format file (finding 6)"
+install_device
+rm -f "$R/sys/class/net/wlan0/address"; echo "[    1.234] sunxi-chipid: serial: 0123456789" > "$T/dmesg.txt"
+stock_start; expect_armed
+[ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:60:38:9a:91" ] && ok || bad "stock-format MAC file replaced by the derived one"
+CASE="a derived MAC fills a missing or non-stock file (finding 6)"
+rm -f "$R/etc/wifi/xr_wifi.conf"; stock_start; expect_armed
+[ "$(cat "$R/etc/wifi/xr_wifi.conf" 2>/dev/null)" = "dc:44:74:56:78:91" ] && ok || bad "derived MAC not written to a missing file"
+echo "02:1a:2b:3c:4d:5e" > "$R/etc/wifi/xr_wifi.conf"; stock_start; expect_armed
+[ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:74:56:78:91" ] && ok || bad "derived MAC did not replace a non-stock file"
+CASE="a live MAC still replaces a different stock-format file (finding 6)"
+echo "DC:44:60:57:7F:91" > "$R/sys/class/net/wlan0/address"; stock_start; expect_armed
+[ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:60:57:7f:91" ] && ok || bad "live MAC did not win"
+: > "$T/dmesg.txt"; echo "DC:44:60:38:9A:91" > "$R/sys/class/net/wlan0/address"
+
+CASE="the zero-side re-arm re-hashes recovery: an older image of ours is rewritten (finding 7)"
+fresh_device; mkpayload ship9 G; cp "$IMGPATH" "$T/old.img"; mkpayload ship10 H
+boot; expect_kernel stock; expect_armed; boot; expect_kernel zero; expect_armed; clean_off
+# recovery changed after this power-on loaded it: it holds the older (listed) image, the env says ship10
+$REALDD if="$T/old.img" of="$R/dev/mmcblk0p8" conv=notrunc 2>/dev/null
+boot; expect_kernel zero; expect_stock; expect_state menu; expect_env zero_k_fail ""
+grep -q "not re-armed: recovery is 'ours:ship9-" "$ZD/log.txt" && ok || bad "rehash log line"
+boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed; expect_rec "$IMGMD5"
+boot; expect_kernel zero; expect_armed; expect_state zarmed; clean_off
+CASE="the zero-side re-arm needs the recovery partition it booted from (finding 7)"
+rm -f "$R/dev/by-name/recovery"; ln -s ../mmcblk0p9 "$R/dev/by-name/recovery"
+boot; expect_kernel zero; expect_stock; expect_state menu; expect_env zero_k_fail ""
+grep -q "not re-armed: no 16 MiB recovery partition" "$ZD/log.txt" && ok || bad "rec_dev log line"
+rm -f "$R/dev/by-name/recovery"; ln -s ../mmcblk0p8 "$R/dev/by-name/recovery"
+CASE="the zero-side re-arm re-hashes recovery: foreign bytes are never armed or written (finding 7)"
+install_device; boot; expect_kernel zero; clean_off
+printf 'XXXXXXXX' | $REALDD of="$R/dev/mmcblk0p8" bs=1 seek=4096 conv=notrunc 2>/dev/null; H=$(md5 "$R/dev/mmcblk0p8")
+boot; expect_kernel zero; expect_stock; expect_state menu
+boot; expect_kernel stock; expect_stock; expect_file "$ZD/skip-$SERIAL-ship2"
+[ "$(md5 "$R/dev/mmcblk0p8")" = "$H" ] && ok || bad "foreign recovery overwritten"
 
 echo "zerokernel harness: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

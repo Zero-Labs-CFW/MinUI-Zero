@@ -23,7 +23,7 @@ _zo=; read -r _zo < /proc/sys/kernel/osrelease
 if [ "$_zo" = 4.9.191-zero ] && read -r _zw _zi _zn 2>/dev/null < /etc/zero-kernel.state; then
 	case "$_zw" in
 	zarmed) if [ -f /tmp/zero-armed ]; then _zw=zclean; _zn=0; else _zw=menu; fi ;;  # re-armed by THIS boot, or left over
-	armed|zclean) _zw=menu ;;  # this boot ran userspace far enough to stop in order: not a kernel failure
+	armed|zclean|health) _zw=menu ;;  # this boot ran userspace far enough to stop in order: not a kernel failure
 	esac
 	echo "$_zw $_zi $_zn" > /etc/zero-kernel.state
 fi

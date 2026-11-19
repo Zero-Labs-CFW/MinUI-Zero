@@ -155,11 +155,14 @@ setenv_checked() {
 # ---- boot-progress state on the overlay: "<word> <image id> <unclean count>" ----
 #   armed   armed from the stock path (install, update, retry)
 #   menu    a zero boot reached the menu (launch.sh's menu loop), not re-armed (yet)
+#   health  a zero boot is in its health check or the re-arm right after it: a hang or crash here (a black
+#           screen held off, critique-release-prep finding 3) is counted like armed. An orderly stop (bin/shutdown,
+#           K01zeroclean) turns it into menu.
 #   zarmed  a zero boot re-armed; the session is running
 #   zclean  that zero session powered off cleanly (bin/shutdown writes it)
 #   bad     a zero boot reached the menu but failed health (already counted in zero_k_fail)
 # On a stock boot with zero_k=on, menu/bad = benign (the zero boot got that far); anything else = the zero boot
-# never reached the menu, which is the failure the fallback exists for (critique H2).
+# never reached the menu or hung in its health check, which is the failure the fallback exists for (critique H2).
 st_read() { ST_W=; ST_I=; ST_N=0; read -r ST_W ST_I ST_N 2>/dev/null < "$STATE"; case "$ST_N" in ''|*[!0-9]*) ST_N=0 ;; esac; }
 st_write() { printf '%s %s %s\n' "$1" "${IMG_ID:-none}" "${2:-0}" > "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE" && sync; }
 
@@ -258,8 +261,12 @@ overlay_current() { ov_v=; read -r ov_v 2>/dev/null < "$R$ZDIR/VERSION"; [ -n "$
 
 capture_mac() { # fixes/mac/capture-stock-mac.sh, stock kernel only. Format-checked, and never kept over a live stock MAC.
 	cm_conf="$R/etc/wifi/xr_wifi.conf"
+	cm_old=; read -r cm_old 2>/dev/null < "$cm_conf"
 	cm_mac=$(cat "$R/sys/class/net/wlan0/address" 2>/dev/null | tr 'A-F' 'a-f')
 	if [ -z "$cm_mac" ]; then
+		# no live MAC: a file already in the stock format stays. The dmesg formula is unverified on these
+		# firmwares, so it only fills a missing or non-stock file, never replaces a good one (critique-release-prep 6)
+		case "$cm_old" in dc:44:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) return 0 ;; esac
 		cm_s=$(dmesg | sed -n 's/.*serial: \([0-9A-Fa-f]\{10\}\).*/\1/p' | tail -n 1)
 		if [ -n "$cm_s" ]; then
 			cm_x=$(( 0x${cm_s#??} )); cm_v=$(( (cm_x << 4) & 0xffffffff ))
@@ -267,10 +274,9 @@ capture_mac() { # fixes/mac/capture-stock-mac.sh, stock kernel only. Format-chec
 				$(( (cm_v >> 8) & 0xff )) $(( (cm_v + 1) & 0xff )))
 		fi
 	fi
-	cm_old=; read -r cm_old 2>/dev/null < "$cm_conf"
 	case "$cm_mac" in
 	dc:44:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) ;;
-	*)  # nothing live: keep an existing file only if it has the stock format (a random MAC our driver saved does not)
+	*)  # nothing usable: keep an existing file only if it has the stock format (a random MAC our driver saved does not)
 		case "$cm_old" in dc:44:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) return 0 ;; esac
 		return 1 ;;
 	esac
@@ -502,6 +508,9 @@ case "$osr" in
 	fi
 	uv_armed && { log "deferred: Optimize CPU calibration armed"; exit 0; }
 	allow_ok || { log "not re-armed: $why"; exit 0; }
+	# from here to the re-arm, a hang or crash is counted on the next (stock) boot; every exit short of the
+	# re-arm writes menu again (critique-release-prep finding 3)
+	st_write health "$un"
 	if ! health; then
 		zfail=$((zfail + 1)); st_write bad "$un"
 		log "unhealthy ($why): attempt $zfail of $MAXFAIL, next power-on is stock"
@@ -511,8 +520,14 @@ case "$osr" in
 	fi
 	# a new release on the card: the stock boot that follows does the update (critique M2: never swap modules
 	# under a running kernel of another build)
-	if [ "$zimg" != "$IMG_ID" ] || ! overlay_current; then log "release $REL on the card, running $zimg: next boot (stock) updates"; exit 0; fi
-	arm zarmed "$un" "zero_k_fail|" || exit 0
+	if [ "$zimg" != "$IMG_ID" ] || ! overlay_current; then log "release $REL on the card, running $zimg: next boot (stock) updates"; st_write menu "$un"; exit 0; fi
+	# the next power-on boots whatever recovery holds now: re-hash it, as the stock path does before its arm
+	# (critique-release-prep finding 7). Not a kernel fault: the stock boot that follows rewrites an image of ours
+	# and skips anything else, as on any stock start.
+	if ! rec_dev; then log "not re-armed: no 16 MiB recovery partition"; st_write menu "$un"; exit 0; fi
+	rec_kind
+	[ "$REC_KIND" = "ours:$IMG_ID" ] || { log "not re-armed: recovery is '$REC_KIND', not $IMG_ID (the next boot is stock)"; st_write menu "$un"; exit 0; }
+	arm zarmed "$un" "zero_k_fail|" || { st_write menu "$un"; exit 0; }
 	;;
 4.9.191)
 	rec_dev || { log "skip: no 16 MiB recovery partition"; mark "$DIR/skip-$serial-$REL"; exit 0; }
