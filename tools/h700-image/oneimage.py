@@ -11,8 +11,13 @@ For each board writes <out-dir>/<board>/:
   device.tar.gz   its /opt/muos/device overlay (the Plus's is taken from the rootfs inside the docker step)
 tools/h700-strip/boardpick.sh installs these on the device. Board inputs and rules are the per-board build's
 (build-h700-stripped.sh): one muOS commit per board for kernel + package, LPDDR3 boot0 where required.
+The package, boot0 and kernel are staged in their FAST form (fastboot.py, boot speed 2026-11-04): gzip kernel and the
+U-Boot selector that reads it, no initramfs, quiet serial in boot0/U-Boot/kernel. The image's own first boot set (the
+Plus files under the universal boot0, until a model is picked) stays stock.
 """
 import gzip, hashlib, os, struct, subprocess, sys, tarfile
+
+import fastboot
 
 PKG_OFF, PKG_LEN = 16793600, 1310720
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -64,7 +69,7 @@ def main(assets, base, out):
                        stdout=subprocess.DEVNULL)
         with open(chain, 'rb') as f:
             f.seek(PKG_OFF)
-            open(os.path.join(d, 'package.fex'), 'wb').write(f.read(PKG_LEN))
+            open(os.path.join(d, 'package.fex'), 'wb').write(fastboot.package(f.read(PKG_LEN)))
         os.remove(chain)
 
         own = os.path.join(assets, 'parts-' + b, 'boot0.img')
@@ -74,12 +79,12 @@ def main(assets, base, out):
             assert b in OWN_BOOT0_OPTIONAL, b + ' has no boot0 of its own'
             b0 = base_boot0
         boot0_ok(b0, b in LPDDR3)
-        open(os.path.join(d, 'boot0.img'), 'wb').write(b0)
+        open(os.path.join(d, 'boot0.img'), 'wb').write(fastboot.boot0(b0))
 
         kpath = os.path.join(assets, 'parts' if b == 'rg35xx-plus' else 'parts-' + b, 'p4-kernel.img.gz')
         assert os.path.isfile(kpath), b + ' has no kernel at ' + kpath
         k = gzip.open(kpath).read()
-        k = k[:bootimg_len(k)]
+        k = fastboot.bootimg(k[:bootimg_len(k)])
         kname = hashlib.sha256(k).hexdigest()[:16] + '.img.gz'
         os.makedirs(os.path.join(out, 'kernels'), exist_ok=True)
         kfile = os.path.join(out, 'kernels', kname)

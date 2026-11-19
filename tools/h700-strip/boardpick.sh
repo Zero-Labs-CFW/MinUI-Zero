@@ -25,6 +25,9 @@ log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 
 [ -f "$CHOSEN" ] && exit 0
 [ -d "$B" ] || exit 0  # a single-board image: nothing to pick
+. /opt/minui-zero/spl-lock.sh || exit 1
+spl_lock_acquire /run/zero-spl-busy || exit 1
+[ ! -e /run/zero-spl-sleep ] && [ ! -e /opt/minui-zero/.spl-sleep-swapped ] || exit 1
 # install swaps the device files with two renames; a power cut between them leaves no /opt/muos/device. The new
 # set was unpacked whole before the first rename, so it is the one to finish with (else the old one).
 if [ ! -d /opt/muos/device ]; then
@@ -62,11 +65,17 @@ check_layout() {
 # complete install, so it never returns: a reboot that has not happened in 30 s must not fall through into the
 # caller's failure branch (that would roll back a good install). Exit 0 instead and let the menu start; the next
 # boot comes up on what was installed.
+#   The CPU goes to its top step first, so the rail is at full voltage when the reset comes: stock boot0 raises the CPU
+# clock before it sets the rail, and a warm reset keeps the rail, at 0.9 V when Linux was idle (reboot hangs, dark, on
+# the H and the Plus, 2026-11-06). Before the forced reboot, the SoC watchdog (8 s) too, so a reset that never comes
+# restarts late instead of leaving a dark screen. Not before halt.sh: its clean shutdown can take longer than that.
 restart() {
+	echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
 	sync
 	/opt/muos/script/system/halt.sh reboot 2>/dev/null
 	# halt.sh returned (or is missing): leave the card clean before the forced reboot, as power_off does
 	cd /; mount -o remount,ro /mnt/mmc 2>/dev/null
+	busybox devmem 0x030090b4 32 1; busybox devmem 0x030090b8 32 0x71; busybox devmem 0x030090b0 32 0x14af
 	reboot -f
 	sleep 30
 	mount -o remount,rw /mnt/mmc 2>/dev/null  # the menu needs the card writable
@@ -85,6 +94,7 @@ same() {
 
 # write <file> <device> <sector>: write, flush, drop the cache, read back and compare
 write() {
+	_spl_lock_dirty=1
 	dd if="$1" of="$2" bs=512 seek="$3" conv=notrunc 2>>"$LOG" || return 1
 	sync; echo 3 > /proc/sys/vm/drop_caches
 	same "$@" || { log "readback mismatch writing $1 to $2 at $3"; return 1; }

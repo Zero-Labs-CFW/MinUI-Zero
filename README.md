@@ -63,7 +63,7 @@ We don't build or tune these cores ourselves, but Zero's governor still runs the
 |---|---|---|
 | TrimUI Brick / Brick Pro / Smart Pro | `MinUI-Zero-trimui-*.zip` | copy onto the card |
 | Miyoo Mini / Plus / Flip | `MinUI-Zero-miyoo-*.zip` | copy onto the card |
-| Anbernic RG35XX Plus / 2024 / H / Pro / SP, RG40XX H / V, RG34XX / SP, RG SP, RG CubeXX, RG28XX | `MinUI-Zero-h700-*-all.img.xz` to install, `MinUI-Zero-h700-*-update.zip` to update | flash the card once, then copy onto the card |
+| Anbernic RG35XX Plus / 2024 / H / Pro / SP, RG40XX H / V, RG34XX / SP, RG SP, RG CubeXX, RG28XX | `MinUI-Zero-anbernic-h700-*.img.xz` to install, `MinUI-Zero-anbernic-h700-*-update.zip` to update | flash the card once, then copy onto the card |
 
 **TrimUI and Miyoo** ride along with the stock firmware, nothing is erased: unzip onto a blank FAT32 card, or drop `MinUI.zip` on the card root to update. On TrimUI, Zero also changes two boot settings on the device, which make it start about 3 to 4 seconds sooner: a quiet boot log and no wait for factory key programming. They stay if you remove Zero, and they're harmless on stock. To undo them, put `restore-boot-env.txt` on the card root and boot once. Doing that before the first boot keeps them from ever being set.
 
