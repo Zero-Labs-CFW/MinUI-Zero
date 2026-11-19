@@ -13,7 +13,9 @@ HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/../../.." && pwd)
 SCRIPT="${ZK_SCRIPT:-$ROOT/skeleton/SYSTEM/tg5040/bin/zerokernel.sh}"   # ZK_SCRIPT: run a mutant (harness self-check)
 SHUTDOWN="$ROOT/skeleton/SYSTEM/tg5040/bin/shutdown"
-KCLEAN="$ROOT/workspace/tg5040/zerokernel/K01zeroclean"
+KCLEAN="$ROOT/workspace/tg5040/zerokernel/K01zero"   # the real script /usr/lib/zero/rc/K01zero
+STUB="$ROOT/workspace/tg5040/zerokernel/rc-stub"     # /etc/rc.d/S01zero and /etc/rc.d/K01zero
+S01="$ROOT/workspace/tg5040/zerokernel/S01zero"
 
 if [ "${1:-}" != --inner ]; then
 	if command -v docker >/dev/null 2>&1 && docker image inspect busybox:1.36 >/dev/null 2>&1; then
@@ -40,6 +42,22 @@ PASS=0; FAIL=0
 
 if command -v busybox >/dev/null 2>&1; then REALDD="busybox dd"; else REALDD=/bin/dd; fi
 md5() { md5sum "$1" 2>/dev/null | cut -d' ' -f1; }
+# A fake stock procd: 353,800 B like the Brick's, with the Brick's bytes at the five patch sites (mk-zprocd.py), and
+# what the patch must turn it into, written out here independently of zerokernel.sh's table. $1 = file, $2 = text.
+mkprocd() {
+	$REALDD if=/dev/zero of="$1" bs=353800 count=1 2>/dev/null
+	printf '%s' "$2" | $REALDD of="$1" conv=notrunc 2>/dev/null
+	for o in 47324 45848 23736 23520; do printf 'A\006\200R' | $REALDD of="$1" bs=1 seek=$o conv=notrunc 2>/dev/null; done
+	printf 'udevtrigger\000' | $REALDD of="$1" bs=1 seek=54067 conv=notrunc 2>/dev/null
+}
+patched_procd() { # $1 = stock copy in, $2 = out
+	cp "$1" "$2"
+	printf 'A\000\200R' | $REALDD of="$2" bs=1 seek=47324 conv=notrunc 2>/dev/null
+	printf 'A\000\200R' | $REALDD of="$2" bs=1 seek=45848 conv=notrunc 2>/dev/null
+	printf 'A\001\200R' | $REALDD of="$2" bs=1 seek=23736 conv=notrunc 2>/dev/null
+	printf '\241\000\200R' | $REALDD of="$2" bs=1 seek=23520 conv=notrunc 2>/dev/null
+	printf '/bin/true\000\000\000' | $REALDD of="$2" bs=1 seek=54067 conv=notrunc 2>/dev/null
+}
 
 # ---------------- fakes on PATH ----------------
 mkdir -p "$BIN"
@@ -101,15 +119,15 @@ export PATH="$BIN:$PATH"
 # ---------------- fake payload (small image, a few overlay files) ----------------
 mkpayload() { # $1 = release id, $2 = image seed
 	P="$SYSTEM_PATH/kernel"; rm -rf "$P"; mkdir -p "$P/root/lib/modules/4.9.191-zero" "$P/root/usr/lib/zero/gpu/lib" \
-		"$P/root/usr/lib/zero/gpu/firmware" "$P/root/etc/rc.d" "$P/root/etc/modules.d"
+		"$P/root/usr/lib/zero/gpu/firmware" "$P/root/etc/rc.d" "$P/root/usr/lib/zero/rc" "$P/root/usr/lib/zero/modules.d"
 	{ printf 'ANDROID!'; i=0; while [ $i -lt 2000 ]; do echo "$2 kernel block $i"; i=$((i + 1)); done; } > "$P/zero-recovery.img"
 	echo "pvr $1" > "$P/root/lib/modules/4.9.191-zero/pvrsrvkm.ko"
 	echo "xr $1" > "$P/root/lib/modules/4.9.191-zero/xr829_core.ko"
-	printf 'xr829_mac\nxr829_core\nxr829_wlan\n' > "$P/root/etc/modules.d/zero-xr829"
+	printf 'xr829_mac\nxr829_core\nxr829_wlan\n' > "$P/root/usr/lib/zero/modules.d/zero-xr829"
 	echo "srv $1" > "$P/root/usr/lib/zero/gpu/lib/libsrv_um.so"
 	echo "fw $1" > "$P/root/usr/lib/zero/gpu/firmware/rgx.fw.22.102.54.38"
-	echo "procd $1" > "$P/root/usr/lib/zero/procd"
-	echo "#!/bin/sh" > "$P/root/etc/rc.d/S01zerogpu"; cp "$KCLEAN" "$P/root/etc/rc.d/K01zeroclean"
+	for f in S01zero K01zero; do cp "$STUB" "$P/root/etc/rc.d/$f"; done   # procd is made on the device, never shipped
+	cp "$S01" "$P/root/usr/lib/zero/rc/S01zero"; cp "$KCLEAN" "$P/root/usr/lib/zero/rc/K01zero"
 	echo "$1" > "$P/root/usr/lib/zero/VERSION"; echo "$1" > "$P/VERSION"
 	( cd "$P/root" && find . -type f ! -path ./usr/lib/zero/VERSION | sort | while read -r p; do echo "$(md5 "$p")  ${p#.}"; done
 	  echo "$(md5 ./usr/lib/zero/VERSION)  /usr/lib/zero/VERSION" ) > "$P/manifest.md5"
@@ -139,7 +157,7 @@ fresh_device() {
 	echo 32768 > "$R/sys/class/block/mmcblk0p8/size"
 	STOCKREC=$(md5 "$R/dev/mmcblk0p8")
 	printf 'otm1289a\000' > "$R/proc/device-tree/soc@03000000/lcd0@01c0c000/lcd_driver_name"
-	echo "stock procd 2025-11-25" > "$R/sbin/procd"
+	mkprocd "$R/sbin/procd" "stock procd 2025-11-25"
 	echo 80 > "$R/sys/class/power_supply/axp2202-battery/capacity"; echo 0 > "$R/sys/class/power_supply/axp2202-usb/online"
 	echo "DC:44:60:38:9A:91" > "$R/sys/class/net/wlan0/address"
 	: > "$R/proc/sys/vm/drop_caches"
@@ -156,8 +174,10 @@ EOF
 	UBOOT='2018.05(10/26/2025-11:56:42)'; LCD=jd9168
 	mkpayload ship2 A
 	# the real script, with every allowlist rootfs fingerprint pointed at the fake procd
-	FP=$(md5 "$R/sbin/procd")
-	sed "s/48214f500f9d8061e2966228263b054d/$FP/; s/d2e5cca321ff95589de6f2ac0e24918c/$FP/; s/1c6b94986901b124f3ca0a9752351b06/$FP/" "$SCRIPT" > "$T/zk.sh"
+	FP=$(md5 "$R/sbin/procd"); patched_procd "$R/sbin/procd" "$T/procd.want"; PFP=$(md5 "$T/procd.want")
+	# (the procd patch list too, so every model's fake procd is one we patch; a case below takes it off the list)
+	sed "s/48214f500f9d8061e2966228263b054d/$FP/; s/d2e5cca321ff95589de6f2ac0e24918c/$FP/; s/1c6b94986901b124f3ca0a9752351b06/$FP/
+		s/ee0dae427ece54ac8c58c072e4e40a02/$PFP/" "$SCRIPT" > "$T/zk.sh"
 }
 envv() { sed -n "s/^$1=//p" "$T/env.txt"; }
 envhas_t() { grep -q "^$1=" "$T/env.txt"; }
@@ -220,8 +240,8 @@ userspace() {
 	unset ZK_CUT_SETENV ZK_CUT_DD
 	return 0
 }
-zblock() { # the Zero lines of bin/shutdown or K01zeroclean, against the fake root
-	sed -n '/^_zo=/,/^fi$/p' "$1" | sed "s|/proc/|$R/proc/|g; s|/etc/|$R/etc/|g; s|/tmp/|$R/tmp/|g" > "$T/zb.sh"; sh "$T/zb.sh"
+zblock() { # the Zero lines of bin/shutdown or K01zero, against the fake root
+	sed -n '/^_zo=/,/^fi$/p' "$1" | sed "s|/proc/|$R/proc/|g; s|/usr/lib/zero/|$R/usr/lib/zero/|g; s|/tmp/|$R/tmp/|g" > "$T/zb.sh"; sh "$T/zb.sh"
 }
 clean_off() { zblock "$SHUTDOWN"; }   # menu power-off (PMIC cut, rc.d K* never runs)
 reboot_k() { zblock "$KCLEAN"; }      # orderly reboot: procd runs /etc/rc.d/K* (File Transfer, update, dev)
@@ -241,7 +261,7 @@ expect_env() { [ "$(envv "$1")" = "$2" ] && { [ -n "$2" ] || ! envhas_t "$1"; } 
 expect_kernel() { [ "$KERNEL" = "$1" ] && ok || bad "kernel $KERNEL want $1"; }
 expect_file() { [ -e "$1" ] && ok || bad "missing $1"; }
 expect_nofile() { [ ! -e "$1" ] && ok || bad "unexpected $1"; }
-expect_state() { st=$(cut -d' ' -f1 "$R/etc/zero-kernel.state" 2>/dev/null); [ "$st" = "$1" ] && ok || bad "state '$st' want '$1'"; }
+expect_state() { st=$(cut -d' ' -f1 "$R/usr/lib/zero/state" 2>/dev/null); [ "$st" = "$1" ] && ok || bad "state '$st' want '$1'"; }
 expect_rec() { [ "$($REALDD if="$R/dev/mmcblk0p8" bs="$IMGN" count=1 2>/dev/null | md5sum | cut -d' ' -f1)" = "$1" ] && ok || bad "recovery head is not $1"; }
 expect_armed() { expect_env bootcmd "$ARMED"; expect_env zero_once "$ONCE"; expect_env boot_partition boot; }
 expect_stock() { expect_env bootcmd "$STOCKBC"; expect_env boot_partition boot; }
@@ -253,9 +273,10 @@ install_device
 expect_kernel stock; expect_armed; expect_env zero_k on; expect_env zero_k_img "ship2-$(echo "$IMGMD5" | cut -c1-8)"
 expect_rec "$IMGMD5"; expect_state armed
 expect_file "$ZD/recovery-orig-$SERIAL.bin"; [ "$(cat "$ZD/recovery-orig-$SERIAL.bin.md5")" = "$STOCKREC" ] && ok || bad "backup md5"
-expect_file "$R/usr/lib/zero/procd"; expect_file "$R/usr/lib/zero/VERSION"; expect_file "$R/etc/rc.d/S01zerogpu"
+expect_file "$R/usr/lib/zero/procd"; expect_file "$R/usr/lib/zero/VERSION"; expect_file "$R/etc/rc.d/S01zero"
 [ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:60:38:9a:91" ] && ok || bad "MAC file"
-[ -x "$R/etc/rc.d/S01zerogpu" ] && [ -x "$R/etc/rc.d/K01zeroclean" ] && ok || bad "rc.d not executable"
+[ -x "$R/etc/rc.d/S01zero" ] && [ -x "$R/etc/rc.d/K01zero" ] && [ -x "$R/usr/lib/zero/rc/S01zero" ] && [ -x "$R/usr/lib/zero/rc/K01zero" ] \
+	&& ok || bad "rc scripts not executable"
 expect_nofile "$R/usr/lib/zero/.stage"; ls "$R"/etc/rc.d/*.zk-new >/dev/null 2>&1 && bad "zk-new left in rc.d" || ok
 expect_nofile "$ZD/recovery-orig-$SERIAL.bin.tmp"
 
@@ -306,7 +327,7 @@ install_device; boot; clean_off
 expect_kernel zero; expect_stock; expect_env zero_once ""; expect_env zero_k off; expect_env zero_k_img ""
 [ "$(md5 "$R/dev/mmcblk0p8")" = "$STOCKREC" ] && ok || bad "recovery not restored"
 expect_nofile "$R/usr/lib/zero"; expect_nofile "$R/lib/modules/4.9.191-zero"; expect_nofile "$R/etc/zero-kernel.state"
-expect_nofile "$R/etc/rc.d/K01zeroclean"; expect_nofile "$R/etc/rc.d/S01zerogpu"
+expect_nofile "$R/etc/rc.d/K01zero"; expect_nofile "$R/etc/rc.d/S01zero"
 expect_file "$ZD/off-$SERIAL"
 for i in 1 2 3; do boot; expect_kernel stock; [ "$SPAWNED" = 0 ] && ok || bad "spawned after undo"; done
 CASE="undo without a card backup (Brick regenerates the stock content)"
@@ -392,7 +413,7 @@ fresh_device; printf 'SOMEOTHEROS' | $REALDD of="$R/dev/mmcblk0p8" conv=notrunc 
 boot; expect_stock; [ "$(md5 "$R/dev/mmcblk0p8")" = "$H" ] && ok || bad "foreign recovery overwritten"
 
 
-CASE="orderly reboots are not unclean sessions (K01zeroclean, H3)"
+CASE="orderly reboots are not unclean sessions (K01zero, H3)"
 install_device
 for i in 1 2 3 4; do boot; expect_kernel zero; expect_armed; reboot_k; expect_state zclean; done
 expect_env zero_k on; expect_nofile "$CARD/zero-kernel-FAILED.txt"
@@ -502,7 +523,7 @@ boot; expect_kernel zero; expect_stock       # the wiped overlay is not current:
 boot; expect_kernel stock; expect_armed
 [ "$(cat "$R/etc/wifi/xr_wifi.conf" 2>/dev/null)" = "dc:44:60:57:7f:91" ] && ok || bad "MAC file not rewritten"
 CASE="no live MAC on a re-arm is not a gate"
-setenv_raw bootcmd "$STOCKBC"; echo "menu x 0" > "$R/etc/zero-kernel.state"   # a benign stock start, zero_k=on
+setenv_raw bootcmd "$STOCKBC"; echo "menu x 0" > "$R/usr/lib/zero/state"   # a benign stock start, zero_k=on
 rm -f "$R/sys/class/net/wlan0/address"; : > "$T/dmesg.txt"; userspace stock
 expect_armed; [ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:60:57:7f:91" ] && ok || bad "MAC file changed"
 echo "DC:44:60:38:9A:91" > "$R/sys/class/net/wlan0/address"
@@ -537,7 +558,7 @@ boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed
 boot gles; expect_kernel zero; expect_armed; expect_state zarmed
 export TRIMUI_MODEL="Trimui Brick"
 
-stock_start() { setenv_raw bootcmd "$STOCKBC"; echo "menu x 0" > "$R/etc/zero-kernel.state"; userspace stock; }  # a benign stock start, zero_k=on
+stock_start() { setenv_raw bootcmd "$STOCKBC"; echo "menu x 0" > "$R/usr/lib/zero/state"; userspace stock; }  # a benign stock start, zero_k=on
 CASE="a derived MAC never replaces a stock-format file (finding 6)"
 install_device
 rm -f "$R/sys/class/net/wlan0/address"; echo "[    1.234] sunxi-chipid: serial: 0123456789" > "$T/dmesg.txt"
@@ -573,6 +594,123 @@ printf 'XXXXXXXX' | $REALDD of="$R/dev/mmcblk0p8" bs=1 seek=4096 conv=notrunc 2>
 boot; expect_kernel zero; expect_stock; expect_state menu
 boot; expect_kernel stock; expect_stock; expect_file "$ZD/skip-$SERIAL-ship2"
 [ "$(md5 "$R/dev/mmcblk0p8")" = "$H" ] && ok || bad "foreign recovery overwritten"
+
+# ---------------- namespace (Dan, 2026-11-19): only files Zero adds, all under /usr/lib/zero but the exceptions ----------------
+listfiles() { ( cd "$R" && find . -type f ! -path './tmp/*' ! -path './proc/*' | sort ) > "$1"; }
+OUTSIDE='-e ^\./usr/lib/zero/ -e ^\./lib/modules/4\.9\.191-zero/ -e ^\./etc/rc\.d/S01zero$ -e ^\./etc/rc\.d/K01zero$ -e ^\./etc/wifi/xr_wifi\.conf$'
+CASE="layout: Zero adds files only under /usr/lib/zero, plus the module directory, two rc.d stubs and the MAC file"
+fresh_device; listfiles "$T/files.before"; boot; expect_armed; listfiles "$T/files.after"
+NEW=$(comm -13 "$T/files.before" "$T/files.after" | grep -v $OUTSIDE)
+[ -z "$NEW" ] && ok || bad "files outside the namespace: $(echo $NEW)"
+[ "$(md5 "$R/sbin/procd")" = "$FP" ] && ok || bad "stock /sbin/procd changed"
+cmp -s "$R/etc/rc.d/S01zero" "$STUB" && cmp -s "$R/etc/rc.d/K01zero" "$STUB" && ok || bad "rc.d entries are not the stub"
+for f in procd state VERSION rc/S01zero rc/K01zero modules.d/zero-xr829; do expect_file "$R/usr/lib/zero/$f"; done
+[ "$(md5 "$R/usr/lib/zero/procd")" = "$PFP" ] && ok || bad "patched procd md5"
+[ -x "$R/usr/lib/zero/procd" ] && ok || bad "patched procd not executable"
+expect_nofile "$R/usr/lib/zero/procd.tmp"; expect_nofile "$R/etc/zero-kernel.state"
+grep -q procd "$SYSTEM_PATH/kernel/manifest.md5" && bad "the payload ships a procd" || ok
+grep -q "procd: patched copy written ($PFP)" "$ZD/log.txt" && ok || bad "procd log line"
+boot; expect_kernel zero; expect_armed; expect_state zarmed
+
+CASE="layout: an update keeps the state and the patched procd (made on the device, not in the manifest)"
+clean_off; mkpayload ship3 J; boot; expect_kernel zero; expect_state menu
+boot; expect_kernel stock; expect_armed; expect_env zero_k_fail ""
+[ "$(md5 "$R/usr/lib/zero/procd")" = "$PFP" ] && ok || bad "procd lost in the update"
+[ "$(cat "$R/usr/lib/zero/VERSION")" = ship3 ] && ok || bad "overlay VERSION"
+
+# what ship10 leaves on a device: state, stubs and module list outside /usr/lib/zero, procd shipped
+old_layout() {
+	mkdir -p "$R/etc/rc.d" "$R/etc/modules.d"
+	echo '#!/bin/sh' > "$R/etc/rc.d/S01zerogpu"; echo '#!/bin/sh' > "$R/etc/rc.d/K01zeroclean"
+	printf 'xr829_mac\nxr829_core\nxr829_wlan\n' > "$R/etc/modules.d/zero-xr829"
+	[ -f "$R/usr/lib/zero/state" ] && mv "$R/usr/lib/zero/state" "$R/etc/zero-kernel.state"
+	rm -rf "$R/usr/lib/zero/rc" "$R/usr/lib/zero/modules.d" "$R/etc/rc.d/S01zero" "$R/etc/rc.d/K01zero"
+}
+expect_old_gone() {
+	for f in /etc/rc.d/S01zerogpu /etc/rc.d/K01zeroclean /etc/modules.d/zero-xr829 /etc/zero-kernel.state; do expect_nofile "$R$f"; done
+}
+CASE="migration: a ship10 layout ends with only the new one after the update"
+install_device; boot; expect_kernel zero; clean_off; expect_state zclean
+old_layout; mkpayload ship3 K
+boot; expect_kernel zero; expect_stock; expect_state menu; expect_nofile "$R/etc/zero-kernel.state"
+boot; expect_kernel stock; expect_armed; expect_env zero_k_fail ""; expect_old_gone
+for f in /etc/rc.d/S01zero /etc/rc.d/K01zero /usr/lib/zero/rc/S01zero /usr/lib/zero/rc/K01zero /usr/lib/zero/modules.d/zero-xr829; do
+	expect_file "$R$f"; done
+boot; expect_kernel zero; expect_armed; expect_state zarmed; reboot_k; expect_state zclean
+CASE="migration: the ship10 state word still counts (a zero boot that never reached the menu)"
+install_device; boot nocard; expect_kernel zero; expect_stock   # state stays armed: MinUI never ran
+old_layout; [ "$(cut -d' ' -f1 "$R/etc/zero-kernel.state")" = armed ] && ok || bad "test setup: old state"
+boot; expect_kernel stock; expect_env zero_k_fail 1; expect_armed; expect_nofile "$R/etc/zero-kernel.state"
+CASE="migration: a benign ship10 state on a stock start is not counted"
+install_device; boot; clean_off; setenv_raw bootcmd "$STOCKBC"; old_layout; echo "menu x 0" > "$R/etc/zero-kernel.state"
+userspace stock; expect_armed; expect_env zero_k_fail ""; expect_state armed; expect_nofile "$R/etc/zero-kernel.state"
+
+CASE="undo removes both layouts and leaves the device as it was"
+fresh_device; listfiles "$T/files.before"; boot; boot; clean_off
+old_layout; echo "menu x 0" > "$R/etc/zero-kernel.state"; mkdir -p "$R/usr/lib/zero/rc"; cp "$KCLEAN" "$R/usr/lib/zero/rc/K01zero"
+for f in S01zero K01zero; do cp "$STUB" "$R/etc/rc.d/$f"; done
+: > "$CARD/restore-boot-env.txt"; boot
+expect_stock; expect_env zero_k off; [ "$(md5 "$R/dev/mmcblk0p8")" = "$STOCKREC" ] && ok || bad "recovery not restored"
+listfiles "$T/files.after"; cmp -s "$T/files.before" "$T/files.after" && ok || bad "files differ from before the install: $(comm -3 "$T/files.before" "$T/files.after" | tr '\n' ' ')"
+expect_nofile "$R/usr/lib/zero"; expect_nofile "$R/lib/modules/4.9.191-zero"; expect_old_gone
+[ "$(md5 "$R/sbin/procd")" = "$FP" ] && ok || bad "stock /sbin/procd changed"
+CASE="undo of a device that only has the ship10 layout"
+install_device; boot; clean_off; old_layout; : > "$CARD/restore-boot-env.txt"; boot
+expect_stock; expect_env zero_k off; expect_old_gone; expect_nofile "$R/usr/lib/zero"; expect_nofile "$R/etc/rc.d/S01zero"
+
+CASE="procd: a /sbin/procd not on the patch list is never patched, and the kernel still arms (stock procd)"
+fresh_device; sed "s/^$FP|$PFP\$/0123456789abcdef0123456789abcdef|$PFP/" "$T/zk.sh" > "$T/zk.x" && mv "$T/zk.x" "$T/zk.sh"
+grep -q "^0123456789abcdef0123456789abcdef|$PFP\$" "$T/zk.sh" && ok || bad "test setup: patch list not changed"
+boot; expect_armed; expect_nofile "$R/usr/lib/zero/procd"; expect_nofile "$R/usr/lib/zero/procd.tmp"
+grep -q "procd: /sbin/procd is $FP, not one we patch: stock procd runs" "$ZD/log.txt" && ok || bad "refusal log line"
+boot; expect_kernel zero; expect_armed; clean_off
+CASE="procd: a patched copy that does not belong to this /sbin/procd is removed on a stock start"
+cp "$T/procd.want" "$R/usr/lib/zero/procd"; stock_start; expect_armed; expect_nofile "$R/usr/lib/zero/procd"
+grep -q "removed the patched copy" "$ZD/log.txt" && ok || bad "removal log line"
+CASE="procd: a result with the wrong md5 is never installed, and the kernel still arms (stock procd)"
+fresh_device; sed "s/^$FP|$PFP\$/$FP|fedcba9876543210fedcba9876543210/" "$T/zk.sh" > "$T/zk.x" && mv "$T/zk.x" "$T/zk.sh"
+grep -q "^$FP|fedcba9876543210fedcba9876543210\$" "$T/zk.sh" && ok || bad "test setup: result md5 not changed"
+boot; expect_armed; expect_nofile "$R/usr/lib/zero/procd"; expect_nofile "$R/usr/lib/zero/procd.tmp"
+grep -q "procd: patched copy is $PFP, want fedcba9876543210fedcba9876543210: not installed" "$ZD/log.txt" && ok || bad "refusal log line"
+boot; expect_kernel zero; expect_armed
+CASE="procd: made again on a stock start when it is missing or damaged"
+install_device; rm -f "$R/usr/lib/zero/procd"; stock_start; expect_armed
+[ "$(md5 "$R/usr/lib/zero/procd")" = "$PFP" ] && ok || bad "missing procd not made again"
+echo damaged > "$R/usr/lib/zero/procd"; stock_start; expect_armed
+[ "$(md5 "$R/usr/lib/zero/procd")" = "$PFP" ] && ok || bad "damaged procd not replaced"
+CASE="procd: the zero kernel side never writes it"
+boot; expect_kernel zero; expect_armed; rm -f "$R/usr/lib/zero/procd"; clean_off
+boot; expect_kernel zero; expect_armed; expect_nofile "$R/usr/lib/zero/procd"
+
+CASE="rc.d stubs: nothing on the stock kernel, the real script of the same name under ours"
+install_device; mkdir -p "$T/stub"; rm -f "$T/ran"
+for f in S01zero K01zero; do
+	sed "s|/proc/|$R/proc/|g; s|/usr/lib/zero/|$R/usr/lib/zero/|g" "$STUB" > "$T/stub/$f"
+	printf '#!/bin/sh\necho "${0##*/} $*" >> "%s"\n' "$T/ran" > "$R/usr/lib/zero/rc/$f"
+done
+echo 4.9.191 > "$R/proc/sys/kernel/osrelease"
+sh "$T/stub/S01zero" boot && sh "$T/stub/K01zero" shutdown && ok || bad "stub exit status on stock"
+expect_nofile "$T/ran"
+echo 4.9.191-zero > "$R/proc/sys/kernel/osrelease"
+sh "$T/stub/S01zero" boot; sh "$T/stub/K01zero" shutdown
+[ "$(cat "$T/ran" 2>/dev/null | tr '\n' ';')" = "S01zero boot;K01zero shutdown;" ] && ok || bad "stubs ran '$(cat "$T/ran" 2>/dev/null | tr '\n' ';')'"
+rm -f "$R/usr/lib/zero/rc/S01zero" "$T/ran"; sh "$T/stub/S01zero" boot && ok || bad "stub fails without its real script"
+expect_nofile "$T/ran"
+
+CASE="S01zero: nothing on the stock kernel; under ours the GPU backstop and the WiFi list"
+install_device; mkdir -p "$R/usr/lib" "$R/lib/firmware"; : > "$R/usr/lib/libsrv_um.so"; : > "$R/lib/firmware/rgx.fw.22.102.54.38"
+printf '#!/bin/sh\necho "kmodloader $*" >> "%s"\n' "$T/s01.log" > "$R/sbin/kmodloader"; chmod +x "$R/sbin/kmodloader"
+{ printf 'zk_mount() { echo "mount $*" >> "%s"; }\n' "$T/s01.log"
+  sed "s|\$(uname -r)|\$(cat @OSR@)|; s|/usr/lib/|$R/usr/lib/|g; s|/lib/firmware/|$R/lib/firmware/|g
+	s|/proc/|$R/proc/|g; s|/sbin/|$R/sbin/|g; s|mount --bind|zk_mount --bind|g; s|@OSR@|$R/proc/sys/kernel/osrelease|" "$S01"; } > "$T/s01.sh"
+rm -f "$T/s01.log"; echo 4.9.191 > "$R/proc/sys/kernel/osrelease"; : > "$R/proc/mounts"
+sh "$T/s01.sh" boot && ok || bad "S01zero exit status on stock"; expect_nofile "$T/s01.log"
+echo 4.9.191-zero > "$R/proc/sys/kernel/osrelease"; sh "$T/s01.sh" boot
+G="$R/usr/lib/zero/gpu"
+[ "$(cat "$T/s01.log" 2>/dev/null | tr '\n' ';')" = "mount --bind $G/lib/libsrv_um.so $R/usr/lib/libsrv_um.so;mount --bind $G/firmware/rgx.fw.22.102.54.38 $R/lib/firmware/rgx.fw.22.102.54.38;kmodloader $R/usr/lib/zero/modules.d/;" ] \
+	&& ok || bad "S01zero ran '$(cat "$T/s01.log" 2>/dev/null | tr '\n' ';')'"
+rm -f "$T/s01.log"; echo "/dev/x $R/lib/firmware/rgx.fw.22.102.54.38 ext4 rw 0 0" > "$R/proc/mounts"; sh "$T/s01.sh" boot
+[ "$(cat "$T/s01.log" 2>/dev/null)" = "kmodloader $R/usr/lib/zero/modules.d/" ] && ok || bad "zinit's binds already there: S01zero ran '$(cat "$T/s01.log" 2>/dev/null)'"
 
 echo "zerokernel harness: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

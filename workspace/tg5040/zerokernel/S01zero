@@ -1,0 +1,21 @@
+#!/bin/sh
+# Zero kernel (bin/zerokernel.sh), installed as /usr/lib/zero/rc/S01zero and run by the /etc/rc.d/S01zero stub,
+# under 4.9.191-zero only. Bind mounts live only in this boot: the stock kernel always sees the stock files.
+case "$(uname -r)" in *-zero) ;; *) exit 0 ;; esac
+# 1. Backstop for zinit's gpu_binds(): when zinit takes the stock path (manifest mismatch on another firmware build,
+# failsafe, a failed mount) procd runs rc.d without the DDK 1.11 binds, and GLES would be a black screen. Nothing
+# to do when zinit already bound them.
+G=/usr/lib/zero/gpu F=rgx.fw.22.102.54.38
+if [ -f $G/firmware/$F ] && ! grep -q " /lib/firmware/$F " /proc/mounts; then
+	for f in libEGL.so libGLESv2.so libGLES_CM.so libIMGegl.so libsrv_um.so \
+	         libglslcompiler.so libusc.so libpvrNULL_WSEGL.so; do
+		[ -f $G/lib/$f ] && [ -e /usr/lib/$f ] && mount --bind $G/lib/$f /usr/lib/$f
+	done
+	mount --bind $G/firmware/$F /lib/firmware/$F
+fi
+# 2. Our xr829 WiFi driver. Through ship10 this list was /etc/modules.d/zero-xr829, read by the stock kmodloader in
+# S10boot (init.d/boot) on both kernels. The same stock kmodloader, given our list directory (as zinit gives it
+# /etc/modules-boot.d/), loads it the same way (dependencies from /lib/modules/4.9.191-zero, cfg80211 is built in),
+# one rc step earlier. Not yet run on a device in this position.
+[ -d /usr/lib/zero/modules.d ] && /sbin/kmodloader /usr/lib/zero/modules.d/
+exit 0

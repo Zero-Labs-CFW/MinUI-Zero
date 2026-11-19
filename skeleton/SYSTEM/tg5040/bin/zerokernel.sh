@@ -7,6 +7,10 @@
 # overlay. The loader, boot0, monitor, U-Boot and boot_package are never touched, and neither is how the loader
 # hands off (the stock boot_normal + bootm path runs unchanged; only boot_partition differs, in RAM).
 #
+# Overlay files (Dan, 2026-11-19): only files Zero adds, never a changed stock file, and all under /usr/lib/zero,
+# except where something other than Zero's own scripts finds them at a fixed path: the kernel's module directory
+# (MODDIR), the two rc.d stubs procd runs (rc-stub), and the WiFi MAC file our xr829 driver reads (capture_mac).
+#
 # How a power-on works. ARMED env: bootcmd = "run zero_once; setenv boot_partition recovery; run setargs_nand
 # boot_normal". The loader runs zero_once first, which puts the stock bootcmd back and saves the env, then boots
 # recovery. So the env on eMMC is DISARMED before our kernel starts, and any boot that fails before this script
@@ -30,9 +34,14 @@ CMD=$1
 
 REL=; read -r REL 2>/dev/null < "$PAY/VERSION"
 IMG="$PAY/zero-recovery.img"
-MODDIR=/lib/modules/4.9.191-zero
-ZDIR=/usr/lib/zero
-STATE="$R/etc/zero-kernel.state"      # overlay: both kernels see it (rootfs_data, mounted sync)
+MODDIR=/lib/modules/4.9.191-zero     # outside ZDIR: the kernel and kmodloader look up modules by `uname -r` here
+ZDIR=/usr/lib/zero                    # everything else Zero puts on the overlay (zinit reads gpu/ and procd here)
+STATE="$R$ZDIR/state"                 # overlay: both kernels see it (rootfs_data, mounted sync)
+RCD="/etc/rc.d/S01zero /etc/rc.d/K01zero"  # the stubs: procd only runs rc scripts from /etc/rc.d
+# Through ship10 these lived outside ZDIR. The state moves at every start (st_migrate), so no counted boot is lost;
+# the rest goes with the next overlay install, and undo removes both layouts.
+OLD_STATE="$R/etc/zero-kernel.state"
+OLD_FILES="/etc/rc.d/S01zerogpu /etc/rc.d/K01zeroclean /etc/modules.d/zero-xr829"
 MAXFAIL=2      # consecutive boots that did not reach the menu under our kernel, then stop for this image
 MAXUNCLEAN=3   # consecutive zero sessions that ended without a clean power-off, then stop (escape hatch, H4)
 REC_BYTES=16777216
@@ -164,7 +173,13 @@ setenv_checked() {
 # On a stock boot with zero_k=on, menu/bad = benign (the zero boot got that far); anything else = the zero boot
 # never reached the menu or hung in its health check, which is the failure the fallback exists for (critique H2).
 st_read() { ST_W=; ST_I=; ST_N=0; read -r ST_W ST_I ST_N 2>/dev/null < "$STATE"; case "$ST_N" in ''|*[!0-9]*) ST_N=0 ;; esac; }
-st_write() { printf '%s %s %s\n' "$1" "${IMG_ID:-none}" "${2:-0}" > "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE" && sync; }
+st_write() { mkdir -p "$R$ZDIR" 2>/dev/null; printf '%s %s %s\n' "$1" "${IMG_ID:-none}" "${2:-0}" > "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE" && sync; }
+# the ship10 state file, moved as it is: its word still decides whether the last zero boot is counted
+st_migrate() {
+	[ -f "$OLD_STATE" ] || return 0
+	if [ ! -f "$STATE" ]; then mkdir -p "$R$ZDIR" && cp "$OLD_STATE" "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE" || return 1; fi
+	rm -f "$OLD_STATE"; sync
+}
 
 # ---- allowlist tuple (model, U-Boot build, panel, DT panel driver, rootfs) ----
 allow_ok() {
@@ -235,7 +250,7 @@ install_overlay() {
 	io_st="$R$ZDIR/.stage"
 	rm -rf "$io_st"; rm -f "$R"/etc/rc.d/*.zk-new "$R"/etc/modules.d/*.zk-new
 	io_free=$(df -k "$R/overlay" 2>/dev/null | awk 'END {print $(NF-2)}')  # last line, from the end: a long device name wraps
-	io_need=$(du -sk "$PAY/root" 2>/dev/null | cut -f1)
+	io_need=$(du -sk "$PAY/root" 2>/dev/null | cut -f1)  # the 2048 KB spare also holds the procd made here (346 KB)
 	[ -n "$io_free" ] && [ -n "$io_need" ] && [ "$io_free" -ge $((io_need + 2048)) ] \
 		|| { why="overlay has ${io_free:-?} KB free, needs ${io_need:-?} + 2048"; return 1; }
 	while read -r io_m io_p; do
@@ -243,23 +258,88 @@ install_overlay() {
 		mkdir -p "$(dirname "$io_st$io_p")" "$(dirname "$R$io_p")" || { why="mkdir $io_p"; rm -rf "$io_st"; return 1; }
 		cp "$PAY/root$io_p" "$io_st$io_p" || { why="copy $io_p"; rm -rf "$io_st"; return 1; }
 		[ "$(md5sum < "$io_st$io_p" | cut -d' ' -f1)" = "$io_m" ] || { why="md5 mismatch $io_p"; rm -rf "$io_st"; return 1; }
-		case "$io_p" in /etc/rc.d/*|$ZDIR/procd) chmod 755 "$io_st$io_p" ;; *) chmod 644 "$io_st$io_p" ;; esac
+		case "$io_p" in /etc/rc.d/*|$ZDIR/rc/*) chmod 755 "$io_st$io_p" ;; *) chmod 644 "$io_st$io_p" ;; esac
 	done < "$PAY/manifest.md5"
 	# swap: VERSION is the manifest's last line, so a half-done swap never claims the new release
 	while read -r io_m io_p; do
 		[ -n "$io_p" ] && { mv -f "$io_st$io_p" "$R$io_p" || { why="move $io_p"; rm -rf "$io_st"; return 1; }; }
 	done < "$PAY/manifest.md5"
 	rm -rf "$io_st"
-	# files a newer payload no longer ships
-	for io_f in "$R$MODDIR"/* "$R$ZDIR"/* "$R$ZDIR"/gpu/lib/* "$R$ZDIR"/gpu/firmware/*; do
+	# files a newer payload no longer ships (state and procd are made on the device, never shipped)
+	for io_f in "$R$MODDIR"/* "$R$ZDIR"/* "$R$ZDIR"/rc/* "$R$ZDIR"/modules.d/* "$R$ZDIR"/gpu/lib/* "$R$ZDIR"/gpu/firmware/*; do
 		[ -f "$io_f" ] || continue
+		case "${io_f#$R}" in "$ZDIR/state"|"$ZDIR/procd") continue ;; esac
 		grep -qF "  ${io_f#$R}" "$PAY/manifest.md5" || rm -f "$io_f"
 	done
+	# the ship10 layout: its stubs and list go once the new ones are in (its state file moved at this start)
+	st_migrate
+	for io_f in $OLD_FILES; do rm -f "$R$io_f"; done
 	sync
 }
 overlay_current() { ov_v=; read -r ov_v 2>/dev/null < "$R$ZDIR/VERSION"; [ -n "$ov_v" ] && [ "$ov_v" = "$REL" ]; }
 
+# ---- patched procd, made on the device from its own /sbin/procd (Dan, 2026-11-19: TrimUI's bytes never ship) ----
+# zinit (the Zero kernel's /rdinit) execs $ZDIR/procd instead of /sbin/procd only when /sbin/procd is the Brick's
+# (353,800 B, mtime 1764128533) and $ZDIR/procd is 353,800 B; otherwise stock procd, which the Brick Pro and Smart
+# Pro always run and the Brick ran before trim5. So a missing patched copy is safe: the boot is only slower by the
+# timers below. The patches are mk-zprocd.py's (trim5 batch 3). Lines: "<md5 of /sbin/procd>|<md5 of the result>",
+# one per stock procd we patch (the Brick's today); any other procd is never patched.
+ZK_PROCD="
+48214f500f9d8061e2966228263b054d|ee0dae427ece54ac8c58c072e4e40a02
+"
+# "<offset, decimal>|<new bytes, printf octal>"
+ZK_PROCD_PATCH='
+47324|\101\000\200\122
+45848|\101\000\200\122
+23736|\101\001\200\122
+23520|\241\000\200\122
+54067|/bin/true\000\000\000
+'
+# 0xb8dc  hotplug_last_event quiet timer 50 -> 2 ms     (mov w1,#50 -> #2)
+# 0xb318  rule_handle_command re-arm 50 -> 2 ms
+# 0x5cb8  procd_connect_ubus first try 50 -> 10 ms
+# 0x5be0  ubus connect retry 50 -> 5 ms
+# 0xd333  coldplug "udevtrigger" -> "/bin/true": S80udev's udevadm trigger replays every event anyway
+pp_apply() {
+	while IFS='|' read -r pp_o pp_b; do
+		[ -n "$pp_o" ] || continue
+		printf "$pp_b" | dd of="$1" bs=1 seek="$pp_o" conv=notrunc 2>/dev/null || return 1
+	done <<EOF
+$ZK_PROCD_PATCH
+EOF
+}
+# Never fails the caller: every refusal leaves no patched copy, and zinit then runs stock procd. $1 = log (install).
+make_procd() {
+	mp_out="$R$ZDIR/procd"
+	mp_in=$(md5sum < "$R/sbin/procd" 2>/dev/null | cut -d' ' -f1)
+	mp_want=
+	while IFS='|' read -r mp_a mp_b; do
+		[ -n "$mp_a" ] && [ "$mp_a" = "$mp_in" ] && mp_want=$mp_b
+	done <<EOF
+$ZK_PROCD
+EOF
+	if [ -z "$mp_want" ]; then
+		if [ -e "$mp_out" ]; then rm -f "$mp_out"; sync; log "procd: /sbin/procd is ${mp_in:-unreadable}, not one we patch: removed the patched copy, stock procd runs"
+		elif [ -n "$1" ]; then log "procd: /sbin/procd is ${mp_in:-unreadable}, not one we patch: stock procd runs"; fi
+		return 0
+	fi
+	[ -f "$mp_out" ] && [ "$(md5sum < "$mp_out" | cut -d' ' -f1)" = "$mp_want" ] && return 0
+	rm -f "$mp_out" "$mp_out.tmp"
+	if ! cp "$R/sbin/procd" "$mp_out.tmp" 2>/dev/null || ! pp_apply "$mp_out.tmp"; then
+		rm -f "$mp_out.tmp"; sync; log "procd: copy or patch failed, not installed: stock procd runs"; return 0
+	fi
+	mp_got=$(md5sum < "$mp_out.tmp" | cut -d' ' -f1)
+	if [ "$mp_got" != "$mp_want" ]; then
+		rm -f "$mp_out.tmp"; sync; log "procd: patched copy is $mp_got, want $mp_want: not installed, stock procd runs"; return 0
+	fi
+	chmod 755 "$mp_out.tmp" && mv -f "$mp_out.tmp" "$mp_out" && sync && { log "procd: patched copy written ($mp_want)"; return 0; }
+	rm -f "$mp_out.tmp" "$mp_out"; sync; log "procd: rename failed, not installed: stock procd runs"; return 0
+}
+
 capture_mac() { # fixes/mac/capture-stock-mac.sh, stock kernel only. Format-checked, and never kept over a live stock MAC.
+	# Outside ZDIR because our xr829_core.ko has this path compiled in (moving it means a new module build). Only
+	# our driver reads it: the firmware ships no such file (absent in the Brick Pro and Smart Pro recon) and stock's
+	# xradio modules name only /data/misc/wifi/xr_wifi.conf (fixes/mac/stock-ko strings).
 	cm_conf="$R/etc/wifi/xr_wifi.conf"
 	cm_old=; read -r cm_old 2>/dev/null < "$cm_conf"
 	cm_mac=$(cat "$R/sys/class/net/wlan0/address" 2>/dev/null | tr 'A-F' 'a-f')
@@ -364,6 +444,7 @@ update_and_arm() {
 	battery_ok || { log "deferred: battery low"; return 1; }
 	setenv_checked "zero_once|$ONCE" "zero_k|$ua_state" "zero_k_img|writing" || { mark "$DIR/stop-$serial-$REL"; return 1; }
 	install_overlay || { log "overlay install failed: $why (bootcmd stock, retried next boot)"; return 1; }
+	make_procd install
 	write_image || { log "STOP: image write failed twice"; mark "$DIR/stop-$serial-$REL"; return 1; }
 	arm armed 0 "zero_k|on" "zero_k_img|$IMG_ID" "zero_k_fail|" "zero_k_bad|" || return 1
 	log "image $IMG_ID written and armed; next power-on boots it"
@@ -428,9 +509,9 @@ if [ "$CMD" = revert ]; then
 	else
 		log "revert: no recovery partition of the expected size, left alone"
 	fi
-	# 3. overlay files (all inert under stock; removal is safe while running ours)
-	rm -rf "$R$MODDIR" "$R$ZDIR" "$R/etc/modules.d/zero-xr829" "$R/etc/rc.d/S01zerogpu" "$R/etc/rc.d/K01zeroclean" \
-		"$R/etc/wifi/xr_wifi.conf" "$STATE"
+	# 3. overlay files, this layout and the ship10 one (all inert under stock; removal is safe while running ours)
+	rm -rf "$R$MODDIR" "$R$ZDIR" "$R/etc/wifi/xr_wifi.conf" "$OLD_STATE"
+	for rv_f in $RCD $OLD_FILES; do rm -f "$R$rv_f"; done
 	rm -f "$R"/etc/rc.d/*.zk-new "$R"/etc/modules.d/*.zk-new; sync
 	mark "$DIR/off-$serial"; rm -f "$PEND"; sync
 	[ -n "$rv_bad" ] && printf 'The Zero kernel is off: this device starts the stock kernel from now on.\nIts spare partition could not be put back exactly, which is harmless. Details: .userdata/shared/.minui/zerokernel/log.txt. Delete this file.\n' > "$SD/zero-kernel-restore-FAILED.txt"
@@ -444,7 +525,7 @@ if [ "$CMD" = disarm ]; then
 	envhas zero_k || exit 0
 	sane_base || { log "disarm refused: $why"; exit 1; }
 	[ "$(envget bootcmd)" = "$ARMED" ] || [ "$(envget boot_partition)" != boot ] || exit 0
-	st_read; IMG_ID=$ST_I; st_write menu 0  # the coming stock boot is benign, not a fallback
+	st_migrate; st_read; IMG_ID=$ST_I; st_write menu 0  # the coming stock boot is benign, not a fallback
 	setenv_checked "bootcmd|$STOCK_BOOTCMD" "boot_partition|boot" || { log "disarm FAILED"; exit 1; }
 	log "disarmed (Optimize CPU): next power-on is stock"
 	exit 0
@@ -455,6 +536,7 @@ fi
 [ -f "$R/tmp/zerokernel.ran" ] && exit 0  # once per boot: an arm made by this boot is not a stuck env
 : > "$R/tmp/zerokernel.ran"
 case "$osr" in 4.9.191|4.9.191-zero) ;; *) exit 0 ;; esac
+st_migrate || log "state: moving the ship10 state file failed"
 
 # 1. Stuck-env repair, first and before any wait (critique C1). Userspace must only ever see a disarmed env.
 if sane_base; then
@@ -556,6 +638,7 @@ case "$osr" in
 		fi
 		rec_kind  # never arm from a stale env value: re-hash recovery first
 		[ "$REC_KIND" = "ours:$IMG_ID" ] || { log "recovery is '$REC_KIND', not $IMG_ID: rewriting"; update_and_arm on; exit 0; }
+		make_procd  # a power cut after the install's VERSION swap, or a lost file: made again, else stock procd
 		arm armed 0 || exit 0
 		;;
 	failed)

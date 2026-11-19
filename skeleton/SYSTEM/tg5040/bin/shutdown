@@ -17,15 +17,15 @@ esac
 # without one (forced 10 s hold, crash, flat battery) send the device back to the stock kernel for that kernel
 # image, which is also the escape from a dark screen. A session counts as clean only when THIS boot re-armed
 # (/tmp/zero-armed); a zarmed state left from an earlier session, or a boot that never re-armed, becomes the
-# benign "menu" instead. Same block as workspace/tg5040/zerokernel/K01zeroclean (orderly reboots). Builtins only,
+# benign "menu" instead. Same block as workspace/tg5040/zerokernel/K01zero (orderly reboots). Builtins only,
 # plus one small write to the overlay (mounted sync).
 _zo=; read -r _zo < /proc/sys/kernel/osrelease
-if [ "$_zo" = 4.9.191-zero ] && read -r _zw _zi _zn 2>/dev/null < /etc/zero-kernel.state; then
+if [ "$_zo" = 4.9.191-zero ] && read -r _zw _zi _zn 2>/dev/null < /usr/lib/zero/state; then
 	case "$_zw" in
 	zarmed) if [ -f /tmp/zero-armed ]; then _zw=zclean; _zn=0; else _zw=menu; fi ;;  # re-armed by THIS boot, or left over
 	armed|zclean|health) _zw=menu ;;  # this boot ran userspace far enough to stop in order: not a kernel failure
 	esac
-	echo "$_zw $_zi $_zn" > /etc/zero-kernel.state
+	echo "$_zw $_zi $_zn" > /usr/lib/zero/state
 fi
 
 sync && umount -f -l /mnt/SDCARD

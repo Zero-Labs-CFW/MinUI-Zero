@@ -7,7 +7,7 @@
 # refuses a payload that does not match it.
 #
 # Usage: sh workspace/tg5040/zerokernel/stage-payload.sh <kernel notes dir> <release id> <image name>
-#   e.g. sh workspace/tg5040/zerokernel/stage-payload.sh .notes/2026-11-14-tg5040-own-kernel ship10 ship10
+#   e.g. sh workspace/tg5040/zerokernel/stage-payload.sh .notes/2026-11-14-tg5040-own-kernel ship10.1 ship10
 set -eu
 K=$(cd "$1" && pwd); REL=$2; NAME=$3
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -16,7 +16,8 @@ IMG="$K/work/zero-recovery-$NAME.img"
 MODS="$K/work/images-$NAME"
 GPU="$K/fixes/gpu/blobs/lib64"
 GPU_SUMS="$(cd "$K/../2026-11-10-tortos-plastron/src/plastron/buildroot/package/pvr-ge8300" && pwd)/files.sha256"
-PROCD="$K/work/fastinit/zprocd/procd"
+STOCK_PROCD="$K/fastinit/bin/procd"     # the Brick's stock procd, used only to check zerokernel.sh's patch data
+ZK="$HERE/../../../skeleton/SYSTEM/tg5040/bin/zerokernel.sh"
 STOCK_REC="$K/recon/recovery.bin"
 case "$REL" in *[!A-Za-z0-9._-]*|'') echo "bad release id" >&2; exit 1 ;; esac
 
@@ -26,22 +27,29 @@ sizef() { wc -c < "$1" | tr -d ' '; }
 [ -f "$IMG" ] && [ "$(head -c 8 "$IMG")" = "ANDROID!" ] || { echo "no Android boot image at $IMG" >&2; exit 1; }
 [ "$(sizef "$IMG")" -lt 15728640 ] || { echo "image overlaps the zlog MiB (15 MiB of recovery)" >&2; exit 1; }
 (cd "$GPU/.." && shasum -a 256 -c "$GPU_SUMS" >/dev/null) || { echo "GPU blob checksum mismatch" >&2; exit 1; }
-[ "$(sizef "$PROCD")" = 353800 ] || { echo "patched procd is not 353800 bytes (zinit's gate)" >&2; exit 1; }
+# procd is never shipped (Dan, 2026-11-19): zerokernel.sh patches the device's own /sbin/procd at install time.
+# Check its plain patch data here against the stock procd: the input md5, then the result md5 and zinit's size gate.
+PD_IN=$(sed -n 's/^\([0-9a-f]\{32\}\)|\([0-9a-f]\{32\}\)$/\1/p' "$ZK"); PD_OUT=$(sed -n 's/^\([0-9a-f]\{32\}\)|\([0-9a-f]\{32\}\)$/\2/p' "$ZK")
+[ "$(md5f "$STOCK_PROCD")" = "$PD_IN" ] || { echo "stock procd is not the md5 zerokernel.sh patches" >&2; exit 1; }
+PT=$(mktemp); cp "$STOCK_PROCD" "$PT"
+sed -n "/^ZK_PROCD_PATCH='/,/^'/p" "$ZK" | grep '|' | while IFS='|' read -r o b; do
+	printf "$b" | dd of="$PT" bs=1 seek="$o" conv=notrunc 2>/dev/null; done
+[ "$(md5f "$PT")" = "$PD_OUT" ] && [ "$(sizef "$PT")" = 353800 ] || { rm -f "$PT"; echo "zerokernel.sh's procd patch does not give $PD_OUT" >&2; exit 1; }
+rm -f "$PT"
 [ "$(md5f "$STOCK_REC")" = 78f6f12ee2772c57527b38a71599e58a ] || { echo "stock recovery dump changed" >&2; exit 1; }
 
-rm -rf "$OUT"; mkdir -p "$OUT/root/lib/modules/4.9.191-zero" "$OUT/root/etc/modules.d" "$OUT/root/etc/rc.d" \
-	"$OUT/root/usr/lib/zero/gpu/lib" "$OUT/root/usr/lib/zero/gpu/firmware"
+rm -rf "$OUT"; mkdir -p "$OUT/root/lib/modules/4.9.191-zero" "$OUT/root/etc/rc.d" "$OUT/root/usr/lib/zero/rc" \
+	"$OUT/root/usr/lib/zero/modules.d" "$OUT/root/usr/lib/zero/gpu/lib" "$OUT/root/usr/lib/zero/gpu/firmware"
 cp "$IMG" "$OUT/zero-recovery.img"
 dd if="$STOCK_REC" of="$OUT/recovery-stock-head.bin" bs=512 count=1 2>/dev/null
 cp "$MODS"/*.ko "$OUT/root/lib/modules/4.9.191-zero/"   # every module the build made, as on the dev Brick (stage/2-install.sh)
-cp "$HERE/zero-xr829" "$OUT/root/etc/modules.d/zero-xr829"
+cp "$HERE/zero-xr829" "$OUT/root/usr/lib/zero/modules.d/zero-xr829"
 for f in libEGL.so libGLESv2.so libGLES_CM.so libIMGegl.so libsrv_um.so libglslcompiler.so libusc.so libpvrNULL_WSEGL.so; do
 	cp "$GPU/$f" "$OUT/root/usr/lib/zero/gpu/lib/$f"
 done
 cp "$GPU/firmware/rgx.fw.22.102.54.38" "$OUT/root/usr/lib/zero/gpu/firmware/"
-cp "$PROCD" "$OUT/root/usr/lib/zero/procd"
-cp "$HERE/S01zerogpu" "$OUT/root/etc/rc.d/S01zerogpu"
-cp "$HERE/K01zeroclean" "$OUT/root/etc/rc.d/K01zeroclean"
+# the only Zero files in rc.d: one stub under each name, the real scripts beside the rest of Zero
+for f in S01zero K01zero; do cp "$HERE/rc-stub" "$OUT/root/etc/rc.d/$f"; cp "$HERE/$f" "$OUT/root/usr/lib/zero/rc/$f"; done
 echo "$REL" > "$OUT/root/usr/lib/zero/VERSION"
 echo "$REL" > "$OUT/VERSION"
 
