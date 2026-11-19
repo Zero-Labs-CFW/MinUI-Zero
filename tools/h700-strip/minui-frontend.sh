@@ -525,9 +525,11 @@ devmode && zero_boot_receipt
 # ...and where the time went, same dev cards: the pre-kernel part (boot0, U-Boot, kernel load: bin/bootclock reads
 # the ARM counter that starts at reset) and every stage mark since, one line per boot in logs/boot-stages.txt
 if devmode; then
-	zmark menu-ready
+	zmark frontend-start
 	_bc=$("$SYSTEM_PATH/bin/bootclock" 2>/dev/null)
-	echo "$(date +%Y-%m-%d) ${_bc:-pre ? post ? total ?} | $(awk '{ printf "%s %s  ", $2, $1 }' /dev/shm/zero-boot 2>/dev/null)" >> "$LOGS_PATH/boot-stages.txt"
+	_bid=
+	read -r _bid < /proc/sys/kernel/random/boot_id
+	echo "$(date +%Y-%m-%d) ${_bc:-pre ? post ? total ?} boot=$_bid | $(awk '{ printf "%s %s  ", $2, $1 }' /dev/shm/zero-boot 2>/dev/null)" >> "$LOGS_PATH/boot-stages.txt"
 fi
 
 # The card copy got through its setup to the first launch: clear its tries (see the top of this file). Here, before

@@ -28,6 +28,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
+#include "display_receipt.h"
 
 #if defined(__aarch64__)
 #include <arm_neon.h>
@@ -1159,8 +1161,18 @@ static void first_frame_mark(void) {
 	if (done) return;
 	done = 1;
 	// Unlike the quiet-window marker, only a completed PLAT_flip emits this receipt.
-	int fd = open("/run/zero-display-frame", O_WRONLY | O_CREAT, 0644);
-	if (fd >= 0) close(fd);
+	struct timespec ts;
+	uint64_t raw_ns = 0;
+	if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts) == 0 && ts.tv_sec >= 0)
+		raw_ns = (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+	char boot_id[38] = {0};
+	int fd = open("/proc/sys/kernel/random/boot_id", O_RDONLY | O_CLOEXEC);
+	if (fd >= 0) {
+		ssize_t n = read(fd, boot_id, sizeof(boot_id) - 1);
+		if (n > 0 && boot_id[n - 1] == '\n') boot_id[n - 1] = 0;
+		close(fd);
+	}
+	h700_write_display_receipt("/run/zero-display-frame", boot_id, raw_ns);
 	if (access("/run/zero-menu-frame", F_OK) == 0) return;	// once per boot: a relaunch, a game or a Tool is not news
 	char up[32] = {0}, line[48];
 	fd = open("/proc/uptime", O_RDONLY);
