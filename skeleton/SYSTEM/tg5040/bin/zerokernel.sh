@@ -491,11 +491,14 @@ if [ "$CMD" = revert ]; then
 	# still pending, reads as "off". The enable file is set aside under a name that never fires, with a note, so it
 	# cannot turn the kernel back on at some later start; a pending turn-back-on is dropped too.
 	if [ -f "$EN_TRIG" ]; then
+		# the note is a hint only: the enable file goes either way, so a card that took one write and not the other
+		# cannot turn the undo around at the next start
 		printf 'restore-boot-env.txt was on the card too, so the undo ran and this file was set aside.\nTo turn the Zero kernel and boot settings back on, rename this file to enable-zero-kernel.txt and start the device again.\n' \
-			> "$SD/enable-zero-kernel-IGNORED.txt" && rm -f "$EN_TRIG"
+			> "$SD/enable-zero-kernel-IGNORED.txt"
+		rm -f "$EN_TRIG"
 		log "revert: enable-zero-kernel.txt was on the card too: undo wins, set aside as enable-zero-kernel-IGNORED.txt"
 	fi
-	rm -f "$EPEND"
+	rm -f "$EPEND" "$SD/enable-zero-kernel-FAILED.txt"
 	ENV=$(fw_printenv 2>/dev/null)
 	# a deferred first install may have saved only the MAC (capture_mac runs before the recovery backup)
 	if ! envhas zero_k && ! envhas zero_once && { [ ! -d "$R$ZDIR" ] || [ "$(ls -A "$R$ZDIR")" = mac ]; } && [ ! -d "$R$MODDIR" ]; then
@@ -512,8 +515,10 @@ if [ "$CMD" = revert ]; then
 	case "$(envget bootcmd)" in "$STOCK_BOOTCMD"|"$ARMED") ;;
 	*) rv_fail "refused: bootcmd is neither stock nor ours" "The Zero kernel could not be removed yet: the boot settings are not what Zero expects." ;; esac
 	rv_img=$(envget zero_k_img)  # read before step 1 clears it: "writing" means a half image of ours
-	# 1. env: from here on every power-on is stock
-	setenv_checked "bootcmd|$STOCK_BOOTCMD" "boot_partition|boot" "zero_once|" "zero_k_img|" "zero_k_fail|" "zero_k_bad|" "zero_k|off" \
+	# 1. env: from here on every power-on is stock. zero_k_bad stays (inert while zero_k=off): it is the memory of a
+	# kernel that stopped (a failed image, a loader that cannot do the one-shot), and enable puts zero_k=failed back
+	# from it, so an off-then-on never reinstalls an image that was stopped for failing.
+	setenv_checked "bootcmd|$STOCK_BOOTCMD" "boot_partition|boot" "zero_once|" "zero_k_img|" "zero_k_fail|" "zero_k|off" \
 		|| rv_fail "env write failed" "The Zero kernel could not be removed yet: writing the boot settings failed."
 	# 2. recovery back to its original content, only when it holds ours or a half write of ours (critique M4)
 	rv_bad=
@@ -561,6 +566,7 @@ fi
 # ================================ enable ================================
 # enable-zero-kernel.txt at the card root (Dan, 2026-11-19: an undo was for good on that device; "as long as the user
 # has the option to turn it back on (and off)"). Clears only what an undo leaves: zero_k=off and zero_fast_boot=off,
+# except that zero_k=off next to a zero_k_bad (kept by revert) goes back to zero_k=failed, the state before the undo,
 # in ONE checked write (boot reads zero_fast_boot=off as an opt-out and writes zero_k=off again, so the two never
 # clear apart), then this device's off marker and bootenv.sh's done marker. Anything else stays as it is and is
 # logged: zero_k=failed or any other value, the stop-/skip- markers (a failed health check, an unknown firmware, a
@@ -571,31 +577,37 @@ fi
 en_fail() { # $1 = log text, $2 = what the user reads
 	log "enable: $1"; mark "$EPEND"
 	[ -f "$EPEND" ] && rm -f "$EN_TRIG"  # the intent lives on in $EPEND; without it the card file stays and retries
-	printf 'The Zero kernel and boot settings could not be turned back on yet: %s\nZero tries again at every start. Details: .userdata/shared/.minui/zerokernel/log.txt. Delete this file.\n' "$2" > "$SD/enable-zero-kernel-FAILED.txt"
+	printf 'The Zero kernel and boot settings could not be turned back on yet: %s\nZero tries again at every start. To stop trying, put restore-boot-env.txt on the card. Details: .userdata/shared/.minui/zerokernel/log.txt.\n' "$2" > "$SD/enable-zero-kernel-FAILED.txt"
 	exit 1
 }
 if [ "$CMD" = enable ]; then
 	[ -f "$PEND" ] && { log "enable: an undo is still pending, it goes first"; exit 1; }  # launch.sh runs revert then
 	ENV=$(fw_printenv 2>/dev/null)
-	en_set=
-	[ "$(envget zero_k)" = off ] && en_set="zero_k|"
-	[ "$(envget zero_fast_boot)" = off ] && en_set="$en_set zero_fast_boot|"
+	en_set=; en_what=; en_bad=$(envget zero_k_bad)
+	if [ "$(envget zero_k)" = off ]; then
+		# a kernel that had stopped before the undo stays stopped: zero_k=failed back, so boot's failed case decides
+		# (a new image retries, the same image or a loader-* stop does not)
+		if [ -n "$en_bad" ]; then en_set="zero_k|failed"; en_what=" zero_k (back to failed, zero_k_bad=$en_bad)"
+		else en_set="zero_k|"; en_what=" zero_k"; fi
+	fi
+	[ "$(envget zero_fast_boot)" = off ] && { en_set="$en_set zero_fast_boot|"; en_what="$en_what zero_fast_boot"; }
 	if [ -n "$en_set" ]; then
 		sane_base || en_fail "refused: $why" "the boot settings did not pass their checks."
-		# keys only, no values: the unquoted list splits into one "key|" (delete) per change
+		# the unquoted list splits into one "key|value" per change (no value = delete); the values hold no spaces
 		setenv_checked $en_set || en_fail "env write failed" "writing the boot settings failed."
 	fi
 	en_k=$(envget zero_k); en_b=$(envget zero_fast_boot)
 	# markers go only once the env no longer holds the undo (the key absent, as on a device Zero never touched)
-	[ -z "$en_k" ] && rm -f "$DIR/off-$serial"
+	# (or zero_k=failed: boot then follows the failed case, not the off marker)
+	case "$en_k" in ''|failed) rm -f "$DIR/off-$serial" ;; esac
 	[ -z "$en_b" ] && rm -f "$BDIR/done-$serial"
-	[ -n "$en_k" ] && log "enable: zero_k=$en_k kept (not an undo)"
+	case "$en_set" in zero_k\|failed*) ;; *) [ -n "$en_k" ] && log "enable: zero_k=$en_k kept (not an undo)" ;; esac
 	[ -n "$en_b" ] && log "enable: zero_fast_boot=$en_b kept (not an undo)"
 	for en_m in "$DIR/stop-$serial-"* "$DIR/skip-$serial-"* "$BDIR/stop-$serial" "$BDIR/skip-$serial"; do
 		[ -e "$en_m" ] && log "enable: ${en_m##*/} kept (a failed check or an unknown firmware, not an undo)"
 	done
 	rm -f "$EPEND" "$EN_TRIG" "$SD/enable-zero-kernel-FAILED.txt"; sync
-	if [ -n "$en_set" ]; then log "enable: cleared$(echo " $en_set" | tr -d '|'), the boot settings and kernel come back through the normal path"
+	if [ -n "$en_set" ]; then log "enable: cleared$en_what, the boot settings and kernel come back through the normal path"
 	else log "enable: no undo in the env, nothing to turn back on"; fi
 	exit 0
 fi

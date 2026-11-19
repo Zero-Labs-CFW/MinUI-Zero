@@ -911,6 +911,37 @@ boot; [ "$SPAWNED" = 0 ] && ok || bad "test setup: the off marker should still s
 : > "$EN"; boot; expect_on_again
 CASE="enable: from our kernel (no undo, nothing to clear) the chain still re-arms"
 boot; expect_kernel zero; clean_off; : > "$EN"; boot; expect_kernel zero; expect_armed; expect_state zarmed; expect_nofile "$EN"
+# A kernel that stopped, then an undo, then enable (review 2026-11-19): the undo keeps zero_k_bad, enable puts
+# zero_k=failed back from it, so boot's failed case decides as before the undo.
+CASE="enable: failed, undo, on: the stopped image stays stopped (same card, a later release with the same image)"
+install_device; : > "$T/broken"; boot; boot; boot; boot; expect_env zero_k failed; ZBAD=$(envv zero_k_bad)
+[ -n "$ZBAD" ] && ok || bad "test setup: no zero_k_bad"
+undo_now; expect_stock; expect_env zero_k off; expect_env zero_k_bad "$ZBAD"; expect_env zero_fast_boot off
+: > "$EN"; boot; expect_kernel stock; expect_stock; expect_env zero_k failed; expect_env zero_k_bad "$ZBAD"
+expect_env zero_fast_boot 2; expect_nofile "$EN"; expect_nofile "$ZD/off-$SERIAL"; expect_file "$ZD/stop-$SERIAL-ship2"
+[ "$(md5 "$R/dev/mmcblk0p8")" = "$STOCKREC" ] && ok || bad "the stopped image was written again"
+grep -q "enable: cleared zero_k (back to failed, zero_k_bad=$ZBAD) zero_fast_boot" "$ZD/log.txt" && ok || bad "restored log line"
+boot; [ "$SPAWNED" = 0 ] && ok || bad "a stopped device spawns after enable"
+rm -f "$T/broken"; mkpayload ship3 A ship2   # an overlay-only release: same image id, no stop marker for it yet
+boot; expect_kernel stock; expect_stock; expect_env zero_k failed; expect_file "$ZD/stop-$SERIAL-ship3"
+[ "$(md5 "$R/dev/mmcblk0p8")" = "$STOCKREC" ] && ok || bad "the same image was installed again after an undo"
+CASE="enable: failed, undo, on: a new image still gets its retry"
+mkpayload ship4 B; boot; expect_kernel stock; expect_armed; expect_env zero_k on; expect_rec "$IMGMD5"
+boot; expect_kernel zero; expect_armed; clean_off
+CASE="enable: a loader stop (final) survives an undo and an enable"
+install_device; : > "$T/loader.nosave"; boot; expect_env zero_k failed; expect_env zero_k_bad loader-save; rm -f "$T/loader.nosave"
+undo_now; expect_kernel stock; expect_env zero_k off; expect_env zero_k_bad loader-save
+: > "$EN"; boot; expect_stock; expect_env zero_k failed; expect_env zero_k_bad loader-save; expect_nofile "$ZD/off-$SERIAL"
+mkpayload ship3 B; boot; expect_kernel stock; expect_stock; expect_env zero_k failed; expect_file "$ZD/stop-$SERIAL-ship3"
+CASE="enable: failed, undo, on, undo, on: zero_k_bad carries through every round"
+undo_now; expect_env zero_k off; expect_env zero_k_bad loader-save
+: > "$EN"; boot; expect_env zero_k failed; expect_env zero_k_bad loader-save; expect_stock
+CASE="enable: the IGNORED note failing to write still takes the enable file off the card"
+install_device; boot; clean_off; : > "$EN"; : > "$CARD/restore-boot-env.txt"; mkdir "$CARD/enable-zero-kernel-IGNORED.txt"
+boot; expect_env zero_k off; expect_nofile "$EN"; rmdir "$CARD/enable-zero-kernel-IGNORED.txt"
+boot; [ "$SPAWNED" = 0 ] && ok || bad "the enable file fired after the undo"; expect_env zero_k off
+CASE="enable: an undo clears a stale enable FAILED note"
+: > "$CARD/enable-zero-kernel-FAILED.txt"; undo_now; expect_nofile "$CARD/enable-zero-kernel-FAILED.txt"
 
 echo "zerokernel harness: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
