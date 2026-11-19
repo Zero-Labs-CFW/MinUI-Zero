@@ -72,4 +72,7 @@ echo "$REL" > "$OUT/VERSION"
 } > "$OUT/known-images.txt"
 
 ( cd "$OUT" && find . -type f | sort | sed 's|^\./||' | while read -r p; do echo "$(shasum -a 256 "$p" | cut -d' ' -f1)  $p"; done ) > "$HERE/payload.sha256"
+# the procd table checked above, pinned for the makefile's source check (check-payload-sources.sh), then that check
+sh "$HERE/check-payload-sources.sh" --write-pins
+sh "$HERE/check-payload-sources.sh"
 echo "staged $(find "$OUT" -type f | wc -l | tr -d ' ') files, $(du -sk "$OUT" | cut -f1) KB, image $(md5f "$IMG")"

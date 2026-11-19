@@ -219,7 +219,8 @@ userspace() {
 	us_card=1; us_menu=1; us_gpu=1; us_gles=0; us_hang=0; unset ZK_CUT_SETENV ZK_CUT_DD
 	for o in "$@"; do case "$o" in nocard) us_card=0 ;; nomenu) us_menu=0 ;; nogpu) us_gpu=0 ;; gles) us_gles=1 ;; gles-late) us_gles=2 ;;
 		hang-health) us_hang=1 ;;
-		cut-setenv=*) export ZK_CUT_SETENV=${o#cut-setenv=} ;; cut-dd) export ZK_CUT_DD="$SYSTEM_PATH/kernel/zero-recovery.img" ;; esac; done
+		cut-setenv=*) export ZK_CUT_SETENV=${o#cut-setenv=} ;; cut-dd) export ZK_CUT_DD="$SYSTEM_PATH/kernel/zero-recovery.img" ;;
+		cut-dd-backup) export ZK_CUT_DD="$ZD/recovery-orig-$SERIAL.bin" ;; cut-dd-zero) export ZK_CUT_DD=/dev/zero ;; esac; done
 	rm -f "$T/setenv.count"; rm -rf "$R/tmp"; mkdir -p "$R/tmp"
 	[ "$us_k" = hang ] && return 0
 	if [ "$us_k" = zero ]; then echo 4.9.191-zero > "$R/proc/sys/kernel/osrelease"; else echo 4.9.191 > "$R/proc/sys/kernel/osrelease"; fi
@@ -235,7 +236,9 @@ userspace() {
 	# launch.sh's spawn decision (builtin marker tests), then the chain. bootenv.sh revert removes the trigger.
 	SPAWNED=0
 	if [ -f "$CARD/restore-boot-env.txt" ]; then
-		sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" revert'; fake_bootenv revert; rm -f "$CARD/restore-boot-env.txt"; return 0
+		# a power cut inside zerokernel.sh revert also stops bootenv.sh revert after it (one chain in launch.sh)
+		sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" revert' && { fake_bootenv revert; rm -f "$CARD/restore-boot-env.txt"; }
+		unset ZK_CUT_SETENV ZK_CUT_DD; return 0
 	elif [ -f "$ZD/revert-pending-$SERIAL" ]; then
 		sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" revert'; return 0
 	elif [ -f "$CARD/enable-zero-kernel.txt" ] || [ -f "$ZD/enable-pending-$SERIAL" ]; then
@@ -942,6 +945,71 @@ boot; expect_env zero_k off; expect_nofile "$EN"; rmdir "$CARD/enable-zero-kerne
 boot; [ "$SPAWNED" = 0 ] && ok || bad "the enable file fired after the undo"; expect_env zero_k off
 CASE="enable: an undo clears a stale enable FAILED note"
 : > "$CARD/enable-zero-kernel-FAILED.txt"; undo_now; expect_nofile "$CARD/enable-zero-kernel-FAILED.txt"
+
+# ---------------- release review 2026-11-19 ----------------
+UVA="$CARD/.userdata/tg5040/undervolt/ARMED"
+uv_on() { mkdir -p "${UVA%/*}"; : > "$UVA"; }
+recmd5() { md5 "$R/dev/mmcblk0p8"; }
+envdiff() { diff "$T/env.before" "$T/env.txt" | tr '\n' ' '; }
+CASE="review 1: Optimize CPU armed on a stock start: a new release writes nothing"
+install_device; boot; expect_kernel zero; clean_off
+sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" disarm'; expect_stock
+uv_on; mkpayload ship3 B; cp "$T/env.txt" "$T/env.before"; RECB=$(recmd5)
+boot; expect_kernel stock
+cmp -s "$T/env.txt" "$T/env.before" && ok || bad "env written while a calibration is armed: $(envdiff)"
+[ "$(recmd5)" = "$RECB" ] && ok || bad "recovery written while a calibration is armed"
+[ "$(cat "$R/usr/lib/zero/VERSION")" = ship2 ] && ok || bad "overlay written while a calibration is armed"
+grep -q "deferred: Optimize CPU calibration armed" "$ZD/log.txt" && ok || bad "no deferred log line"
+rm -f "$UVA"; boot; expect_kernel stock; expect_armed; expect_rec "$IMGMD5"
+[ "$(cat "$R/usr/lib/zero/VERSION")" = ship3 ] && ok || bad "overlay VERSION after the calibration"
+CASE="review 1: Optimize CPU armed on a stock start: a stopped image's retry waits"
+install_device; : > "$T/broken"; boot; boot; boot; boot; expect_env zero_k failed; rm -f "$T/broken"
+uv_on; mkpayload ship3 B; cp "$T/env.txt" "$T/env.before"; RECB=$(recmd5)
+boot; expect_kernel stock
+cmp -s "$T/env.txt" "$T/env.before" && ok || bad "env written while a calibration is armed: $(envdiff)"
+[ "$(recmd5)" = "$RECB" ] && ok || bad "recovery written while a calibration is armed"
+rm -f "$UVA"; boot; expect_kernel stock; expect_armed; expect_env zero_k on; expect_rec "$IMGMD5"
+CASE="review 1: Optimize CPU armed on a stock start: a fallback is counted only after it"
+install_device; : > "$T/broken"; boot; expect_kernel hang; uv_on; cp "$T/env.txt" "$T/env.before"
+boot; expect_kernel stock
+cmp -s "$T/env.txt" "$T/env.before" && ok || bad "env written while a calibration is armed: $(envdiff)"
+rm -f "$UVA" "$T/broken"; boot; expect_kernel stock; expect_env zero_k_fail 1; expect_armed
+CASE="review 1: Optimize CPU armed: a stuck env is still put back to stock"
+install_device; uv_on; setenv_raw boot_partition recovery; boot; expect_stock; expect_env zero_k failed
+expect_env zero_k_bad loader-partition; rm -f "$UVA"
+
+CASE="review 3: undo: a power cut while recovery is put back from the backup is finished at the next start"
+install_device; boot; clean_off; : > "$CARD/restore-boot-env.txt"; boot cut-dd-backup; expect_kernel zero
+expect_file "$CARD/restore-boot-env.txt"; [ "$(recmd5)" != "$STOCKREC" ] && ok || bad "test setup: the cut left recovery whole"
+boot; expect_kernel stock; expect_stock; expect_env zero_k off; expect_env zero_k_img ""
+[ "$(recmd5)" = "$STOCKREC" ] && ok || bad "recovery not put back after the cut"
+expect_nofile "$CARD/restore-boot-env.txt"; expect_file "$ZD/off-$SERIAL"
+CASE="review 3: undo: with a verified backup, recovery is compared in full whatever its header"
+install_device; boot; clean_off; : > "$CARD/restore-boot-env.txt"; boot cut-dd-backup
+setenv_raw zero_k_img ""   # what an undo from before this fix left in the env
+boot; expect_kernel stock; [ "$(recmd5)" = "$STOCKREC" ] && ok || bad "a stock header in front of our bytes was taken for stock"
+CASE="review 3: undo without a backup: a power cut during the zero fill is finished at the next start"
+install_device; boot; clean_off; rm -f "$ZD/recovery-orig-$SERIAL.bin" "$ZD/recovery-orig-$SERIAL.bin.md5"
+: > "$CARD/restore-boot-env.txt"; boot cut-dd-zero; expect_file "$CARD/restore-boot-env.txt"
+boot; expect_kernel stock; [ "$(recmd5)" = "$STOCKREC" ] && ok || bad "a half zero fill was left alone"
+expect_env zero_k_img ""
+
+CASE="review 4: a shipped image that fails its md5 is retried at the next start, with one card note"
+install_device; boot; clean_off; OLDIMG=$(envv zero_k_img); mkpayload ship3 B; cp "$IMGPATH" "$T/img.good"
+printf 'X' | $REALDD of="$IMGPATH" bs=1 seek=100 conv=notrunc 2>/dev/null
+boot; expect_kernel zero; boot; expect_kernel stock; expect_stock; expect_nofile "$ZD/stop-$SERIAL-ship3"
+expect_file "$CARD/zero-kernel-image-FAILED.txt"; expect_env zero_k on; expect_env zero_k_img "$OLDIMG"
+rm -f "$CARD/zero-kernel-image-FAILED.txt"; boot; expect_kernel stock; expect_stock
+expect_nofile "$CARD/zero-kernel-image-FAILED.txt"; expect_nofile "$ZD/stop-$SERIAL-ship3"
+cp "$T/img.good" "$IMGPATH"; boot; expect_kernel stock; expect_armed; expect_rec "$IMGMD5"
+[ "$(cat "$R/usr/lib/zero/VERSION")" = ship3 ] && ok || bad "overlay VERSION after the image was fixed"
+expect_nofile "$CARD/zero-kernel-image-FAILED.txt"
+boot; expect_kernel zero; expect_armed
+CASE="review 4: a card with no shipped image id is retried at the next start, not stopped"
+fresh_device; cp "$SYSTEM_PATH/kernel/known-images.txt" "$T/known.good"; : > "$SYSTEM_PATH/kernel/known-images.txt"
+boot; expect_kernel stock; expect_stock; expect_nofile "$ZD/stop-$SERIAL-ship2"; expect_file "$CARD/zero-kernel-image-FAILED.txt"
+cp "$T/known.good" "$SYSTEM_PATH/kernel/known-images.txt"; boot; expect_armed; expect_rec "$IMGMD5"
+expect_nofile "$CARD/zero-kernel-image-FAILED.txt"
 
 echo "zerokernel harness: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

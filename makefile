@@ -247,14 +247,16 @@ system:
 	fi
 	# Zero kernel payload -> .system/tg5040/kernel (consumer: bin/zerokernel.sh). Staged from the kernel build by
 	# workspace/tg5040/zerokernel/stage-payload.sh into payload/ (ignored: 17 MB of binaries) and pinned byte for
-	# byte by the tracked payload.sha256: a mismatch fails the build. No staged payload fails the build too (critique
-	# M3: a release from a fresh worktree would ship without the kernel); ZERO_KERNEL=0 builds without it on purpose.
+	# byte by the tracked payload.sha256: a mismatch fails the build, and so does a payload whose copies of the tracked
+	# sources or zerokernel.sh pins are stale (check-payload-sources.sh, review 2026-11-19). No staged payload fails
+	# the build too (critique M3: a release from a fresh worktree would ship without the kernel); ZERO_KERNEL=0 builds without it on purpose.
 	@if [ "$(PLATFORM)" = "tg5040" ]; then \
 		if [ -d ./workspace/tg5040/zerokernel/payload ]; then \
 			( cd ./workspace/tg5040/zerokernel/payload && { shasum -a 256 -c --quiet ../payload.sha256 2>/dev/null || sha256sum -c --quiet ../payload.sha256; } ) \
 				|| { echo "ERROR: workspace/tg5040/zerokernel/payload does not match payload.sha256"; exit 1; }; \
 			[ "$$(cd ./workspace/tg5040/zerokernel/payload && find . -type f | wc -l | tr -d ' ')" = "$$(wc -l < ./workspace/tg5040/zerokernel/payload.sha256 | tr -d ' ')" ] \
 				|| { echo "ERROR: workspace/tg5040/zerokernel/payload has files payload.sha256 does not list"; exit 1; }; \
+			sh ./workspace/tg5040/zerokernel/check-payload-sources.sh || exit 1; \
 			rm -rf ./build/SYSTEM/tg5040/kernel; cp -R ./workspace/tg5040/zerokernel/payload ./build/SYSTEM/tg5040/kernel; \
 			echo "tg5040 kernel payload: $$(cat ./build/SYSTEM/tg5040/kernel/VERSION), verified"; \
 		elif [ "$(ZERO_KERNEL)" = 0 ]; then \

@@ -91,6 +91,15 @@ envhas() { echo "$ENV" | grep -q "^$1="; }
 failnote() { # card-root note, same pattern as restore-boot-env-FAILED.txt
 	printf 'This device went back to the stock kernel (%s).\nNothing to do. Details: .userdata/shared/.minui/zerokernel/log.txt. Delete this file.\n' "$1" > "$SD/zero-kernel-FAILED.txt"
 }
+# The shipped image (or its id) on the card is damaged: a partial unzip or a card read error, not a kernel fault.
+# Like an overlay md5 mismatch it is retried at every start, never a stop; the card note goes out once per release
+# (imgbad marker), and both go once the image passes (update_and_arm).
+imgnote() {
+	log "$1: nothing written, retried next boot"
+	[ -f "$DIR/imgbad-$serial-${REL:-none}" ] && return 0
+	printf 'The Zero kernel was not installed: its file on the card is damaged (%s).\nCopy this release to the card again. Zero tries again at every start. Details: .userdata/shared/.minui/zerokernel/log.txt. Delete this file.\n' "$1" > "$SD/zero-kernel-image-FAILED.txt"
+	mark "$DIR/imgbad-$serial-${REL:-none}"
+}
 
 case "$TRIMUI_MODEL" in
 	"Trimui Brick"|"Trimui Brick Pro"|"Trimui Smart Pro") ;;
@@ -458,7 +467,8 @@ stop_image() { # $1 = reason text, $2 = zero_k_bad value, $3 = the image that fa
 # $1 = zero_k value while writing (installing on a fresh install, else on).
 update_and_arm() {
 	ua_state=$1
-	img_id || { log "STOP: shipped image fails its own md5"; mark "$DIR/stop-$serial-$REL"; return 1; }
+	img_id || { imgnote "shipped image fails its own md5"; return 1; }
+	[ -f "$DIR/imgbad-$serial-$REL" ] && { rm -f "$DIR/imgbad-$serial-$REL" "$SD/zero-kernel-image-FAILED.txt"; sync; }
 	allow_ok || { log "skip: $why"; mark "$DIR/skip-$serial-$REL"; return 1; }
 	rec_kind
 	case "$REC_KIND" in  # never overwrite something that is not ours (critique M4)
@@ -514,25 +524,34 @@ if [ "$CMD" = revert ]; then
 	sane_base || rv_fail "refused: $why" "The Zero kernel could not be removed yet: the boot settings did not pass their checks."
 	case "$(envget bootcmd)" in "$STOCK_BOOTCMD"|"$ARMED") ;;
 	*) rv_fail "refused: bootcmd is neither stock nor ours" "The Zero kernel could not be removed yet: the boot settings are not what Zero expects." ;; esac
-	rv_img=$(envget zero_k_img)  # read before step 1 clears it: "writing" means a half image of ours
+	rv_img=$(envget zero_k_img)  # read before step 1 replaces it: "writing" = a half image of ours, "restoring" = an
+	                             # undo cut short while it put recovery back (review 2026-11-19 finding 3)
 	# 1. env: from here on every power-on is stock. zero_k_bad stays (inert while zero_k=off): it is the memory of a
 	# kernel that stopped (a failed image, a loader that cannot do the one-shot), and enable puts zero_k=failed back
-	# from it, so an off-then-on never reinstalls an image that was stopped for failing.
-	setenv_checked "bootcmd|$STOCK_BOOTCMD" "boot_partition|boot" "zero_once|" "zero_k_img|" "zero_k_fail|" "zero_k|off" \
+	# from it, so an off-then-on never reinstalls an image that was stopped for failing. zero_k_img=restoring stays
+	# until recovery reads back as its original content, so a retry after a power cut finishes the restore.
+	setenv_checked "bootcmd|$STOCK_BOOTCMD" "boot_partition|boot" "zero_once|" "zero_k_img|restoring" "zero_k_fail|" "zero_k|off" \
 		|| rv_fail "env write failed" "The Zero kernel could not be removed yet: writing the boot settings failed."
 	# 2. recovery back to its original content, only when it holds ours or a half write of ours (critique M4)
 	rv_bad=
 	if rec_dev; then
 		rec_kind
+		bk="$DIR/recovery-orig-$serial.bin"; bkm=; read -r bkm 2>/dev/null < "$bk.md5"
+		rv_bok=; [ -f "$bk" ] && [ -n "$bkm" ] && [ "$(md5sum < "$bk" | cut -d' ' -f1)" = "$bkm" ] && rv_bok=1
 		case "$REC_KIND" in
-		unused) ;;
+		unused)
+			# a restore cut short puts the original header back first, in front of our bytes: the header alone proves
+			# nothing, so with a verified backup the whole partition is compared
+			if [ "$rv_img" = restoring ]; then rv_go=1
+			elif [ -n "$rv_bok" ] && [ "$(dd if="$REC" bs=1M count=16 2>/dev/null | md5sum | cut -d' ' -f1)" != "$bkm" ]; then
+				log "revert: recovery has the stock header but not the backup's content: putting the backup back"; rv_go=1
+			fi ;;
 		ours:*) rv_go=1 ;;
-		*) if [ "$rv_img" = writing ]; then rv_go=1; else log "revert: recovery holds something that is not ours, left alone"; fi ;;
+		*) case "$rv_img" in writing|restoring) rv_go=1 ;; *) log "revert: recovery holds something that is not ours, left alone" ;; esac ;;
 		esac
 		if [ "${rv_go:-0}" = 1 ]; then
-			bk="$DIR/recovery-orig-$serial.bin"; bkm=; read -r bkm 2>/dev/null < "$bk.md5"
 			want_md5=
-			if [ -f "$bk" ] && [ -n "$bkm" ] && [ "$(md5sum < "$bk" | cut -d' ' -f1)" = "$bkm" ]; then
+			if [ -n "$rv_bok" ]; then
 				ddw if="$bk" of="$REC" bs=1M
 				want_md5=$bkm
 			elif [ "$(stock_rec_md5)" != none ] && [ -f "$PAY/recovery-stock-head.bin" ]; then  # Brick only (L4)
@@ -553,6 +572,9 @@ if [ "$CMD" = revert ]; then
 	else
 		log "revert: no recovery partition of the expected size, left alone"
 	fi
+	# the restore is finished (or there was nothing of ours to put back): the marker goes. A readback mismatch keeps
+	# it, so a later undo tries the restore again. A failed write here is inert (zero_k=off, bootcmd stock).
+	[ -z "$rv_bad" ] && { setenv_checked "zero_k_img|" || log "revert: clearing zero_k_img=restoring failed (inert)"; }
 	# 3. overlay files, this layout and the ship10 one (all inert under stock; removal is safe while running ours)
 	rm -rf "$R$MODDIR" "$R$ZDIR" "$OLD_STATE"
 	for rv_f in $RCD $OLD_FILES $OLD_MAC; do [ -e "$R/rom$rv_f" ] || rm -f "$R$rv_f"; done
@@ -652,10 +674,16 @@ fi
 [ -n "$REL" ] || exit 0
 [ -f "$PEND" ] && { log "undo pending: not arming"; exit 0; }
 [ -f "$DIR/off-$serial" ] || [ -f "$DIR/skip-$serial-$REL" ] || [ -f "$DIR/stop-$serial-$REL" ] && exit 0
+# Optimize CPU calibrates by pushing the CPU until it fails (bootenv.sh: never write the env then). On the stock
+# kernel every write below waits until it is done: install, update, retry, the fail count, zero_k=off, the recovery
+# image and the overlay. The stuck-env repair above still runs: it only puts the stock bootcmd and boot_partition
+# back, the same write Optimize's own disarm makes, and leaving a stuck env would boot our kernel at the campaign's
+# next reset.
+[ "$osr" = 4.9.191 ] && uv_armed && { log "deferred: Optimize CPU calibration armed"; exit 0; }
 sane || { log "skip: $why"; mark "$DIR/skip-$serial-$REL"; exit 0; }
 zk=$(envget zero_k); zimg=$(envget zero_k_img); zfail=$(envget zero_k_fail); zbad=$(envget zero_k_bad)
 case "$zfail" in ''|*[!0-9]*) zfail=0 ;; esac
-img_parse || { log "STOP: no shipped image id"; mark "$DIR/stop-$serial-$REL"; exit 0; }  # hashed before a write
+img_parse || { imgnote "no shipped image id"; exit 0; }  # hashed before a write
 # The boot settings were put back to stock on this device (bootenv.sh revert, zero_fast_boot=off): that opt-out
 # covers the kernel too, also when it came before this release (critique H1).
 if [ "$(envget zero_fast_boot)" = off ] && [ "$zk" != off ]; then

@@ -353,17 +353,18 @@ then run Optimize CPU again."
 	exit 0
 fi
 
-# Zero kernel (bin/zerokernel.sh): calibration must run on the stock kernel only. Take the one-shot back first, so
-# every reset of the campaign boots stock (zerokernel.sh never re-arms while ARMED exists). On our kernel itself,
-# stop here: the first round would run right now, under it. After a restart the device is on stock.
-if [ -f "$SYSTEM_PATH/bin/zerokernel.sh" ]; then
-	if ! sh "$SYSTEM_PATH/bin/zerokernel.sh" disarm; then
-		say.elf "Could not prepare the boot settings.
-Nothing was started."
-		exit 1
-	fi
+# Zero kernel (bin/zerokernel.sh): calibration must run on the stock kernel only, so every reset of the campaign
+# must boot stock. On our kernel itself, take the one-shot back and stop here: the first round would run right now,
+# under it. After a restart the device is on stock. On stock the disarm runs after ARMED exists (below).
+_zks=; [ -f "$SYSTEM_PATH/bin/zerokernel.sh" ] && _zks=1
+if [ -n "$_zks" ]; then
 	read -r _zo < /proc/sys/kernel/osrelease
 	if [ "$_zo" = 4.9.191-zero ]; then
+		if ! sh "$SYSTEM_PATH/bin/zerokernel.sh" disarm; then
+			say.elf "Could not prepare the boot settings.
+Nothing was started."
+			exit 1
+		fi
 		say.elf "Restart the device, then run
 Optimize CPU again."
 		exit 0
@@ -404,6 +405,17 @@ to this device. Nothing was started."
 rm -f "$CHIP_DIR/table.conf" "$CHIP_DIR/table.model" "$CHIP_DIR/table.chip" "$CHIP_DIR/table.stock" "$CHIP_DIR/calibration"
 touch "$UV_DIR/ARMED"
 sync
+# Take the one-shot back only now that ARMED exists (review 2026-11-19): zerokernel.sh boot may be arming at this
+# moment (it runs in the background at every start). An arm that lands after this disarm sees ARMED in its
+# post-write check and disarms itself; one that landed before is undone here. A failed disarm drops ARMED again,
+# so nothing runs (the campaign binding and resume hook above are inert without it).
+if [ -n "$_zks" ] && ! sh "$SYSTEM_PATH/bin/zerokernel.sh" disarm; then
+	rm -f "$UV_DIR/ARMED"
+	sync
+	say.elf "Could not prepare the boot settings.
+Nothing was started."
+	exit 1
+fi
 
 say.elf "Measurement started.
 
