@@ -17,15 +17,22 @@ class ConsumerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             ack, helper, ident = (root / n for n in ('ack', 'helper', 'id'))
-            for ack_ok, helper_ok, valid_id in ((True, True, True), (False, True, True),
-                                               (True, False, True), (True, True, False)):
+            for ack_ok, helper_ok, valid_id, matching_id in (
+                    (True, True, True, True), (False, True, True, True),
+                    (True, False, True, True), (True, True, False, True),
+                    (True, True, True, False)):
                 for path, ok in ((ack, ack_ok), (helper, helper_ok)):
-                    path.write_text('#!/bin/sh\necho zero-stage2-health-v1\nexit ' + ('0' if ok else '1') + '\n')
+                    body = 'echo zero-stage2-health-v1\n'
+                    if path == helper:
+                        compiled_id = ('a' if matching_id else 'b') * 64
+                        body = ('case "$1" in\n--contract) echo zero-stage2-health-v1 ;;\n'
+                                '--build-id) echo ' + compiled_id + ' ;;\n*) exit 1 ;;\nesac\n')
+                    path.write_text('#!/bin/sh\n' + body + 'exit ' + ('0' if ok else '1') + '\n')
                     path.chmod(0o755)
                 ident.write_text(('a' * 64 if valid_id else 'invalid') + '\n')
                 result = subprocess.run(['sh', '-c', function + '\nstage2_consumer_ok "$1" "$2" "$3"',
                                          'gate', str(ack), str(helper), str(ident)])
-                self.assertEqual(result.returncode == 0, ack_ok and helper_ok and valid_id)
+                self.assertEqual(result.returncode == 0, ack_ok and helper_ok and valid_id and matching_id)
             helper.unlink()
             result = subprocess.run(['sh', '-c', function + '\nstage2_consumer_ok "$1" "$2" "$3"',
                                      'gate', str(ack), str(helper), str(ident)])
