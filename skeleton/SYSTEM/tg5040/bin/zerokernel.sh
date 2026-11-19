@@ -283,7 +283,9 @@ health() {
 	grep -q '^pvrsrvkm ' "$R/proc/modules" || { why="pvrsrvkm not loaded"; return 1; }
 	grep -q ' /usr/lib/libsrv_um.so ' "$R/proc/mounts" || { why="GPU 1.11 bind mounts missing"; return 1; }
 	if [ "$MENU" = gles ]; then
-		for h_i in 1 2 3 4 5 6 7 8 9 10; do [ -f "$R/tmp/zero-gles-ok" ] && return 0; sleep 1; done
+		# up to 60 s: on an auto-resumed boot the game's first present writes the marker (PLAT_flip), after the core
+		# and the content load, not the menu
+		h_i=0; while [ $h_i -lt "${ZK_GLES_WAIT:-60}" ]; do [ -f "$R/tmp/zero-gles-ok" ] && return 0; sleep 1; h_i=$((h_i + 1)); done
 		why="no GLES-present marker (menu may be black)"; return 1
 	fi
 	return 0

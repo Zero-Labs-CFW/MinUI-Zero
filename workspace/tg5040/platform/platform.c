@@ -752,6 +752,10 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	uint64_t ps_tg = ps_t3;
 	if (pf_on) { pglFinish(); ps_tg = getMicroseconds(); }
 	SDL_RenderPresent(vid.renderer);
+	// A game's first GLES present proves the same thing as the menu's (zerokernel.sh health): an auto-resumed boot
+	// goes straight into minarch and never draws the menu, and must not count as a black screen (review, 2026-11-18)
+	static int gles_marked;
+	if (!gles_marked) { gles_marked = 1; PLAT_menuPresented(); }
 	if (ps_on) {
 		ps_t4 = getMicroseconds();
 		static uint64_t s_up, s_pass, s_copy, s_gpu, s_pres;

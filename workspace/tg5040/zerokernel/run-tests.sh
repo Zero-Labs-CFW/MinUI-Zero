@@ -27,7 +27,7 @@ fi
 mkdir -p "$ROOT/.notes"
 T=$(mktemp -d "$ROOT/.notes/zk-test.XXXXXX")
 trap 'rc=$?; rm -rf "$T"; exit $rc' EXIT HUP INT TERM
-export ZK_T="$T"
+export ZK_T="$T" ZK_GLES_WAIT=6
 R="$T/root"; CARD="$T/card"; BIN="$T/bin"
 export ZK_ROOT="$R" SDCARD_PATH="$CARD" SHARED_USERDATA_PATH="$CARD/.userdata/shared" SYSTEM_PATH="$CARD/.system/tg5040"
 export TRIMUI_MODEL="Trimui Brick"
@@ -179,7 +179,7 @@ power_on() {
 userspace() {
 	us_k=$1; shift
 	us_card=1; us_menu=1; us_gpu=1; us_gles=0; unset ZK_CUT_SETENV ZK_CUT_DD
-	for o in "$@"; do case "$o" in nocard) us_card=0 ;; nomenu) us_menu=0 ;; nogpu) us_gpu=0 ;; gles) us_gles=1 ;;
+	for o in "$@"; do case "$o" in nocard) us_card=0 ;; nomenu) us_menu=0 ;; nogpu) us_gpu=0 ;; gles) us_gles=1 ;; gles-late) us_gles=2 ;;
 		cut-setenv=*) export ZK_CUT_SETENV=${o#cut-setenv=} ;; cut-dd) export ZK_CUT_DD="$SYSTEM_PATH/kernel/zero-recovery.img" ;; esac; done
 	rm -f "$T/setenv.count"; rm -rf "$R/tmp"; mkdir -p "$R/tmp"
 	[ "$us_k" = hang ] && return 0
@@ -191,6 +191,8 @@ userspace() {
 	[ $us_card = 1 ] || return 0               # no card: MinUI never runs
 	[ $us_menu = 1 ] && : > "$R/tmp/zero-menu-start"
 	[ $us_menu = 1 ] && [ $us_gles = 1 ] && : > "$R/tmp/zero-gles-ok"
+	# gles-late: an auto-resumed game, not the menu, writes the marker a few seconds later
+	[ $us_menu = 1 ] && [ $us_gles = 2 ] && ( sleep 3; : > "$R/tmp/zero-gles-ok" ) &
 	# launch.sh's spawn decision (builtin marker tests), then the chain. bootenv.sh revert removes the trigger.
 	SPAWNED=0
 	if [ -f "$CARD/restore-boot-env.txt" ]; then
@@ -453,6 +455,11 @@ boot; expect_kernel stock; expect_armed; expect_env zero_k on
 boot; expect_kernel zero; expect_stock; expect_state bad; expect_env zero_k_fail 1
 boot; expect_kernel stock; expect_armed
 boot gles; expect_kernel zero; expect_armed; expect_state zarmed; expect_env zero_k_fail ""
+CASE="Smart Pro: an auto-resumed boot (marker from the game, seconds later) is healthy and re-arms"
+fresh_device; export TRIMUI_MODEL="Trimui Smart Pro"; UBOOT='2018.05(04/23/2024-18:42:17)'; LCD=er68576
+boot; expect_kernel stock; expect_armed
+boot gles-late; expect_kernel zero; expect_armed; expect_state zarmed; expect_env zero_k_fail ""
+boot gles-late; expect_kernel zero; expect_armed; expect_env zero_k_fail ""
 CASE="Brick Pro: installs, re-arms only with the GLES-present marker"
 fresh_device; export TRIMUI_MODEL="Trimui Brick Pro"; UBOOT='2018.05(07/11/2026-11:42:17)'; LCD=gh7003
 boot; expect_kernel stock; expect_armed
