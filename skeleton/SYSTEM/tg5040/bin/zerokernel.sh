@@ -9,7 +9,8 @@
 #
 # Overlay files (Dan, 2026-11-19): only files Zero adds, never a changed stock file, and all under /usr/lib/zero,
 # except where something other than Zero's own scripts finds them at a fixed path: the kernel's module directory
-# (MODDIR), the two rc.d stubs procd runs (rc-stub), and the WiFi MAC file our xr829 driver reads (capture_mac).
+# (MODDIR) and the two rc.d stubs procd runs (rc-stub). The WiFi MAC is $ZDIR/mac, passed to our driver as a module
+# option (capture_mac, S01zero).
 #
 # How a power-on works. ARMED env: bootcmd = "run zero_once; setenv boot_partition recovery; run setargs_nand
 # boot_normal". The loader runs zero_once first, which puts the stock bootcmd back and saves the env, then boots
@@ -38,10 +39,11 @@ MODDIR=/lib/modules/4.9.191-zero     # outside ZDIR: the kernel and kmodloader l
 ZDIR=/usr/lib/zero                    # everything else Zero puts on the overlay (zinit reads gpu/ and procd here)
 STATE="$R$ZDIR/state"                 # overlay: both kernels see it (rootfs_data, mounted sync)
 RCD="/etc/rc.d/S01zero /etc/rc.d/K01zero"  # the stubs: procd only runs rc scripts from /etc/rc.d
-# Through ship10 these lived outside ZDIR. The state moves at every start (st_migrate), so no counted boot is lost;
-# the rest goes with the next overlay install, and undo removes both layouts.
+# Through ship10 these lived outside ZDIR. The state moves at every start (st_pick), so no counted boot is lost;
+# the rest goes once the new overlay is in (old_clean), and undo removes both layouts.
 OLD_STATE="$R/etc/zero-kernel.state"
 OLD_FILES="/etc/rc.d/S01zerogpu /etc/rc.d/K01zeroclean /etc/modules.d/zero-xr829"
+OLD_MAC=/etc/wifi/xr_wifi.conf  # ship10's MAC file; also where our driver saves a random MAC when it gets none
 MAXFAIL=2      # consecutive boots that did not reach the menu under our kernel, then stop for this image
 MAXUNCLEAN=3   # consecutive zero sessions that ended without a clean power-off, then stop (escape hatch, H4)
 REC_BYTES=16777216
@@ -174,11 +176,26 @@ setenv_checked() {
 # never reached the menu or hung in its health check, which is the failure the fallback exists for (critique H2).
 st_read() { ST_W=; ST_I=; ST_N=0; read -r ST_W ST_I ST_N 2>/dev/null < "$STATE"; case "$ST_N" in ''|*[!0-9]*) ST_N=0 ;; esac; }
 st_write() { mkdir -p "$R$ZDIR" 2>/dev/null; printf '%s %s %s\n' "$1" "${IMG_ID:-none}" "${2:-0}" > "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE" && sync; }
-# the ship10 state file, moved as it is: its word still decides whether the last zero boot is counted
+# the ship10 state file, moved as it is: its word still decides whether the last zero boot is counted. It always
+# wins over ours: it is deleted once moved, so one that exists was written since, by a ship10 card or overlay.
 st_migrate() {
 	[ -f "$OLD_STATE" ] || return 0
-	if [ ! -f "$STATE" ]; then mkdir -p "$R$ZDIR" && cp "$OLD_STATE" "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE" || return 1; fi
+	mkdir -p "$R$ZDIR" && cp "$OLD_STATE" "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE" || return 1
 	rm -f "$OLD_STATE"; sync
+}
+# Under our kernel with the ship10 overlay still in (the stock boot after this one updates it), its K01zeroclean
+# reads only the old path: keep the state there for this session, so an orderly reboot is still cleaned up.
+st_pick() {
+	if [ "$osr" = 4.9.191-zero ] && [ -f "$R/etc/rc.d/K01zeroclean" ]; then STATE=$OLD_STATE; return 0; fi
+	st_migrate
+}
+# the ship10 files outside ZDIR, stock kernel only, once the new overlay is in: at the install, and again before any
+# re-arm (a power cut after the VERSION swap). Never a file the read-only root ships.
+old_clean() {
+	for oc_f in $OLD_FILES $OLD_MAC; do
+		[ -e "$R/rom$oc_f" ] || rm -f "$R$oc_f"
+	done
+	sync
 }
 
 # ---- allowlist tuple (model, U-Boot build, panel, DT panel driver, rootfs) ----
@@ -265,16 +282,15 @@ install_overlay() {
 		[ -n "$io_p" ] && { mv -f "$io_st$io_p" "$R$io_p" || { why="move $io_p"; rm -rf "$io_st"; return 1; }; }
 	done < "$PAY/manifest.md5"
 	rm -rf "$io_st"
-	# files a newer payload no longer ships (state and procd are made on the device, never shipped)
+	# files a newer payload no longer ships (state, procd and mac are made on the device, never shipped)
 	for io_f in "$R$MODDIR"/* "$R$ZDIR"/* "$R$ZDIR"/rc/* "$R$ZDIR"/modules.d/* "$R$ZDIR"/gpu/lib/* "$R$ZDIR"/gpu/firmware/*; do
 		[ -f "$io_f" ] || continue
-		case "${io_f#$R}" in "$ZDIR/state"|"$ZDIR/procd") continue ;; esac
+		case "${io_f#$R}" in "$ZDIR/state"|"$ZDIR/procd"|"$ZDIR/mac") continue ;; esac
 		grep -qF "  ${io_f#$R}" "$PAY/manifest.md5" || rm -f "$io_f"
 	done
-	# the ship10 layout: its stubs and list go once the new ones are in (its state file moved at this start)
+	# the ship10 layout: its stubs, list and MAC file go once the new ones are in (its state file moved at this start)
 	st_migrate
-	for io_f in $OLD_FILES; do rm -f "$R$io_f"; done
-	sync
+	old_clean
 }
 overlay_current() { ov_v=; read -r ov_v 2>/dev/null < "$R$ZDIR/VERSION"; [ -n "$ov_v" ] && [ "$ov_v" = "$REL" ]; }
 
@@ -337,17 +353,18 @@ EOF
 }
 
 capture_mac() { # fixes/mac/capture-stock-mac.sh, stock kernel only. Format-checked, and never kept over a live stock MAC.
-	# Outside ZDIR because our xr829_core.ko has this path compiled in (moving it means a new module build). Only
-	# our driver reads it: the firmware ships no such file (absent in the Brick Pro and Smart Pro recon) and stock's
-	# xradio modules name only /data/misc/wifi/xr_wifi.conf (fixes/mac/stock-ko strings).
-	cm_conf="$R/etc/wifi/xr_wifi.conf"
-	cm_old=; read -r cm_old 2>/dev/null < "$cm_conf"
+	# $ZDIR/mac, read only by S01zero, which passes it to our xr829_core.ko as macaddr= (the driver uses that option
+	# first: wlan/main.c xradio_get_mac_addrs). Through ship10 it was $OLD_MAC, the path compiled into the driver:
+	# read once here as the old value, then removed by old_clean.
+	cm_conf="$R$ZDIR/mac"
+	cm_cur=; read -r cm_cur 2>/dev/null < "$cm_conf"; cm_old=$cm_cur
+	[ -z "$cm_old" ] && [ ! -e "$R/rom$OLD_MAC" ] && read -r cm_old 2>/dev/null < "$R$OLD_MAC"
 	cm_mac=$(cat "$R/sys/class/net/wlan0/address" 2>/dev/null | tr 'A-F' 'a-f')
 	if [ -z "$cm_mac" ]; then
 		# no live MAC: a file already in the stock format stays. The dmesg formula is unverified on these
 		# firmwares, so it only fills a missing or non-stock file, never replaces a good one (critique-release-prep 6)
-		case "$cm_old" in dc:44:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) return 0 ;; esac
-		cm_s=$(dmesg | sed -n 's/.*serial: \([0-9A-Fa-f]\{10\}\).*/\1/p' | tail -n 1)
+		case "$cm_old" in dc:44:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) cm_mac=$cm_old ;; esac
+		cm_s=; [ -z "$cm_mac" ] && cm_s=$(dmesg | sed -n 's/.*serial: \([0-9A-Fa-f]\{10\}\).*/\1/p' | tail -n 1)
 		if [ -n "$cm_s" ]; then
 			cm_x=$(( 0x${cm_s#??} )); cm_v=$(( (cm_x << 4) & 0xffffffff ))
 			cm_mac=$(printf 'dc:44:%02x:%02x:%02x:%02x' $(( ((cm_v >> 24) & 0xff) | 0x60 )) $(( (cm_v >> 16) & 0xff )) \
@@ -357,14 +374,13 @@ capture_mac() { # fixes/mac/capture-stock-mac.sh, stock kernel only. Format-chec
 	case "$cm_mac" in
 	dc:44:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) ;;
 	*)  # nothing usable: keep an existing file only if it has the stock format (a random MAC our driver saved does not)
-		case "$cm_old" in dc:44:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) return 0 ;; esac
-		return 1 ;;
+		case "$cm_old" in dc:44:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) cm_mac=$cm_old ;; *) return 1 ;; esac ;;
 	esac
-	[ "$cm_old" = "$cm_mac" ] && return 0
-	mkdir -p "$R/etc/wifi" && printf '%s\n' "$cm_mac" > "$cm_conf.tmp" && chmod 600 "$cm_conf.tmp" && mv "$cm_conf.tmp" "$cm_conf" && sync
+	[ "$cm_cur" = "$cm_mac" ] && return 0
+	mkdir -p "$R$ZDIR" && printf '%s\n' "$cm_mac" > "$cm_conf.tmp" && chmod 600 "$cm_conf.tmp" && mv "$cm_conf.tmp" "$cm_conf" && sync
 }
 
-# GPU 1.11 active (zinit's binds or the S01zerogpu backstop), plus the GLES-present marker on a gles-menu model
+# GPU 1.11 active (zinit's binds or the S01zero backstop), plus the GLES-present marker on a gles-menu model
 health() {
 	grep -q '^pvrsrvkm ' "$R/proc/modules" || { why="pvrsrvkm not loaded"; return 1; }
 	grep -q ' /usr/lib/libsrv_um.so ' "$R/proc/mounts" || { why="GPU 1.11 bind mounts missing"; return 1; }
@@ -445,8 +461,12 @@ update_and_arm() {
 	setenv_checked "zero_once|$ONCE" "zero_k|$ua_state" "zero_k_img|writing" || { mark "$DIR/stop-$serial-$REL"; return 1; }
 	install_overlay || { log "overlay install failed: $why (bootcmd stock, retried next boot)"; return 1; }
 	make_procd install
-	write_image || { log "STOP: image write failed twice"; mark "$DIR/stop-$serial-$REL"; return 1; }
-	arm armed 0 "zero_k|on" "zero_k_img|$IMG_ID" "zero_k_fail|" "zero_k_bad|" || return 1
+	# recovery already holding this image in full (an overlay-only release): no 8 MB rewrite
+	if [ "$REC_KIND" = "ours:$IMG_ID" ]; then log "recovery already holds $IMG_ID, not rewritten"
+	else write_image || { log "STOP: image write failed twice"; mark "$DIR/stop-$serial-$REL"; return 1; }; fi
+	# a count against this same image carries over: a new overlay is not a new kernel
+	ua_f=; [ "$zimg" = "$IMG_ID" ] && [ "${zfail:-0}" -gt 0 ] && ua_f=$zfail
+	arm armed 0 "zero_k|on" "zero_k_img|$IMG_ID" "zero_k_fail|$ua_f" "zero_k_bad|" || return 1
 	log "image $IMG_ID written and armed; next power-on boots it"
 }
 
@@ -460,7 +480,9 @@ rv_fail() { # $1 = log text, $2 = what the user reads
 }
 if [ "$CMD" = revert ]; then
 	ENV=$(fw_printenv 2>/dev/null)
-	if ! envhas zero_k && ! envhas zero_once && [ ! -d "$R$ZDIR" ] && [ ! -d "$R$MODDIR" ]; then
+	# a deferred first install may have saved only the MAC (capture_mac runs before the recovery backup)
+	if ! envhas zero_k && ! envhas zero_once && { [ ! -d "$R$ZDIR" ] || [ "$(ls -A "$R$ZDIR")" = mac ]; } && [ ! -d "$R$MODDIR" ]; then
+		rm -rf "$R$ZDIR"
 		# never installed: keep it that way (critique H1). zero_k=off covers any card, the off marker this card,
 		# and bootenv.sh revert (next in the chain) adds zero_fast_boot=off, which boot also honors.
 		if sane_base; then setenv_checked "zero_k|off" || log "revert: zero_k=off write failed (the off marker still holds)"
@@ -510,8 +532,8 @@ if [ "$CMD" = revert ]; then
 		log "revert: no recovery partition of the expected size, left alone"
 	fi
 	# 3. overlay files, this layout and the ship10 one (all inert under stock; removal is safe while running ours)
-	rm -rf "$R$MODDIR" "$R$ZDIR" "$R/etc/wifi/xr_wifi.conf" "$OLD_STATE"
-	for rv_f in $RCD $OLD_FILES; do rm -f "$R$rv_f"; done
+	rm -rf "$R$MODDIR" "$R$ZDIR" "$OLD_STATE"
+	for rv_f in $RCD $OLD_FILES $OLD_MAC; do [ -e "$R/rom$rv_f" ] || rm -f "$R$rv_f"; done
 	rm -f "$R"/etc/rc.d/*.zk-new "$R"/etc/modules.d/*.zk-new; sync
 	mark "$DIR/off-$serial"; rm -f "$PEND"; sync
 	[ -n "$rv_bad" ] && printf 'The Zero kernel is off: this device starts the stock kernel from now on.\nIts spare partition could not be put back exactly, which is harmless. Details: .userdata/shared/.minui/zerokernel/log.txt. Delete this file.\n' > "$SD/zero-kernel-restore-FAILED.txt"
@@ -525,7 +547,7 @@ if [ "$CMD" = disarm ]; then
 	envhas zero_k || exit 0
 	sane_base || { log "disarm refused: $why"; exit 1; }
 	[ "$(envget bootcmd)" = "$ARMED" ] || [ "$(envget boot_partition)" != boot ] || exit 0
-	st_migrate; st_read; IMG_ID=$ST_I; st_write menu 0  # the coming stock boot is benign, not a fallback
+	st_pick; st_read; IMG_ID=$ST_I; st_write menu 0  # the coming stock boot is benign, not a fallback
 	setenv_checked "bootcmd|$STOCK_BOOTCMD" "boot_partition|boot" || { log "disarm FAILED"; exit 1; }
 	log "disarmed (Optimize CPU): next power-on is stock"
 	exit 0
@@ -536,7 +558,7 @@ fi
 [ -f "$R/tmp/zerokernel.ran" ] && exit 0  # once per boot: an arm made by this boot is not a stuck env
 : > "$R/tmp/zerokernel.ran"
 case "$osr" in 4.9.191|4.9.191-zero) ;; *) exit 0 ;; esac
-st_migrate || log "state: moving the ship10 state file failed"
+st_pick || log "state: moving the ship10 state file failed"
 
 # 1. Stuck-env repair, first and before any wait (critique C1). Userspace must only ever see a disarmed env.
 if sane_base; then
@@ -639,6 +661,7 @@ case "$osr" in
 		rec_kind  # never arm from a stale env value: re-hash recovery first
 		[ "$REC_KIND" = "ours:$IMG_ID" ] || { log "recovery is '$REC_KIND', not $IMG_ID: rewriting"; update_and_arm on; exit 0; }
 		make_procd  # a power cut after the install's VERSION swap, or a lost file: made again, else stock procd
+		old_clean   # the same power cut can leave the ship10 files
 		arm armed 0 || exit 0
 		;;
 	failed)

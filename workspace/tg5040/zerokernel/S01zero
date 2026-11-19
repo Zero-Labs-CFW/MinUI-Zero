@@ -17,5 +17,17 @@ fi
 # S10boot (init.d/boot) on both kernels. The same stock kmodloader, given our list directory (as zinit gives it
 # /etc/modules-boot.d/), loads it the same way (dependencies from /lib/modules/4.9.191-zero, cfg80211 is built in),
 # one rc step earlier. Not yet run on a device in this position.
-[ -d /usr/lib/zero/modules.d ] && /sbin/kmodloader /usr/lib/zero/modules.d/
+# The stock MAC (bin/zerokernel.sh capture_mac) goes in as xr829_core's macaddr= option, which the driver uses before
+# its compiled-in /etc/wifi/xr_wifi.conf: the stock kmodloader takes "<module> <options>" list lines (split at the
+# first space, checked in the Brick's kmodloader, main_loader). Without a MAC the shipped list loads as is, and the
+# driver then saves a random MAC to that compiled-in path (removed again on the next stock start).
+if [ -d /usr/lib/zero/modules.d ]; then
+	_zm=; read -r _zm 2>/dev/null < /usr/lib/zero/mac
+	case "$_zm" in
+	dc:44:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f])
+		mkdir -p /tmp/zero-modules.d && sed "s/^xr829_core\$/xr829_core macaddr=$_zm/" /usr/lib/zero/modules.d/zero-xr829 \
+			> /tmp/zero-modules.d/zero-xr829 && /sbin/kmodloader /tmp/zero-modules.d/ ;;
+	*) /sbin/kmodloader /usr/lib/zero/modules.d/ ;;
+	esac
+fi
 exit 0

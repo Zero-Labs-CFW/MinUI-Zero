@@ -18,14 +18,16 @@ esac
 # image, which is also the escape from a dark screen. A session counts as clean only when THIS boot re-armed
 # (/tmp/zero-armed); a zarmed state left from an earlier session, or a boot that never re-armed, becomes the
 # benign "menu" instead. Same block as workspace/tg5040/zerokernel/K01zero (orderly reboots). Builtins only,
-# plus one small write to the overlay (mounted sync).
+# plus one small write to the overlay (mounted sync). The ship10 path is used while a ship10 overlay is still in
+# (bin/zerokernel.sh st_pick keeps the state there for that session).
 _zo=; read -r _zo < /proc/sys/kernel/osrelease
-if [ "$_zo" = 4.9.191-zero ] && read -r _zw _zi _zn 2>/dev/null < /usr/lib/zero/state; then
+_zf=/usr/lib/zero/state; [ -f /etc/zero-kernel.state ] && _zf=/etc/zero-kernel.state
+if [ "$_zo" = 4.9.191-zero ] && read -r _zw _zi _zn 2>/dev/null < $_zf; then
 	case "$_zw" in
 	zarmed) if [ -f /tmp/zero-armed ]; then _zw=zclean; _zn=0; else _zw=menu; fi ;;  # re-armed by THIS boot, or left over
 	armed|zclean|health) _zw=menu ;;  # this boot ran userspace far enough to stop in order: not a kernel failure
 	esac
-	echo "$_zw $_zi $_zn" > /usr/lib/zero/state
+	echo "$_zw $_zi $_zn" > $_zf
 fi
 
 sync && umount -f -l /mnt/SDCARD

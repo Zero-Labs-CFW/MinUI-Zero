@@ -60,13 +60,15 @@ echo "$REL" > "$OUT/VERSION"
 
 # known-images.txt: "<bytes> <md5> <id>", every image Zero or a dev device ever put in recovery (dev installs:
 # .notes/2026-11-18-own-kernel-ship/b0/install-*.txt, Brick ship3/5/8, Brick Pro ship3/6/8, Smart Pro ship3 to ship10),
-# so an update or undo knows them as ours; the shipped one LAST
+# so an update or undo knows them as ours; the shipped one LAST. Its id is the image name, not the release: the env
+# and the stop rules key on it (zero_k_img, zero_k_bad), so a release that keeps the same kernel bytes keeps the id
+# and a device stopped on that image stays stopped, and a pending fail count still counts.
 {
 	for old in trim8 ship1 ship2 ship3 ship4 ship5 ship6 ship6d ship7 ship7d ship8 ship9 ship10; do
 		f="$K/work/zero-recovery-$old.img"; [ "$old" = "$NAME" ] && continue
 		[ -f "$f" ] && echo "$(sizef "$f") $(md5f "$f") dev-$old-$(md5f "$f" | cut -c1-8)"
 	done
-	echo "$(sizef "$IMG") $(md5f "$IMG") $REL-$(md5f "$IMG" | cut -c1-8)"
+	echo "$(sizef "$IMG") $(md5f "$IMG") $NAME-$(md5f "$IMG" | cut -c1-8)"
 } > "$OUT/known-images.txt"
 
 ( cd "$OUT" && find . -type f | sort | sed 's|^\./||' | while read -r p; do echo "$(shasum -a 256 "$p" | cut -d' ' -f1)  $p"; done ) > "$HERE/payload.sha256"

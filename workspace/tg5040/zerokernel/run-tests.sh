@@ -117,7 +117,7 @@ chmod +x "$BIN"/*
 export PATH="$BIN:$PATH"
 
 # ---------------- fake payload (small image, a few overlay files) ----------------
-mkpayload() { # $1 = release id, $2 = image seed
+mkpayload() { # $1 = release id, $2 = image seed, $3 = image name (default: the release id), as stage-payload.sh
 	P="$SYSTEM_PATH/kernel"; rm -rf "$P"; mkdir -p "$P/root/lib/modules/4.9.191-zero" "$P/root/usr/lib/zero/gpu/lib" \
 		"$P/root/usr/lib/zero/gpu/firmware" "$P/root/etc/rc.d" "$P/root/usr/lib/zero/rc" "$P/root/usr/lib/zero/modules.d"
 	{ printf 'ANDROID!'; i=0; while [ $i -lt 2000 ]; do echo "$2 kernel block $i"; i=$((i + 1)); done; } > "$P/zero-recovery.img"
@@ -132,7 +132,7 @@ mkpayload() { # $1 = release id, $2 = image seed
 	( cd "$P/root" && find . -type f ! -path ./usr/lib/zero/VERSION | sort | while read -r p; do echo "$(md5 "$p")  ${p#.}"; done
 	  echo "$(md5 ./usr/lib/zero/VERSION)  /usr/lib/zero/VERSION" ) > "$P/manifest.md5"
 	{ [ -f "$T/known.prev" ] && cat "$T/known.prev"
-	  echo "$(wc -c < "$P/zero-recovery.img" | tr -d ' ') $(md5 "$P/zero-recovery.img") $1-$(md5 "$P/zero-recovery.img" | cut -c1-8)"; } > "$P/known-images.txt"
+	  echo "$(wc -c < "$P/zero-recovery.img" | tr -d ' ') $(md5 "$P/zero-recovery.img") ${3:-$1}-$(md5 "$P/zero-recovery.img" | cut -c1-8)"; } > "$P/known-images.txt"
 	cp "$P/known-images.txt" "$T/known.prev"
 	{ printf 'recovery part not used!\n'; i=0; while [ $i -lt 8 ]; do printf '\000'; i=$((i + 1)); done
 	  i=0; while [ $i -lt 480 ]; do printf '\315'; i=$((i + 1)); done; } > "$P/recovery-stock-head.bin"
@@ -241,7 +241,7 @@ userspace() {
 	return 0
 }
 zblock() { # the Zero lines of bin/shutdown or K01zero, against the fake root
-	sed -n '/^_zo=/,/^fi$/p' "$1" | sed "s|/proc/|$R/proc/|g; s|/usr/lib/zero/|$R/usr/lib/zero/|g; s|/tmp/|$R/tmp/|g" > "$T/zb.sh"; sh "$T/zb.sh"
+	sed -n '/^_zo=/,/^fi$/p' "$1" | sed "s|/proc/|$R/proc/|g; s|/usr/lib/zero/|$R/usr/lib/zero/|g; s|/tmp/|$R/tmp/|g; s|/etc/zero-kernel.state|$R/etc/zero-kernel.state|g" > "$T/zb.sh"; sh "$T/zb.sh"
 }
 clean_off() { zblock "$SHUTDOWN"; }   # menu power-off (PMIC cut, rc.d K* never runs)
 reboot_k() { zblock "$KCLEAN"; }      # orderly reboot: procd runs /etc/rc.d/K* (File Transfer, update, dev)
@@ -274,7 +274,7 @@ expect_kernel stock; expect_armed; expect_env zero_k on; expect_env zero_k_img "
 expect_rec "$IMGMD5"; expect_state armed
 expect_file "$ZD/recovery-orig-$SERIAL.bin"; [ "$(cat "$ZD/recovery-orig-$SERIAL.bin.md5")" = "$STOCKREC" ] && ok || bad "backup md5"
 expect_file "$R/usr/lib/zero/procd"; expect_file "$R/usr/lib/zero/VERSION"; expect_file "$R/etc/rc.d/S01zero"
-[ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:60:38:9a:91" ] && ok || bad "MAC file"
+[ "$(cat "$R/usr/lib/zero/mac")" = "dc:44:60:38:9a:91" ] && ok || bad "MAC file"
 [ -x "$R/etc/rc.d/S01zero" ] && [ -x "$R/etc/rc.d/K01zero" ] && [ -x "$R/usr/lib/zero/rc/S01zero" ] && [ -x "$R/usr/lib/zero/rc/K01zero" ] \
 	&& ok || bad "rc scripts not executable"
 expect_nofile "$R/usr/lib/zero/.stage"; ls "$R"/etc/rc.d/*.zk-new >/dev/null 2>&1 && bad "zk-new left in rc.d" || ok
@@ -521,11 +521,11 @@ install_device; boot; clean_off
 rm -rf "$R/usr/lib/zero" "$R/lib/modules/4.9.191-zero" "$R/etc/wifi"; echo "DC:44:60:57:7F:91" > "$R/sys/class/net/wlan0/address"
 boot; expect_kernel zero; expect_stock       # the wiped overlay is not current: no re-arm under ours (M2)
 boot; expect_kernel stock; expect_armed
-[ "$(cat "$R/etc/wifi/xr_wifi.conf" 2>/dev/null)" = "dc:44:60:57:7f:91" ] && ok || bad "MAC file not rewritten"
+[ "$(cat "$R/usr/lib/zero/mac" 2>/dev/null)" = "dc:44:60:57:7f:91" ] && ok || bad "MAC file not rewritten"
 CASE="no live MAC on a re-arm is not a gate"
 setenv_raw bootcmd "$STOCKBC"; echo "menu x 0" > "$R/usr/lib/zero/state"   # a benign stock start, zero_k=on
 rm -f "$R/sys/class/net/wlan0/address"; : > "$T/dmesg.txt"; userspace stock
-expect_armed; [ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:60:57:7f:91" ] && ok || bad "MAC file changed"
+expect_armed; [ "$(cat "$R/usr/lib/zero/mac")" = "dc:44:60:57:7f:91" ] && ok || bad "MAC file changed"
 echo "DC:44:60:38:9A:91" > "$R/sys/class/net/wlan0/address"
 
 CASE="a device holding an older listed dev image updates to the shipped one"
@@ -563,15 +563,15 @@ CASE="a derived MAC never replaces a stock-format file (finding 6)"
 install_device
 rm -f "$R/sys/class/net/wlan0/address"; echo "[    1.234] sunxi-chipid: serial: 0123456789" > "$T/dmesg.txt"
 stock_start; expect_armed
-[ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:60:38:9a:91" ] && ok || bad "stock-format MAC file replaced by the derived one"
+[ "$(cat "$R/usr/lib/zero/mac")" = "dc:44:60:38:9a:91" ] && ok || bad "stock-format MAC file replaced by the derived one"
 CASE="a derived MAC fills a missing or non-stock file (finding 6)"
-rm -f "$R/etc/wifi/xr_wifi.conf"; stock_start; expect_armed
-[ "$(cat "$R/etc/wifi/xr_wifi.conf" 2>/dev/null)" = "dc:44:74:56:78:91" ] && ok || bad "derived MAC not written to a missing file"
-echo "02:1a:2b:3c:4d:5e" > "$R/etc/wifi/xr_wifi.conf"; stock_start; expect_armed
-[ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:74:56:78:91" ] && ok || bad "derived MAC did not replace a non-stock file"
+rm -f "$R/usr/lib/zero/mac"; stock_start; expect_armed
+[ "$(cat "$R/usr/lib/zero/mac" 2>/dev/null)" = "dc:44:74:56:78:91" ] && ok || bad "derived MAC not written to a missing file"
+echo "02:1a:2b:3c:4d:5e" > "$R/usr/lib/zero/mac"; stock_start; expect_armed
+[ "$(cat "$R/usr/lib/zero/mac")" = "dc:44:74:56:78:91" ] && ok || bad "derived MAC did not replace a non-stock file"
 CASE="a live MAC still replaces a different stock-format file (finding 6)"
 echo "DC:44:60:57:7F:91" > "$R/sys/class/net/wlan0/address"; stock_start; expect_armed
-[ "$(cat "$R/etc/wifi/xr_wifi.conf")" = "dc:44:60:57:7f:91" ] && ok || bad "live MAC did not win"
+[ "$(cat "$R/usr/lib/zero/mac")" = "dc:44:60:57:7f:91" ] && ok || bad "live MAC did not win"
 : > "$T/dmesg.txt"; echo "DC:44:60:38:9A:91" > "$R/sys/class/net/wlan0/address"
 
 CASE="the zero-side re-arm re-hashes recovery: an older image of ours is rewritten (finding 7)"
@@ -597,14 +597,14 @@ boot; expect_kernel stock; expect_stock; expect_file "$ZD/skip-$SERIAL-ship2"
 
 # ---------------- namespace (Dan, 2026-11-19): only files Zero adds, all under /usr/lib/zero but the exceptions ----------------
 listfiles() { ( cd "$R" && find . -type f ! -path './tmp/*' ! -path './proc/*' | sort ) > "$1"; }
-OUTSIDE='-e ^\./usr/lib/zero/ -e ^\./lib/modules/4\.9\.191-zero/ -e ^\./etc/rc\.d/S01zero$ -e ^\./etc/rc\.d/K01zero$ -e ^\./etc/wifi/xr_wifi\.conf$'
-CASE="layout: Zero adds files only under /usr/lib/zero, plus the module directory, two rc.d stubs and the MAC file"
+OUTSIDE='-e ^\./usr/lib/zero/ -e ^\./lib/modules/4\.9\.191-zero/ -e ^\./etc/rc\.d/S01zero$ -e ^\./etc/rc\.d/K01zero$'
+CASE="layout: Zero adds files only under /usr/lib/zero, plus the module directory and two rc.d stubs"
 fresh_device; listfiles "$T/files.before"; boot; expect_armed; listfiles "$T/files.after"
 NEW=$(comm -13 "$T/files.before" "$T/files.after" | grep -v $OUTSIDE)
 [ -z "$NEW" ] && ok || bad "files outside the namespace: $(echo $NEW)"
 [ "$(md5 "$R/sbin/procd")" = "$FP" ] && ok || bad "stock /sbin/procd changed"
 cmp -s "$R/etc/rc.d/S01zero" "$STUB" && cmp -s "$R/etc/rc.d/K01zero" "$STUB" && ok || bad "rc.d entries are not the stub"
-for f in procd state VERSION rc/S01zero rc/K01zero modules.d/zero-xr829; do expect_file "$R/usr/lib/zero/$f"; done
+for f in procd state VERSION mac rc/S01zero rc/K01zero modules.d/zero-xr829; do expect_file "$R/usr/lib/zero/$f"; done
 [ "$(md5 "$R/usr/lib/zero/procd")" = "$PFP" ] && ok || bad "patched procd md5"
 [ -x "$R/usr/lib/zero/procd" ] && ok || bad "patched procd not executable"
 expect_nofile "$R/usr/lib/zero/procd.tmp"; expect_nofile "$R/etc/zero-kernel.state"
@@ -624,16 +624,20 @@ old_layout() {
 	echo '#!/bin/sh' > "$R/etc/rc.d/S01zerogpu"; echo '#!/bin/sh' > "$R/etc/rc.d/K01zeroclean"
 	printf 'xr829_mac\nxr829_core\nxr829_wlan\n' > "$R/etc/modules.d/zero-xr829"
 	[ -f "$R/usr/lib/zero/state" ] && mv "$R/usr/lib/zero/state" "$R/etc/zero-kernel.state"
+	mkdir -p "$R/etc/wifi"; [ -f "$R/usr/lib/zero/mac" ] && mv "$R/usr/lib/zero/mac" "$R/etc/wifi/xr_wifi.conf"
 	rm -rf "$R/usr/lib/zero/rc" "$R/usr/lib/zero/modules.d" "$R/etc/rc.d/S01zero" "$R/etc/rc.d/K01zero"
 }
 expect_old_gone() {
-	for f in /etc/rc.d/S01zerogpu /etc/rc.d/K01zeroclean /etc/modules.d/zero-xr829 /etc/zero-kernel.state; do expect_nofile "$R$f"; done
+	for f in /etc/rc.d/S01zerogpu /etc/rc.d/K01zeroclean /etc/modules.d/zero-xr829 /etc/zero-kernel.state /etc/wifi/xr_wifi.conf; do
+		expect_nofile "$R$f"; done
 }
 CASE="migration: a ship10 layout ends with only the new one after the update"
 install_device; boot; expect_kernel zero; clean_off; expect_state zclean
 old_layout; mkpayload ship3 K
-boot; expect_kernel zero; expect_stock; expect_state menu; expect_nofile "$R/etc/zero-kernel.state"
-boot; expect_kernel stock; expect_armed; expect_env zero_k_fail ""; expect_old_gone
+boot; expect_kernel zero; expect_stock; expect_nofile "$R/usr/lib/zero/state"
+[ "$(cut -d' ' -f1 "$R/etc/zero-kernel.state" 2>/dev/null)" = menu ] && ok || bad "state not kept at the ship10 path under ours"
+boot; expect_kernel stock; expect_armed; expect_env zero_k_fail ""; expect_old_gone; expect_state armed
+[ "$(cat "$R/usr/lib/zero/mac" 2>/dev/null)" = "dc:44:60:38:9a:91" ] && ok || bad "MAC not moved into the namespace"
 for f in /etc/rc.d/S01zero /etc/rc.d/K01zero /usr/lib/zero/rc/S01zero /usr/lib/zero/rc/K01zero /usr/lib/zero/modules.d/zero-xr829; do
 	expect_file "$R$f"; done
 boot; expect_kernel zero; expect_armed; expect_state zarmed; reboot_k; expect_state zclean
@@ -702,15 +706,84 @@ install_device; mkdir -p "$R/usr/lib" "$R/lib/firmware"; : > "$R/usr/lib/libsrv_
 printf '#!/bin/sh\necho "kmodloader $*" >> "%s"\n' "$T/s01.log" > "$R/sbin/kmodloader"; chmod +x "$R/sbin/kmodloader"
 { printf 'zk_mount() { echo "mount $*" >> "%s"; }\n' "$T/s01.log"
   sed "s|\$(uname -r)|\$(cat @OSR@)|; s|/usr/lib/|$R/usr/lib/|g; s|/lib/firmware/|$R/lib/firmware/|g
-	s|/proc/|$R/proc/|g; s|/sbin/|$R/sbin/|g; s|mount --bind|zk_mount --bind|g; s|@OSR@|$R/proc/sys/kernel/osrelease|" "$S01"; } > "$T/s01.sh"
+	s|/proc/|$R/proc/|g; s|/sbin/|$R/sbin/|g; s|/tmp/|$R/tmp/|g; s|mount --bind|zk_mount --bind|g; s|@OSR@|$R/proc/sys/kernel/osrelease|" "$S01"; } > "$T/s01.sh"
 rm -f "$T/s01.log"; echo 4.9.191 > "$R/proc/sys/kernel/osrelease"; : > "$R/proc/mounts"
 sh "$T/s01.sh" boot && ok || bad "S01zero exit status on stock"; expect_nofile "$T/s01.log"
 echo 4.9.191-zero > "$R/proc/sys/kernel/osrelease"; sh "$T/s01.sh" boot
 G="$R/usr/lib/zero/gpu"
-[ "$(cat "$T/s01.log" 2>/dev/null | tr '\n' ';')" = "mount --bind $G/lib/libsrv_um.so $R/usr/lib/libsrv_um.so;mount --bind $G/firmware/rgx.fw.22.102.54.38 $R/lib/firmware/rgx.fw.22.102.54.38;kmodloader $R/usr/lib/zero/modules.d/;" ] \
+[ "$(cat "$T/s01.log" 2>/dev/null | tr '\n' ';')" = "mount --bind $G/lib/libsrv_um.so $R/usr/lib/libsrv_um.so;mount --bind $G/firmware/rgx.fw.22.102.54.38 $R/lib/firmware/rgx.fw.22.102.54.38;kmodloader $R/tmp/zero-modules.d/;" ] \
 	&& ok || bad "S01zero ran '$(cat "$T/s01.log" 2>/dev/null | tr '\n' ';')'"
 rm -f "$T/s01.log"; echo "/dev/x $R/lib/firmware/rgx.fw.22.102.54.38 ext4 rw 0 0" > "$R/proc/mounts"; sh "$T/s01.sh" boot
-[ "$(cat "$T/s01.log" 2>/dev/null)" = "kmodloader $R/usr/lib/zero/modules.d/" ] && ok || bad "zinit's binds already there: S01zero ran '$(cat "$T/s01.log" 2>/dev/null)'"
+[ "$(cat "$T/s01.log" 2>/dev/null)" = "kmodloader $R/tmp/zero-modules.d/" ] && ok || bad "zinit's binds already there: S01zero ran '$(cat "$T/s01.log" 2>/dev/null)'"
+[ "$(cat "$R/tmp/zero-modules.d/zero-xr829" 2>/dev/null | tr '\n' ';')" = "xr829_mac;xr829_core macaddr=dc:44:60:38:9a:91;xr829_wlan;" ] \
+	&& ok || bad "WiFi list with the MAC option '$(cat "$R/tmp/zero-modules.d/zero-xr829" 2>/dev/null | tr '\n' ';')'"
+cmp -s "$R/usr/lib/zero/modules.d/zero-xr829" "$SYSTEM_PATH/kernel/root/usr/lib/zero/modules.d/zero-xr829" && ok || bad "shipped list changed"
+CASE="S01zero: without a MAC the shipped list loads as is"
+rm -f "$T/s01.log" "$R/usr/lib/zero/mac"; rm -rf "$R/tmp/zero-modules.d"; sh "$T/s01.sh" boot
+[ "$(cat "$T/s01.log" 2>/dev/null)" = "kmodloader $R/usr/lib/zero/modules.d/" ] && ok || bad "no MAC: S01zero ran '$(cat "$T/s01.log" 2>/dev/null)'"
+echo "02:1a:2b:3c:4d:5e" > "$R/usr/lib/zero/mac"; rm -f "$T/s01.log"; sh "$T/s01.sh" boot
+[ "$(cat "$T/s01.log" 2>/dev/null)" = "kmodloader $R/usr/lib/zero/modules.d/" ] && ok || bad "non-stock MAC passed as an option"
+
+# ---------------- review fixes (2026-11-19) ----------------
+CASE="MAC: a ship10 MAC file is moved into the namespace even with no live MAC, then removed"
+install_device; boot; clean_off; old_layout; rm -f "$R/sys/class/net/wlan0/address"; : > "$T/dmesg.txt"; mkpayload ship3 L
+boot; expect_kernel zero; boot; expect_kernel stock; expect_armed
+[ "$(cat "$R/usr/lib/zero/mac" 2>/dev/null)" = "dc:44:60:38:9a:91" ] && ok || bad "ship10 MAC not carried over"
+expect_old_gone; echo "DC:44:60:38:9A:91" > "$R/sys/class/net/wlan0/address"
+CASE="MAC: a random MAC our driver saved at the compiled-in path is removed on a stock start"
+echo "02:1a:2b:3c:4d:5e" > "$R/etc/wifi/xr_wifi.conf"; stock_start; expect_armed; expect_nofile "$R/etc/wifi/xr_wifi.conf"
+[ "$(cat "$R/usr/lib/zero/mac")" = "dc:44:60:38:9a:91" ] && ok || bad "MAC changed"
+CASE="MAC: a file the read-only root ships at that path is never read, removed or hidden"
+fresh_device; mkdir -p "$R/rom/etc/wifi"; echo "dc:44:11:22:33:44" > "$R/rom/etc/wifi/xr_wifi.conf"; cp "$R/rom/etc/wifi/xr_wifi.conf" "$R/etc/wifi/xr_wifi.conf"
+rm -f "$R/sys/class/net/wlan0/address"; : > "$T/dmesg.txt"; boot; expect_stock; expect_nofile "$R/usr/lib/zero/mac"
+echo "DC:44:60:38:9A:91" > "$R/sys/class/net/wlan0/address"; boot; expect_armed
+[ "$(cat "$R/usr/lib/zero/mac")" = "dc:44:60:38:9a:91" ] && ok || bad "live MAC not used"
+: > "$CARD/restore-boot-env.txt"; boot; expect_env zero_k off
+[ "$(cat "$R/etc/wifi/xr_wifi.conf" 2>/dev/null)" = "dc:44:11:22:33:44" ] && ok || bad "stock file removed by undo"
+CASE="undo after a first install deferred with only the MAC saved keeps the never-installed path"
+fresh_device; echo 70000 > "$T/df.card"; boot; expect_stock; expect_file "$R/usr/lib/zero/mac"; rm -f "$T/df.card"
+: > "$CARD/restore-boot-env.txt"; boot; expect_env zero_k off; expect_nofile "$R/usr/lib/zero"
+grep -q "revert: never installed" "$ZD/log.txt" && ok || bad "not the never-installed path"
+
+CASE="image id: a release with the same kernel image keeps the id, and a stop on that image holds"
+fresh_device; mkpayload ship10 H; boot; expect_armed; ZIMG=$(envv zero_k_img)
+boot; boot; boot; expect_kernel zero; expect_env zero_k failed; expect_env zero_k_bad "unclean:$ZIMG"
+mkpayload ship10.1 H ship10; [ "$(tail -n 1 "$SYSTEM_PATH/kernel/known-images.txt" | cut -d' ' -f3)" = "$ZIMG" ] && ok || bad "image id changed"
+cp "$T/env.txt" "$T/env.before"; boot; expect_kernel stock; expect_stock; [ "$SPAWNED" = 1 ] && ok || bad "test setup: not spawned"
+cmp -s "$T/env.txt" "$T/env.before" && ok || bad "env written for a stopped image"; expect_file "$ZD/stop-$SERIAL-ship10.1"
+CASE="image id: a pending fail count on the same image survives an overlay-only release, and recovery is not rewritten"
+fresh_device; mkpayload ship10 H; boot; expect_armed
+boot nomenu; expect_kernel zero; expect_stock
+mkpayload ship10.1 H ship10; boot; expect_kernel stock; expect_armed; expect_env zero_k_fail 1
+[ "$(cat "$R/usr/lib/zero/VERSION")" = ship10.1 ] && ok || bad "overlay not updated"
+grep -q "recovery already holds ship10-" "$ZD/log.txt" && ok || bad "recovery rewritten"
+boot nomenu; expect_kernel zero; boot; expect_kernel stock; expect_stock; expect_env zero_k failed
+CASE="image id: a new image still resets the count"
+fresh_device; boot; boot nomenu; mkpayload ship3 M; boot; expect_armed; expect_env zero_k_fail ""
+
+CASE="window: ship10 overlay under ours, a hang in the health check, then the old K01zeroclean on a reboot is benign"
+fresh_device; export TRIMUI_MODEL="Trimui Smart Pro"; UBOOT='2018.05(04/23/2024-18:42:17)'; LCD=er68576
+boot; expect_armed; boot gles; expect_kernel zero; expect_armed; clean_off; old_layout; mkpayload ship3 N
+sed 's|/usr/lib/zero/state|/etc/zero-kernel.state|g' "$KCLEAN" > "$T/K01zeroclean"   # what ship10's K01zeroclean reads
+boot hang-health; expect_kernel zero; [ "$(cut -d' ' -f1 "$R/etc/zero-kernel.state")" = health ] && ok || bad "health not at the ship10 path"
+zblock "$T/K01zeroclean"; [ "$(cut -d' ' -f1 "$R/etc/zero-kernel.state")" = menu ] && ok || bad "old K01zeroclean did not clean up"
+boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed; expect_old_gone
+CASE="window: the new bin/shutdown cleans up the ship10 path too"
+boot gles; expect_kernel zero; clean_off; old_layout; echo "health x 0" > "$R/etc/zero-kernel.state"
+echo 4.9.191-zero > "$R/proc/sys/kernel/osrelease"; clean_off
+[ "$(cut -d' ' -f1 "$R/etc/zero-kernel.state")" = menu ] && ok || bad "bin/shutdown missed the ship10 path"
+export TRIMUI_MODEL="Trimui Brick"
+
+CASE="going back to ship10 and forward again: its state file wins over a stale one of ours"
+install_device; boot; expect_state zarmed; clean_off; echo "zarmed x 2" > "$T/stale"
+old_layout; echo "menu x 0" > "$R/etc/zero-kernel.state"; cp "$T/stale" "$R/usr/lib/zero/state"
+setenv_raw bootcmd "$STOCKBC"; userspace stock; expect_armed; expect_env zero_k_fail ""; expect_old_gone
+boot; expect_kernel zero; expect_armed; [ "$(cut -d' ' -f3 "$R/usr/lib/zero/state")" = 0 ] && ok || bad "stale unclean count used"
+
+CASE="power cut after the VERSION swap: the ship10 files left behind go at the next stock start"
+install_device; boot; clean_off
+echo '#!/bin/sh' > "$R/etc/rc.d/S01zerogpu"; mkdir -p "$R/etc/modules.d"; printf 'xr829_core\n' > "$R/etc/modules.d/zero-xr829"
+stock_start; expect_armed; expect_old_gone
 
 echo "zerokernel harness: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
