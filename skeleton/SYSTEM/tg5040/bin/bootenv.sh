@@ -6,7 +6,9 @@
 #
 # The values live in the DEVICE's env, so they outlive Zero. Both are harmless on stock firmware. Undo: put
 # restore-boot-env.txt at the card root and boot once. That sets loglevel 8, removes burn_key if Zero set it, and
-# records zero_fast_boot=off in the env, so no Zero card applies it to this device again.
+# records zero_fast_boot=off in the env, so no Zero card applies it to this device again, until enable-zero-kernel.txt
+# at the card root turns it back on: zerokernel.sh enable clears zero_fast_boot=off and this device's done marker
+# (together with the kernel's zero_k=off, in one checked write), then apply runs as on a fresh device.
 #
 #   bootenv.sh apply    MinUI.pak runs it in the background while /proc/cmdline still shows loglevel=8
 #   bootenv.sh revert   MinUI.pak runs it when restore-boot-env.txt is on the card
@@ -122,7 +124,7 @@ case " $cmdline " in *" loglevel=8 "*) ;; *) exit 0 ;; esac
 zfb=$(envget zero_fast_boot)
 lvl=$(envget loglevel)
 case "$zfb" in
-	off) log "reverted earlier (zero_fast_boot=off), left alone"; mark "$DONE"; exit 0 ;;
+	off) log "reverted earlier (zero_fast_boot=off), left alone (enable-zero-kernel.txt turns it back on)"; mark "$DONE"; exit 0 ;;
 	1|2) log "STOP: env says zero_fast_boot=$zfb loglevel=$lvl but the kernel booted with loglevel=8"; mark "$STOP"; exit 0 ;;
 esac
 [ "$lvl" = 8 ] || { log "skip: loglevel is '$lvl', not the stock 8 (a deliberate choice, left alone)"; mark "$SKIP"; exit 0; }

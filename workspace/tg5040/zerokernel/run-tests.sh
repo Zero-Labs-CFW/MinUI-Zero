@@ -180,6 +180,24 @@ EOF
 		s/ee0dae427ece54ac8c58c072e4e40a02/$PFP/" "$SCRIPT" > "$T/zk.sh"
 }
 envv() { sed -n "s/^$1=//p" "$T/env.txt"; }
+# What bin/bootenv.sh does to the env and its markers, NOT the real script (it has no ZK_ROOT; its own guards are
+# not tested here). revert: loglevel 8, burn_key gone, zero_fast_boot=off, done marker; refused on a bad CRC or a
+# failing fw_setenv (then its stop marker). apply: on a device with no marker and no zero_fast_boot, loglevel 1,
+# burn_key 0, zero_fast_boot=2, done marker.
+BD="$SHARED_USERDATA_PATH/.minui/bootenv"
+fake_bootenv() {
+	mkdir -p "$BD"
+	case "$1" in
+	revert)
+		if [ -f "$T/env.badcrc" ] || [ -f "$T/setenv.fail" ]; then : > "$BD/stop-$SERIAL"; return 0; fi
+		[ "$(envv zero_fast_boot)" = 2 ] && setenv_raw burn_key ""
+		setenv_raw loglevel 8; setenv_raw zero_fast_boot off; : > "$BD/done-$SERIAL" ;;
+	apply)
+		[ -f "$BD/stop-$SERIAL" ] || [ -f "$BD/skip-$SERIAL" ] || [ -f "$BD/done-$SERIAL" ] && return 0
+		envhas_t zero_fast_boot && return 0
+		setenv_raw loglevel 1; setenv_raw burn_key 0; setenv_raw zero_fast_boot 2; : > "$BD/done-$SERIAL" ;;
+	esac
+}
 envhas_t() { grep -q "^$1=" "$T/env.txt"; }
 setenv_raw() { grep -v "^$1=" "$T/env.txt" > "$T/env.new"; [ -n "$2" ] && echo "$1=$2" >> "$T/env.new"; sort "$T/env.new" > "$T/env.txt"; }
 
@@ -217,9 +235,17 @@ userspace() {
 	# launch.sh's spawn decision (builtin marker tests), then the chain. bootenv.sh revert removes the trigger.
 	SPAWNED=0
 	if [ -f "$CARD/restore-boot-env.txt" ]; then
-		sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" revert'; rm -f "$CARD/restore-boot-env.txt"; return 0
+		sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" revert'; fake_bootenv revert; rm -f "$CARD/restore-boot-env.txt"; return 0
 	elif [ -f "$ZD/revert-pending-$SERIAL" ]; then
 		sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" revert'; return 0
+	elif [ -f "$CARD/enable-zero-kernel.txt" ] || [ -f "$ZD/enable-pending-$SERIAL" ]; then
+		# launch.sh's enable branch: enable, then (only if it succeeded) bootenv.sh apply and boot. The fake cmdline
+		# says loglevel=1, so this stands in for a stock start after an undo, where it says loglevel=8.
+		SPAWNED=1; rm -f "$T/main.pid"
+		if sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" enable'; then
+			ENABLE_RC=0; fake_bootenv apply; sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" boot'
+		else ENABLE_RC=1; fi
+		unset ZK_CUT_SETENV ZK_CUT_DD; return 0
 	fi
 	us_spawn=0
 	if [ "$us_k" = zero ]; then us_spawn=1
@@ -784,6 +810,107 @@ CASE="power cut after the VERSION swap: the ship10 files left behind go at the n
 install_device; boot; clean_off
 echo '#!/bin/sh' > "$R/etc/rc.d/S01zerogpu"; mkdir -p "$R/etc/modules.d"; printf 'xr829_core\n' > "$R/etc/modules.d/zero-xr829"
 stock_start; expect_armed; expect_old_gone
+
+# ---------------- turn back on after an undo: enable-zero-kernel.txt (Dan, 2026-11-19) ----------------
+EN="$CARD/enable-zero-kernel.txt"
+expect_on_again() { # the enable start: undo state gone, boot settings back (fake apply), kernel installed and armed
+	expect_kernel stock; expect_nofile "$EN"; expect_nofile "$ZD/enable-pending-$SERIAL"; expect_nofile "$ZD/off-$SERIAL"
+	expect_env zero_fast_boot 2; expect_env loglevel 1; expect_file "$BD/done-$SERIAL"
+	expect_armed; expect_env zero_k on; expect_rec "$IMGMD5"; expect_file "$R/usr/lib/zero/VERSION"
+}
+undo_now() { : > "$CARD/restore-boot-env.txt"; boot; }
+CASE="enable: off, then on (kernel reinstalled, boot settings back, the card backup kept)"
+install_device; boot; clean_off; BKM=$(cat "$ZD/recovery-orig-$SERIAL.bin.md5")
+undo_now; expect_kernel zero; expect_env zero_k off; expect_env zero_fast_boot off; expect_env loglevel 8; expect_env burn_key ""
+boot; expect_kernel stock; [ "$SPAWNED" = 0 ] && ok || bad "spawned after undo"
+: > "$EN"; boot; expect_on_again
+[ "$(cat "$ZD/recovery-orig-$SERIAL.bin.md5")" = "$BKM" ] && [ "$(md5 "$ZD/recovery-orig-$SERIAL.bin")" = "$BKM" ] && ok || bad "card backup changed"
+grep -q "enable: cleared zero_k zero_fast_boot" "$ZD/log.txt" && ok || bad "enable log line"
+boot; expect_kernel zero; expect_armed; expect_state zarmed; clean_off
+CASE="enable: off, on, off, on again"
+for i in 1 2; do
+	undo_now; expect_stock; expect_env zero_k off; expect_env zero_fast_boot off
+	[ "$(md5 "$R/dev/mmcblk0p8")" = "$STOCKREC" ] && ok || bad "recovery not restored (round $i)"
+	boot; [ "$SPAWNED" = 0 ] && ok || bad "spawned after undo (round $i)"
+	: > "$EN"; boot; expect_on_again
+	boot; expect_kernel zero; expect_armed; clean_off
+done
+CASE="enable: twice (already on) is a no-op, and the re-arm under ours still runs"
+: > "$EN"; boot
+expect_kernel zero; expect_nofile "$EN"; expect_armed; expect_env zero_k on; expect_state zarmed
+grep -q "enable: no undo in the env, nothing to turn back on" "$ZD/log.txt" && ok || bad "no-op log line"
+: > "$EN"; boot; expect_kernel zero; expect_nofile "$EN"; expect_armed; expect_env zero_fast_boot 2
+CASE="enable: on a device with no undo before (fresh) is a no-op, then the install runs as usual"
+fresh_device; : > "$EN"; boot; expect_kernel stock; expect_nofile "$EN"; expect_armed; expect_env zero_k on
+expect_env zero_fast_boot 2; expect_nofile "$CARD/enable-zero-kernel-FAILED.txt"
+CASE="enable: both files on the card, the undo wins and the enable file is set aside"
+install_device; boot; clean_off
+: > "$EN"; : > "$CARD/restore-boot-env.txt"; boot
+expect_env zero_k off; expect_env zero_fast_boot off; expect_nofile "$EN"; expect_file "$CARD/enable-zero-kernel-IGNORED.txt"
+grep -q "rename this file to enable-zero-kernel.txt" "$CARD/enable-zero-kernel-IGNORED.txt" && ok || bad "IGNORED note text"
+boot; expect_kernel stock; [ "$SPAWNED" = 0 ] && ok || bad "the set-aside file fired"; expect_env zero_k off
+mv "$CARD/enable-zero-kernel-IGNORED.txt" "$EN"; boot; expect_on_again
+CASE="enable: next to an undo still pending, the undo goes first and the enable file is set aside"
+boot; clean_off; : > "$T/setenv.fail"; undo_now; expect_file "$ZD/revert-pending-$SERIAL"; expect_env zero_k on
+: > "$EN"; rm -f "$T/setenv.fail"; boot
+expect_stock; expect_env zero_k off; expect_nofile "$ZD/revert-pending-$SERIAL"; expect_nofile "$EN"; expect_file "$CARD/enable-zero-kernel-IGNORED.txt"
+CASE="enable: a failed env write keeps a pending marker, nothing arms, and the next start finishes it"
+install_device; boot; clean_off; undo_now; rm -f "$CARD/enable-zero-kernel-IGNORED.txt"
+: > "$EN"; : > "$T/setenv.fail"; boot
+[ "$ENABLE_RC" = 1 ] && ok || bad "enable did not fail"; expect_stock; expect_env zero_k off; expect_env zero_fast_boot off
+expect_file "$ZD/enable-pending-$SERIAL"; expect_file "$ZD/off-$SERIAL"; expect_file "$BD/done-$SERIAL"; expect_nofile "$EN"
+grep -q "Zero tries again at every start" "$CARD/enable-zero-kernel-FAILED.txt" && ok || bad "FAILED text"
+boot; [ "$ENABLE_RC" = 1 ] && ok || bad "pending not retried"; expect_stock; expect_env zero_k off
+rm -f "$T/setenv.fail"; boot; expect_on_again; expect_nofile "$CARD/enable-zero-kernel-FAILED.txt"
+boot; expect_kernel zero; expect_armed
+CASE="enable: a bad-CRC env is refused, nothing written, pending kept"
+undo_now; : > "$EN"; : > "$T/env.badcrc"; cp "$T/env.txt" "$T/env.before"; boot
+cmp -s "$T/env.txt" "$T/env.before" && ok || bad "env written despite bad CRC"; expect_file "$ZD/enable-pending-$SERIAL"
+rm -f "$T/env.badcrc"; boot; expect_on_again
+CASE="enable: a readback surprise rolls back and stays pending"
+undo_now; : > "$EN"
+mv "$BIN/fw_setenv" "$BIN/fw_setenv.real"
+printf '#!/bin/sh\n"%s" "$@"; rc=$?; [ -f "$ZK_T/setenv.extra" ] && echo "stray=1" >> "$ZK_T/env.txt"; exit $rc\n' "$BIN/fw_setenv.real" > "$BIN/fw_setenv"; chmod +x "$BIN/fw_setenv"
+: > "$T/setenv.extra"; boot; rm -f "$T/setenv.extra"; setenv_raw stray ""
+[ "$ENABLE_RC" = 1 ] && ok || bad "readback surprise accepted"; expect_env zero_k off; expect_env zero_fast_boot off; expect_file "$ZD/enable-pending-$SERIAL"
+mv -f "$BIN/fw_setenv.real" "$BIN/fw_setenv"
+boot; expect_on_again
+CASE="enable: a failed image (zero_k=failed, stop marker) stays stopped; only the boot settings come back"
+install_device; : > "$T/broken"; boot; boot; boot; boot; expect_env zero_k failed; expect_file "$ZD/stop-$SERIAL-ship2"
+cp "$T/env.txt" "$T/env.pre"; : > "$EN"; boot
+cmp -s "$T/env.txt" "$T/env.pre" && ok || bad "enable wrote to a stopped device's env"
+expect_env zero_k failed; expect_file "$ZD/stop-$SERIAL-ship2"; expect_stock; expect_nofile "$EN"; [ "$ENABLE_RC" = 0 ] && ok || bad "enable rc"
+grep -q "enable: zero_k=failed kept" "$ZD/log.txt" && ok || bad "failed kept log line"
+grep -q "enable: stop-$SERIAL-ship2 kept" "$ZD/log.txt" && ok || bad "stop kept log line"
+CASE="enable: a failed image with only the boot settings undone: those come back, the image stays stopped"
+setenv_raw zero_fast_boot off; setenv_raw loglevel 8; setenv_raw burn_key ""; mkdir -p "$BD"; : > "$BD/done-$SERIAL"
+: > "$EN"; boot
+expect_env zero_k failed; expect_file "$ZD/stop-$SERIAL-ship2"; expect_stock; expect_env zero_fast_boot 2; expect_env loglevel 1
+boot; expect_kernel stock; [ "$SPAWNED" = 0 ] && ok || bad "a stopped device spawns after enable"
+rm -f "$T/broken"
+CASE="enable: an allowlist skip and a bootenv stop are kept"
+fresh_device; LCD=gh7003; boot; expect_file "$ZD/skip-$SERIAL-ship2"; mkdir -p "$BD"; : > "$BD/stop-$SERIAL"
+: > "$CARD/restore-boot-env.txt"; boot; expect_env zero_k off; expect_env zero_fast_boot off
+: > "$EN"; boot; expect_env zero_k ""; expect_env zero_fast_boot ""; expect_file "$ZD/skip-$SERIAL-ship2"; expect_file "$BD/stop-$SERIAL"
+expect_stock; expect_nofile "$ZD/off-$SERIAL"
+grep -q "enable: skip-$SERIAL-ship2 kept" "$ZD/log.txt" && ok || bad "skip kept log line"
+grep -q "enable: stop-$SERIAL kept" "$ZD/log.txt" && ok || bad "bootenv stop kept log line"
+LCD=jd9168
+CASE="enable: armed or mid-install env is never touched"
+fresh_device; power_on; setenv_raw zero_k installing; setenv_raw zero_k_img writing; setenv_raw bootcmd "$ARMED"; cp "$T/env.txt" "$T/env.pre"
+echo 4.9.191 > "$R/proc/sys/kernel/osrelease"; : > "$EN"
+echo "console=ttyS0 partitions=$PARTS androidboot.serialno=$SERIAL uboot_message=$UBOOT lcd=$LCD loglevel=8 rdinit=/rdinit" > "$R/proc/cmdline"
+sh -c 'echo $$ > "$ZK_T/main.pid"; exec sh "$ZK_T/zk.sh" enable'
+cmp -s "$T/env.txt" "$T/env.pre" && ok || bad "enable wrote to an armed, mid-install env"; expect_nofile "$EN"
+CASE="enable: undo before the first boot, then on: installs as a fresh device"
+fresh_device; undo_now; expect_env zero_k off; expect_env zero_fast_boot off; boot; [ "$SPAWNED" = 0 ] && ok || bad "spawned"
+: > "$EN"; boot; expect_on_again; expect_file "$ZD/recovery-orig-$SERIAL.bin"
+CASE="enable: a hand-cleared env with the markers left (the dev unit, 2026-11-19) gets its markers cleared"
+install_device; boot; clean_off; undo_now; setenv_raw zero_k ""; setenv_raw zero_fast_boot ""
+boot; [ "$SPAWNED" = 0 ] && ok || bad "test setup: the off marker should still stop the spawn"
+: > "$EN"; boot; expect_on_again
+CASE="enable: from our kernel (no undo, nothing to clear) the chain still re-arms"
+boot; expect_kernel zero; clean_off; : > "$EN"; boot; expect_kernel zero; expect_armed; expect_state zarmed; expect_nofile "$EN"
 
 echo "zerokernel harness: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

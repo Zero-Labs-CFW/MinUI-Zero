@@ -470,7 +470,9 @@ keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 # read-modify-write the same env and check the whole env after every write, so they run in ONE background chain,
 # bootenv first (design-boot.md section 7). Builtin tests in this shell, so a stock device that is done, skipped or
 # stopped pays no process spawn here; a boot on our kernel always spawns (the re-arm is required, or the next
-# power-on is stock). restore-boot-env.txt at the card root undoes both, zerokernel first.
+# power-on is stock). restore-boot-env.txt at the card root undoes both, zerokernel first. enable-zero-kernel.txt
+# turns both back on after an undo (zerokernel.sh enable), then runs the usual chain at the same start; with both
+# files on the card the undo wins and sets the enable file aside (Dan, 2026-11-19).
 read -r _cl < /proc/cmdline
 _sn=${_cl##*androidboot.serialno=}; _sn=${_sn%% *}
 [ "$_sn" = "$_cl" ] && _sn=unknown # same rule as bootenv.sh and zerokernel.sh
@@ -479,6 +481,11 @@ if [ -f "$SDCARD_PATH/restore-boot-env.txt" ]; then
 	( sh "$SYSTEM_PATH/bin/zerokernel.sh" revert; sh "$SYSTEM_PATH/bin/bootenv.sh" revert ) &
 elif [ -f "$_zd/revert-pending-$_sn" ]; then
 	sh "$SYSTEM_PATH/bin/zerokernel.sh" revert & # an undo whose env write failed: retried until it lands
+elif [ -f "$SDCARD_PATH/enable-zero-kernel.txt" ] || [ -f "$_zd/enable-pending-$_sn" ]; then
+	# bootenv.sh apply checks its own markers, but only runs while the kernel booted with loglevel=8, as below. A failed
+	# enable stops the chain (nothing arms; retried at the next start).
+	_be=0; case " $_cl " in *" loglevel=8 "*) _be=1 ;; esac
+	( sh "$SYSTEM_PATH/bin/zerokernel.sh" enable && { [ $_be = 1 ] && sh "$SYSTEM_PATH/bin/bootenv.sh" apply; sh "$SYSTEM_PATH/bin/zerokernel.sh" boot; } ) &
 else
 	_be=0
 	case " $_cl " in

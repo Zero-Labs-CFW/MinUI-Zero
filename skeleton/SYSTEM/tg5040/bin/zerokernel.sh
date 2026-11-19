@@ -19,6 +19,7 @@
 #
 #   zerokernel.sh boot     MinUI.pak, background, after bootenv.sh apply in the same chain
 #   zerokernel.sh revert   MinUI.pak, when restore-boot-env.txt is on the card, BEFORE bootenv.sh revert
+#   zerokernel.sh enable   MinUI.pak, when enable-zero-kernel.txt is on the card: turns both back on after an undo
 #   zerokernel.sh disarm   Optimize CPU, before a calibration starts (exit 1 = could not disarm)
 #
 # Busybox rules (memory: devicesync-device-facts, busybox-device-only-bugs): no `local`, every helper has its own
@@ -93,9 +94,16 @@ failnote() { # card-root note, same pattern as restore-boot-env-FAILED.txt
 
 case "$TRIMUI_MODEL" in
 	"Trimui Brick"|"Trimui Brick Pro"|"Trimui Smart Pro") ;;
-	*) [ "$CMD" = disarm ] || exit 0 ;;  # disarm keys on zero_k only (critique L9)
+	*) case "$CMD" in
+		disarm) ;;  # disarm keys on zero_k only (critique L9)
+		enable) mv -f "$SD/enable-zero-kernel.txt" "$SD/enable-zero-kernel-FAILED.txt" 2>/dev/null; exit 0 ;;  # as bootenv.sh revert
+		*) exit 0 ;;
+	esac ;;
 esac
 PEND="$DIR/revert-pending-$serial"  # an undo that has not finished: retried at every start, nothing arms meanwhile
+EN_TRIG="$SD/enable-zero-kernel.txt"
+EPEND="$DIR/enable-pending-$serial" # a turn-back-on whose env write failed: retried at every start, like $PEND
+BDIR="$SHARED/.minui/bootenv"       # bootenv.sh's markers (its done-<serial> after an undo)
 
 # ---- env checks ----
 # sane_base: everything except where bootcmd/boot_partition point. Used before ANY write, revert and repair
@@ -479,6 +487,15 @@ rv_fail() { # $1 = log text, $2 = what the user reads
 	exit 0
 }
 if [ "$CMD" = revert ]; then
+	# undo wins over enable-zero-kernel.txt (Dan, 2026-11-19): both on the card, or the enable file next to an undo
+	# still pending, reads as "off". The enable file is set aside under a name that never fires, with a note, so it
+	# cannot turn the kernel back on at some later start; a pending turn-back-on is dropped too.
+	if [ -f "$EN_TRIG" ]; then
+		printf 'restore-boot-env.txt was on the card too, so the undo ran and this file was set aside.\nTo turn the Zero kernel and boot settings back on, rename this file to enable-zero-kernel.txt and start the device again.\n' \
+			> "$SD/enable-zero-kernel-IGNORED.txt" && rm -f "$EN_TRIG"
+		log "revert: enable-zero-kernel.txt was on the card too: undo wins, set aside as enable-zero-kernel-IGNORED.txt"
+	fi
+	rm -f "$EPEND"
 	ENV=$(fw_printenv 2>/dev/null)
 	# a deferred first install may have saved only the MAC (capture_mac runs before the recovery backup)
 	if ! envhas zero_k && ! envhas zero_once && { [ ! -d "$R$ZDIR" ] || [ "$(ls -A "$R$ZDIR")" = mac ]; } && [ ! -d "$R$MODDIR" ]; then
@@ -541,6 +558,48 @@ if [ "$CMD" = revert ]; then
 	exit 0  # restore-boot-env.txt stays for bootenv.sh revert, which runs next in the same chain and removes it
 fi
 
+# ================================ enable ================================
+# enable-zero-kernel.txt at the card root (Dan, 2026-11-19: an undo was for good on that device; "as long as the user
+# has the option to turn it back on (and off)"). Clears only what an undo leaves: zero_k=off and zero_fast_boot=off,
+# in ONE checked write (boot reads zero_fast_boot=off as an opt-out and writes zero_k=off again, so the two never
+# clear apart), then this device's off marker and bootenv.sh's done marker. Anything else stays as it is and is
+# logged: zero_k=failed or any other value, the stop-/skip- markers (a failed health check, an unknown firmware, a
+# guard that did not hold), an armed or mid-install env. launch.sh runs bootenv.sh apply and boot right after this
+# in the same chain, so the boot settings come back and the kernel installs (card backup first) at this start.
+# The same on either kernel: after an undo the next start is stock anyway, and with nothing to clear this is a
+# no-op. A write that fails leaves $EPEND and exits 1 (the chain stops, nothing arms): retried at every start.
+en_fail() { # $1 = log text, $2 = what the user reads
+	log "enable: $1"; mark "$EPEND"
+	[ -f "$EPEND" ] && rm -f "$EN_TRIG"  # the intent lives on in $EPEND; without it the card file stays and retries
+	printf 'The Zero kernel and boot settings could not be turned back on yet: %s\nZero tries again at every start. Details: .userdata/shared/.minui/zerokernel/log.txt. Delete this file.\n' "$2" > "$SD/enable-zero-kernel-FAILED.txt"
+	exit 1
+}
+if [ "$CMD" = enable ]; then
+	[ -f "$PEND" ] && { log "enable: an undo is still pending, it goes first"; exit 1; }  # launch.sh runs revert then
+	ENV=$(fw_printenv 2>/dev/null)
+	en_set=
+	[ "$(envget zero_k)" = off ] && en_set="zero_k|"
+	[ "$(envget zero_fast_boot)" = off ] && en_set="$en_set zero_fast_boot|"
+	if [ -n "$en_set" ]; then
+		sane_base || en_fail "refused: $why" "the boot settings did not pass their checks."
+		# keys only, no values: the unquoted list splits into one "key|" (delete) per change
+		setenv_checked $en_set || en_fail "env write failed" "writing the boot settings failed."
+	fi
+	en_k=$(envget zero_k); en_b=$(envget zero_fast_boot)
+	# markers go only once the env no longer holds the undo (the key absent, as on a device Zero never touched)
+	[ -z "$en_k" ] && rm -f "$DIR/off-$serial"
+	[ -z "$en_b" ] && rm -f "$BDIR/done-$serial"
+	[ -n "$en_k" ] && log "enable: zero_k=$en_k kept (not an undo)"
+	[ -n "$en_b" ] && log "enable: zero_fast_boot=$en_b kept (not an undo)"
+	for en_m in "$DIR/stop-$serial-"* "$DIR/skip-$serial-"* "$BDIR/stop-$serial" "$BDIR/skip-$serial"; do
+		[ -e "$en_m" ] && log "enable: ${en_m##*/} kept (a failed check or an unknown firmware, not an undo)"
+	done
+	rm -f "$EPEND" "$EN_TRIG" "$SD/enable-zero-kernel-FAILED.txt"; sync
+	if [ -n "$en_set" ]; then log "enable: cleared$(echo " $en_set" | tr -d '|'), the boot settings and kernel come back through the normal path"
+	else log "enable: no undo in the env, nothing to turn back on"; fi
+	exit 0
+fi
+
 # ================================ disarm ================================
 if [ "$CMD" = disarm ]; then
 	ENV=$(fw_printenv 2>/dev/null)
@@ -588,7 +647,7 @@ img_parse || { log "STOP: no shipped image id"; mark "$DIR/stop-$serial-$REL"; e
 # The boot settings were put back to stock on this device (bootenv.sh revert, zero_fast_boot=off): that opt-out
 # covers the kernel too, also when it came before this release (critique H1).
 if [ "$(envget zero_fast_boot)" = off ] && [ "$zk" != off ]; then
-	log "boot settings restored to stock earlier (zero_fast_boot=off): the Zero kernel stays off on this device"
+	log "boot settings restored to stock earlier (zero_fast_boot=off): the Zero kernel stays off on this device (enable-zero-kernel.txt turns both back on)"
 	setenv_checked "zero_k|off" || log "zero_k=off write failed (the off marker still holds)"
 	mark "$DIR/off-$serial"; exit 0
 fi
