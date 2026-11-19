@@ -2,6 +2,10 @@
 # Zero kernel (bin/zerokernel.sh), installed as /usr/lib/zero/rc/S01zero and run by the /etc/rc.d/S01zero stub,
 # under 4.9.191-zero only. Bind mounts live only in this boot: the stock kernel always sees the stock files.
 case "$(uname -r)" in *-zero) ;; *) exit 0 ;; esac
+# 0. The "not our card" guard (rc/guard): restarts to stock when the card is not MinUI Zero. In the background so
+# rc goes on (the card mounts after this step), first so its wait starts as early as possible. stdio off the rc
+# pipes so procd does not wait on them. Not yet run on a device in this position.
+[ -f /usr/lib/zero/rc/guard ] && /bin/sh /usr/lib/zero/rc/guard </dev/null >/dev/null 2>&1 &
 # 1. Backstop for zinit's gpu_binds(): when zinit takes the stock path (manifest mismatch on another firmware build,
 # failsafe, a failed mount) procd runs rc.d without the DDK 1.11 binds, and GLES would be a black screen. Nothing
 # to do when zinit already bound them.

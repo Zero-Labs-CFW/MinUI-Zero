@@ -7,7 +7,7 @@
 # refuses a payload that does not match it.
 #
 # Usage: sh workspace/tg5040/zerokernel/stage-payload.sh <kernel notes dir> <release id> <image name>
-#   e.g. sh workspace/tg5040/zerokernel/stage-payload.sh .notes/2026-11-14-tg5040-own-kernel ship10.1 ship10
+#   e.g. sh workspace/tg5040/zerokernel/stage-payload.sh .notes/2026-11-14-tg5040-own-kernel ship10.2 ship10
 set -eu
 K=$(cd "$1" && pwd); REL=$2; NAME=$3
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -50,6 +50,7 @@ done
 cp "$GPU/firmware/rgx.fw.22.102.54.38" "$OUT/root/usr/lib/zero/gpu/firmware/"
 # the only Zero files in rc.d: one stub under each name, the real scripts beside the rest of Zero
 for f in S01zero K01zero; do cp "$HERE/rc-stub" "$OUT/root/etc/rc.d/$f"; cp "$HERE/$f" "$OUT/root/usr/lib/zero/rc/$f"; done
+cp "$HERE/guard" "$OUT/root/usr/lib/zero/rc/guard"   # the "not our card" guard, started by S01zero
 echo "$REL" > "$OUT/root/usr/lib/zero/VERSION"
 echo "$REL" > "$OUT/VERSION"
 

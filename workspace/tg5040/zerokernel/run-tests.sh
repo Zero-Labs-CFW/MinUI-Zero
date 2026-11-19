@@ -16,6 +16,7 @@ SHUTDOWN="$ROOT/skeleton/SYSTEM/tg5040/bin/shutdown"
 KCLEAN="$ROOT/workspace/tg5040/zerokernel/K01zero"   # the real script /usr/lib/zero/rc/K01zero
 STUB="$ROOT/workspace/tg5040/zerokernel/rc-stub"     # /etc/rc.d/S01zero and /etc/rc.d/K01zero
 S01="$ROOT/workspace/tg5040/zerokernel/S01zero"
+GUARD="$ROOT/workspace/tg5040/zerokernel/guard"     # /usr/lib/zero/rc/guard, started by S01zero
 
 if [ "${1:-}" != --inner ]; then
 	if command -v docker >/dev/null 2>&1 && docker image inspect busybox:1.36 >/dev/null 2>&1; then
@@ -29,7 +30,7 @@ fi
 mkdir -p "$ROOT/.notes"
 T=$(mktemp -d "$ROOT/.notes/zk-test.XXXXXX")
 trap 'rc=$?; rm -rf "$T"; exit $rc' EXIT HUP INT TERM
-export ZK_T="$T" ZK_GLES_WAIT=6
+export ZK_T="$T" ZK_GLES_WAIT=6 ZK_GUARD_WAIT=2
 R="$T/root"; CARD="$T/card"; BIN="$T/bin"
 export ZK_ROOT="$R" SDCARD_PATH="$CARD" SHARED_USERDATA_PATH="$CARD/.userdata/shared" SYSTEM_PATH="$CARD/.system/tg5040"
 export TRIMUI_MODEL="Trimui Brick"
@@ -128,6 +129,7 @@ mkpayload() { # $1 = release id, $2 = image seed, $3 = image name (default: the 
 	echo "fw $1" > "$P/root/usr/lib/zero/gpu/firmware/rgx.fw.22.102.54.38"
 	for f in S01zero K01zero; do cp "$STUB" "$P/root/etc/rc.d/$f"; done   # procd is made on the device, never shipped
 	cp "$S01" "$P/root/usr/lib/zero/rc/S01zero"; cp "$KCLEAN" "$P/root/usr/lib/zero/rc/K01zero"
+	[ -f "$GUARD" ] && cp "$GUARD" "$P/root/usr/lib/zero/rc/guard"
 	echo "$1" > "$P/root/usr/lib/zero/VERSION"; echo "$1" > "$P/VERSION"
 	( cd "$P/root" && find . -type f ! -path ./usr/lib/zero/VERSION | sort | while read -r p; do echo "$(md5 "$p")  ${p#.}"; done
 	  echo "$(md5 ./usr/lib/zero/VERSION)  /usr/lib/zero/VERSION" ) > "$P/manifest.md5"
@@ -141,13 +143,15 @@ mkpayload() { # $1 = release id, $2 = image seed, $3 = image name (default: the 
 
 # ---------------- fake device ----------------
 fresh_device() {
-	rm -rf "$R" "$CARD" "$T/known.prev" "$T/env.badcrc" "$T/broken" "$T/loader.nosave" "$T/setenv.count" \
+	rm -rf "$R" "$CARD" "$T/foreign" "$T/known.prev" "$T/env.badcrc" "$T/broken" "$T/loader.nosave" "$T/setenv.count" \
 		"$T/setenv.fail" "$T/df.card" "$T/df.overlay" "$T/fail.backup"; : > "$T/known.prev"
 	export TRIMUI_MODEL="Trimui Brick"; PARTS="boot@mmcblk0p4:rootfs@mmcblk0p5:recovery@mmcblk0p8:pstore@mmcblk0p9"
 	mkdir -p "$R/proc/sys/kernel" "$R/proc/sys/vm" "$R/proc/device-tree/soc@03000000/lcd0@01c0c000" "$R/sbin" \
 		"$R/dev/by-name" "$R/sys/class/block/mmcblk0p8" "$R/sys/class/power_supply/axp2202-battery" \
 		"$R/sys/class/power_supply/axp2202-usb" "$R/sys/class/net/wlan0" "$R/etc/wifi" "$R/overlay" "$R/tmp" \
-		"$CARD/.userdata/shared/.minui" "$CARD/.userdata/tg5040" "$SYSTEM_PATH"
+		"$CARD/.userdata/shared/.minui" "$CARD/.userdata/tg5040" "$SYSTEM_PATH/bin" "$R/mnt" "$T/foreign"
+	cp "$SCRIPT" "$SYSTEM_PATH/bin/zerokernel.sh"   # the guard's marker for a MinUI Zero card
+	ln -s "$CARD" "$R/mnt/SDCARD"; rm -f "$T/reboot.req"
 	printf '/dev/by-name/env 0x00000 0x20000\n/dev/by-name/env-redund 0x00000 0x20000\n' > "$R/etc/fw_env.config"
 	: > "$R/dev/by-name/env"; : > "$R/dev/by-name/env-redund"
 	ln -s ../mmcblk0p8 "$R/dev/by-name/recovery"
@@ -213,12 +217,17 @@ power_on() {
 	fi
 }
 # Userspace of one boot. $1 = kernel, rest: nocard | nomenu | nogpu | gles (minui wrote /tmp/zero-gles-ok) |
-# gles-late | hang-health (the device hangs, or is held off, inside the GLES health wait) | cut-setenv=N | cut-dd
+# gles-late | hang-health (the device hangs, or is held off, inside the GLES health wait) | cut-setenv=N | cut-dd |
+# foreign (the card is another firmware: mounted, no zerokernel.sh, MinUI never runs) | slowcard (the card mounts
+# 1 s into the guard's 2 s wait) | noguard (an overlay without rc/guard, as ship10's)
+# Under our kernel the guard (rc/guard, started by S01zero) runs first; a restart it asks for ends this boot
+# (REBOOTED=1, $T/reboot.req). The next boot() is the power-on after that restart.
 userspace() {
 	us_k=$1; shift
-	us_card=1; us_menu=1; us_gpu=1; us_gles=0; us_hang=0; unset ZK_CUT_SETENV ZK_CUT_DD
+	us_card=1; us_menu=1; us_gpu=1; us_gles=0; us_hang=0; us_foreign=0; us_slow=0; us_guard=1; REBOOTED=0
+	unset ZK_CUT_SETENV ZK_CUT_DD; rm -f "$T/reboot.req"
 	for o in "$@"; do case "$o" in nocard) us_card=0 ;; nomenu) us_menu=0 ;; nogpu) us_gpu=0 ;; gles) us_gles=1 ;; gles-late) us_gles=2 ;;
-		hang-health) us_hang=1 ;;
+		hang-health) us_hang=1 ;; foreign) us_foreign=1 ;; slowcard) us_slow=1 ;; noguard) us_guard=0 ;;
 		cut-setenv=*) export ZK_CUT_SETENV=${o#cut-setenv=} ;; cut-dd) export ZK_CUT_DD="$SYSTEM_PATH/kernel/zero-recovery.img" ;;
 		cut-dd-backup) export ZK_CUT_DD="$ZD/recovery-orig-$SERIAL.bin" ;; cut-dd-zero) export ZK_CUT_DD=/dev/zero ;; esac; done
 	rm -f "$T/setenv.count"; rm -rf "$R/tmp"; mkdir -p "$R/tmp"
@@ -228,7 +237,18 @@ userspace() {
 	: > "$R/proc/modules"; : > "$R/proc/mounts"
 	if [ "$us_k" = zero ] && [ $us_gpu = 1 ]; then echo "pvrsrvkm 1000 0 - Live" > "$R/proc/modules"
 		echo "/dev/by-name/rootfs_data /usr/lib/libsrv_um.so ext4 rw 0 0" > "$R/proc/mounts"; fi
+	rm -f "$R/mnt/SDCARD"; if [ $us_foreign = 1 ]; then ln -s "$T/foreign" "$R/mnt/SDCARD"; else ln -s "$CARD" "$R/mnt/SDCARD"; fi
+	US_MNT="/dev/mmcblk1p1 /mnt/SDCARD vfat rw,noatime 0 0"
+	[ $us_card = 1 ] && [ $us_slow = 0 ] && echo "$US_MNT" >> "$R/proc/mounts"
+	if [ "$us_k" = zero ] && [ $us_guard = 1 ] && [ -f "$R/usr/lib/zero/rc/guard" ]; then
+		sed 's|^reboot$|echo reboot >> "$ZK_T/reboot.req"|' "$R/usr/lib/zero/rc/guard" > "$T/guard.sh"
+		[ $us_card = 1 ] && [ $us_slow = 1 ] && ( sleep 1; echo "$US_MNT" >> "$R/proc/mounts" ) &
+		sh "$T/guard.sh"; wait
+		[ -f "$T/reboot.req" ] && { REBOOTED=1; return 0; }
+	fi
+	[ $us_card = 1 ] && [ $us_slow = 1 ] && ! grep -q " /mnt/SDCARD " "$R/proc/mounts" && echo "$US_MNT" >> "$R/proc/mounts"
 	[ $us_card = 1 ] || return 0               # no card: MinUI never runs
+	[ $us_foreign = 1 ] && return 0            # another firmware's card: MinUI never runs
 	[ $us_menu = 1 ] && : > "$R/tmp/zero-menu-start"
 	[ $us_menu = 1 ] && [ $us_gles = 1 ] && : > "$R/tmp/zero-gles-ok"
 	# gles-late: an auto-resumed game, not the menu, writes the marker a few seconds later
@@ -369,9 +389,10 @@ install_device; : > "$T/env.badcrc"
 cmp -s "$T/env.txt" "$T/env.before" && ok || bad "env written despite bad CRC"; expect_file "$CARD/zero-kernel-restore-FAILED.txt"
 rm -f "$T/env.badcrc"
 
-CASE="card missing for one boot"
-install_device; boot nocard; expect_kernel zero; expect_stock
-boot; expect_kernel stock; expect_env zero_k_fail 1; expect_armed; expect_env zero_k on
+CASE="card missing for one boot: the guard restarts to stock, not counted once (guard)"
+install_device; boot nocard; expect_kernel zero; expect_stock; [ "$REBOOTED" = 1 ] && ok || bad "no restart without a card"
+expect_state nocard
+boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed; expect_env zero_k on; expect_file "$ZD/nocard-$SERIAL"
 
 CASE="allowlist mismatch at install (Brick Pro panel)"
 fresh_device; LCD=gh7003; cp "$T/env.txt" "$T/env.before"; boot
@@ -671,7 +692,7 @@ for f in /etc/rc.d/S01zero /etc/rc.d/K01zero /usr/lib/zero/rc/S01zero /usr/lib/z
 	expect_file "$R$f"; done
 boot; expect_kernel zero; expect_armed; expect_state zarmed; reboot_k; expect_state zclean
 CASE="migration: the ship10 state word still counts (a zero boot that never reached the menu)"
-install_device; boot nocard; expect_kernel zero; expect_stock   # state stays armed: MinUI never ran
+install_device; boot nocard noguard; expect_kernel zero; expect_stock   # state stays armed: MinUI never ran (ship10: no guard)
 old_layout; [ "$(cut -d' ' -f1 "$R/etc/zero-kernel.state")" = armed ] && ok || bad "test setup: old state"
 boot; expect_kernel stock; expect_env zero_k_fail 1; expect_armed; expect_nofile "$R/etc/zero-kernel.state"
 CASE="migration: a benign ship10 state on a stock start is not counted"
@@ -733,12 +754,14 @@ expect_nofile "$T/ran"
 CASE="S01zero: nothing on the stock kernel; under ours the GPU backstop and the WiFi list"
 install_device; mkdir -p "$R/usr/lib" "$R/lib/firmware"; : > "$R/usr/lib/libsrv_um.so"; : > "$R/lib/firmware/rgx.fw.22.102.54.38"
 printf '#!/bin/sh\necho "kmodloader $*" >> "%s"\n' "$T/s01.log" > "$R/sbin/kmodloader"; chmod +x "$R/sbin/kmodloader"
-{ printf 'zk_mount() { echo "mount $*" >> "%s"; }\n' "$T/s01.log"
-  sed "s|\$(uname -r)|\$(cat @OSR@)|; s|/usr/lib/|$R/usr/lib/|g; s|/lib/firmware/|$R/lib/firmware/|g
+{ printf 'zk_mount() { echo "mount $*" >> "%s"; }\nzk_guard() { echo guard >> "%s"; }\n' "$T/s01.log" "$T/guard.ran"
+  sed "s|/bin/sh /usr/lib/zero/rc/guard|zk_guard|; s|\$(uname -r)|\$(cat @OSR@)|; s|/usr/lib/|$R/usr/lib/|g; s|/lib/firmware/|$R/lib/firmware/|g
 	s|/proc/|$R/proc/|g; s|/sbin/|$R/sbin/|g; s|/tmp/|$R/tmp/|g; s|mount --bind|zk_mount --bind|g; s|@OSR@|$R/proc/sys/kernel/osrelease|" "$S01"; } > "$T/s01.sh"
-rm -f "$T/s01.log"; echo 4.9.191 > "$R/proc/sys/kernel/osrelease"; : > "$R/proc/mounts"
-sh "$T/s01.sh" boot && ok || bad "S01zero exit status on stock"; expect_nofile "$T/s01.log"
+rm -f "$T/s01.log" "$T/guard.ran"; echo 4.9.191 > "$R/proc/sys/kernel/osrelease"; : > "$R/proc/mounts"
+sh "$T/s01.sh" boot && ok || bad "S01zero exit status on stock"; expect_nofile "$T/s01.log"; expect_nofile "$T/guard.ran"
 echo 4.9.191-zero > "$R/proc/sys/kernel/osrelease"; sh "$T/s01.sh" boot
+i=0; until [ -f "$T/guard.ran" ] || [ $i -ge 20 ]; do sleep 0.1; i=$((i + 1)); done
+[ "$(cat "$T/guard.ran" 2>/dev/null)" = guard ] && ok || bad "S01zero did not start the guard under ours"
 G="$R/usr/lib/zero/gpu"
 [ "$(cat "$T/s01.log" 2>/dev/null | tr '\n' ';')" = "mount --bind $G/lib/libsrv_um.so $R/usr/lib/libsrv_um.so;mount --bind $G/firmware/rgx.fw.22.102.54.38 $R/lib/firmware/rgx.fw.22.102.54.38;kmodloader $R/tmp/zero-modules.d/;" ] \
 	&& ok || bad "S01zero ran '$(cat "$T/s01.log" 2>/dev/null | tr '\n' ';')'"
@@ -1010,6 +1033,62 @@ fresh_device; cp "$SYSTEM_PATH/kernel/known-images.txt" "$T/known.good"; : > "$S
 boot; expect_kernel stock; expect_stock; expect_nofile "$ZD/stop-$SERIAL-ship2"; expect_file "$CARD/zero-kernel-image-FAILED.txt"
 cp "$T/known.good" "$SYSTEM_PATH/kernel/known-images.txt"; boot; expect_armed; expect_rec "$IMGMD5"
 expect_nofile "$CARD/zero-kernel-image-FAILED.txt"
+
+# ---------------- the "not our card" guard (Dan, 2026-11-19): rc/guard, started by S01zero under ours ----------------
+GL="$R/usr/lib/zero/guard.log"
+expect_reboot() { [ "$REBOOTED" = "$1" ] && ok || bad "restart requested '$REBOOTED' want '$1'"; }
+CASE="guard: a card that is not MinUI Zero restarts to stock, and the next stock start with ours is not counted"
+install_device; boot; expect_kernel zero; expect_armed; expect_reboot 0; clean_off
+boot foreign; expect_kernel zero; expect_stock; expect_reboot 1; expect_state foreign
+grep -q "foreign: /mnt/SDCARD is not MinUI Zero" "$GL" 2>/dev/null && ok || bad "no guard log line"
+[ "$(wc -l < "$GL" | tr -d ' ')" = 1 ] && ok || bad "guard log has $(wc -l < "$GL" | tr -d ' ') lines, want 1"
+reboot_k; expect_state foreign   # the orderly restart runs K01zero: the word stays
+boot foreign; expect_kernel stock; expect_reboot 0; expect_stock   # the restart lands on stock; a foreign card runs no Zero script
+boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed; expect_env zero_k on; expect_state armed
+grep -q "had a card that is not MinUI Zero" "$ZD/log.txt" && ok || bad "stock-side log line"
+expect_nofile "$CARD/zero-kernel-FAILED.txt"
+boot; expect_kernel zero; expect_armed; expect_state zarmed; expect_reboot 0
+CASE="guard: a foreign card never counts, however often"
+for i in 1 2 3; do boot foreign; expect_kernel zero; expect_reboot 1; boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed; done
+expect_env zero_k on; expect_nofile "$ZD/stop-$SERIAL-ship2"
+CASE="guard: our card, no restart and no log"
+install_device; boot; expect_kernel zero; expect_reboot 0; expect_nofile "$GL"; expect_armed; expect_state zarmed
+CASE="guard: a slow card that mounts inside the wait, no restart"
+clean_off; boot slowcard; expect_kernel zero; expect_reboot 0; expect_nofile "$GL"; expect_armed; expect_state zarmed
+CASE="guard: no card restarts to stock; benign once, counted when it repeats before a zero start"
+clean_off; boot nocard; expect_kernel zero; expect_reboot 1; expect_state nocard
+grep -q "nocard: no card at /mnt/SDCARD after 2 s" "$GL" && ok || bad "no-card guard log line"
+boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed; expect_file "$ZD/nocard-$SERIAL"
+boot nocard; expect_kernel zero; expect_reboot 1
+boot; expect_kernel stock; expect_env zero_k_fail 1; expect_armed
+grep -q "did not reach the menu (state 'nocard again')" "$ZD/log.txt" && ok || bad "repeat not counted in the log"
+boot; expect_kernel zero; expect_armed; expect_nofile "$ZD/nocard-$SERIAL"; clean_off   # a zero start clears the run
+boot nocard; expect_kernel zero; expect_reboot 1; boot; expect_kernel stock; expect_env zero_k_fail ""; expect_armed
+CASE="guard: no card twice in a row with a working card in between stops the image at MAXFAIL (a card our kernel cannot read)"
+install_device
+boot nocard; boot; boot nocard; boot; expect_env zero_k_fail 1
+boot nocard; boot; expect_kernel stock; expect_stock; expect_env zero_k failed; expect_file "$CARD/zero-kernel-FAILED.txt"
+CASE="guard: never on the stock kernel"
+install_device; echo 4.9.191 > "$R/proc/sys/kernel/osrelease"; rm -f "$R/mnt/SDCARD"; ln -s "$T/foreign" "$R/mnt/SDCARD"
+echo "/dev/mmcblk1p1 /mnt/SDCARD vfat rw 0 0" > "$R/proc/mounts"; rm -f "$T/reboot.req"
+sed 's|^reboot$|echo reboot >> "$ZK_T/reboot.req"|' "$R/usr/lib/zero/rc/guard" > "$T/guard.sh"; sh "$T/guard.sh"
+expect_nofile "$T/reboot.req"; expect_nofile "$GL"; expect_state armed
+CASE="guard: an env that still reads ARMED (the loader did not save) is left alone: no restart loop"
+install_device; : > "$T/loader.nosave"; boot foreign; expect_kernel zero; expect_reboot 0; expect_state armed
+grep -q "left alone, the env is not disarmed" "$GL" && ok || bad "not-disarmed log line"; rm -f "$T/loader.nosave"
+CASE="guard: an env that cannot be read is left alone"
+install_device; : > "$T/env.badcrc"; boot foreign; expect_reboot 0; rm -f "$T/env.badcrc"
+grep -q "left alone, the env read failed its checks" "$GL" && ok || bad "bad-env log line"
+CASE="guard: a guard state at a zero start (no stock start with ours in between) is left alone"
+install_device; boot foreign; expect_reboot 1; setenv_raw bootcmd "$ARMED"   # as if something re-armed without our card
+boot foreign; expect_kernel zero; expect_reboot 0; expect_state foreign
+grep -q "left alone, the last zero start was a guard restart too" "$GL" && ok || bad "second-restart log line"
+CASE="guard: its log stays bounded and survives an update"
+install_device; i=0; while [ $i -lt 200 ]; do echo "filler line $i of the guard log, long enough to add up" >> "$GL"; i=$((i + 1)); done
+boot foreign; expect_reboot 1; [ "$(wc -c < "$GL" | tr -d ' ')" -le 8192 ] && ok || bad "guard log $(wc -c < "$GL") bytes"
+grep -q "foreign: /mnt/SDCARD is not MinUI Zero" "$GL" && ok || bad "newest line lost in the trim"
+boot; expect_armed; mkpayload ship3 P; boot; expect_kernel zero; boot; expect_kernel stock; expect_armed
+[ "$(cat "$R/usr/lib/zero/VERSION")" = ship3 ] && ok || bad "test setup: no update"; expect_file "$GL"
 
 echo "zerokernel harness: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

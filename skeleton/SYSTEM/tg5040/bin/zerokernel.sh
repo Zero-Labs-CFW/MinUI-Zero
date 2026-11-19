@@ -189,8 +189,12 @@ setenv_checked() {
 #   zarmed  a zero boot re-armed; the session is running
 #   zclean  that zero session powered off cleanly (bin/shutdown writes it)
 #   bad     a zero boot reached the menu but failed health (already counted in zero_k_fail)
-# On a stock boot with zero_k=on, menu/bad = benign (the zero boot got that far); anything else = the zero boot
-# never reached the menu or hung in its health check, which is the failure the fallback exists for (critique H2).
+#   foreign the "not our card" guard (/usr/lib/zero/rc/guard) restarted a zero boot whose card was not MinUI Zero
+#   nocard  the guard restarted a zero boot that saw no card within its wait
+# On a stock boot with zero_k=on, menu/bad/foreign = benign (the zero boot got that far, or read a card that was
+# not ours); nocard = benign once, counted when it repeats before a zero start reaches this script (a card our
+# kernel cannot read looks like no card); anything else = the zero boot never reached the menu or hung in its
+# health check, which is the failure the fallback exists for (critique H2).
 st_read() { ST_W=; ST_I=; ST_N=0; read -r ST_W ST_I ST_N 2>/dev/null < "$STATE"; case "$ST_N" in ''|*[!0-9]*) ST_N=0 ;; esac; }
 st_write() { mkdir -p "$R$ZDIR" 2>/dev/null; printf '%s %s %s\n' "$1" "${IMG_ID:-none}" "${2:-0}" > "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE" && sync; }
 # the ship10 state file, moved as it is: its word still decides whether the last zero boot is counted. It always
@@ -299,10 +303,10 @@ install_overlay() {
 		[ -n "$io_p" ] && { mv -f "$io_st$io_p" "$R$io_p" || { why="move $io_p"; rm -rf "$io_st"; return 1; }; }
 	done < "$PAY/manifest.md5"
 	rm -rf "$io_st"
-	# files a newer payload no longer ships (state, procd and mac are made on the device, never shipped)
+	# files a newer payload no longer ships (state, procd, mac and the guard's log are made on the device, never shipped)
 	for io_f in "$R$MODDIR"/* "$R$ZDIR"/* "$R$ZDIR"/rc/* "$R$ZDIR"/modules.d/* "$R$ZDIR"/gpu/lib/* "$R$ZDIR"/gpu/firmware/*; do
 		[ -f "$io_f" ] || continue
-		case "${io_f#$R}" in "$ZDIR/state"|"$ZDIR/procd"|"$ZDIR/mac") continue ;; esac
+		case "${io_f#$R}" in "$ZDIR/state"|"$ZDIR/procd"|"$ZDIR/mac"|"$ZDIR/guard.log") continue ;; esac
 		grep -qF "  ${io_f#$R}" "$PAY/manifest.md5" || rm -f "$io_f"
 	done
 	# the ship10 layout: its stubs, list and MAC file go once the new ones are in (its state file moved at this start)
@@ -694,7 +698,7 @@ fi
 
 case "$osr" in
 4.9.191-zero)
-	rm -f "$DIR/loader-skip-$serial"  # a Zero start ends any run of loader skips
+	rm -f "$DIR/loader-skip-$serial" "$DIR/nocard-$serial"  # a Zero start ends any run of loader skips or guard no-card restarts
 	[ "$zk" = on ] || { log "running zero with zero_k='$zk' (recovery key at power-on?), not arming"; exit 0; }
 	st_read
 	case "$ST_W" in zarmed) un=$((ST_N + 1)) ;; *) un=0 ;; esac  # zarmed at start = the last zero session ended uncleanly
@@ -739,8 +743,19 @@ case "$osr" in
 	off) mark "$DIR/off-$serial"; exit 0 ;;
 	on)
 		allow_ok || { log "skip: $why"; mark "$DIR/skip-$serial-$REL"; exit 0; }  # e.g. a firmware update while armed
+		# the guard's no-card restart (rc/guard): benign the first time (a slow card, or none put in), counted when it
+		# repeats before a zero start reaches this script, so a card our kernel cannot read stops after MAXFAIL
+		if [ "$ST_W" = nocard ]; then
+			if [ -f "$DIR/nocard-$serial" ]; then ST_W="nocard again"
+			else
+				mark "$DIR/nocard-$serial"; ST_W=foreign
+				log "the last zero boot saw no card within the guard's wait and restarted to stock: not counted (counted if it repeats)"
+			fi
+		elif [ "$ST_W" = foreign ]; then
+			log "the last zero boot had a card that is not MinUI Zero, and the guard restarted it to stock: not counted"
+		fi
 		case "$ST_W" in
-		menu|bad) ;;  # benign: the zero boot reached the menu (or was already counted)
+		menu|bad|foreign) ;;  # benign: the zero boot reached the menu (or was already counted), or the guard restarted it
 		*)
 			zfail=$((zfail + 1))
 			log "FELL BACK to stock: the zero boot did not reach the menu (state '$ST_W'), attempt $zfail of $MAXFAIL on $zimg"

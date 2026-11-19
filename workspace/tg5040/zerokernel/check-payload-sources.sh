@@ -5,7 +5,7 @@
 # of shipping the old file under the same VERSION (devices key overlay_current on VERSION only, and would never
 # pick up the fix).
 #
-#   - the payload's copies of rc-stub, S01zero, K01zero and zero-xr829, byte for byte
+#   - the payload's copies of rc-stub, S01zero, K01zero, guard and zero-xr829, byte for byte
 #   - zerokernel.sh's procd patch table: stage-payload.sh checks it against the stock procd and then pins its sha256
 #     in payload.pins; a table edited since then fails here until the payload is staged (and so checked) again
 #   - zerokernel.sh's Brick stock recovery md5 (the no-backup undo): regenerated from the payload's
@@ -34,7 +34,7 @@ fi
 bad=0
 fail() { echo "ERROR: $*" >&2; bad=1; }
 for pair in "rc-stub root/etc/rc.d/S01zero" "rc-stub root/etc/rc.d/K01zero" "S01zero root/usr/lib/zero/rc/S01zero" \
-	"K01zero root/usr/lib/zero/rc/K01zero" "zero-xr829 root/usr/lib/zero/modules.d/zero-xr829"; do
+	"K01zero root/usr/lib/zero/rc/K01zero" "guard root/usr/lib/zero/rc/guard" "zero-xr829 root/usr/lib/zero/modules.d/zero-xr829"; do
 	src=${pair%% *}; dst=${pair#* }
 	[ -f "$P/$dst" ] || { fail "payload has no $dst (copy of workspace/tg5040/zerokernel/$src)"; continue; }
 	[ "$(sha < "$HERE/$src")" = "$(sha < "$P/$dst")" ] \
