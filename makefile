@@ -466,6 +466,13 @@ package: tidy check-payload
 		cp ./workspace/tg5040/other/unzip60/LICENSE ./build/PAYLOAD/.system/LICENSES/unzip60/; \
 	fi
 	printf 'Corresponding source\n====================\nMinUI Zero source: https://github.com/Zero-Labs-CFW/MinUI-Zero\nThe exact MinUI Zero commit is recorded in MinUI.zip/.system/version.txt. Emulator cores\nare built from the upstream repositories and exact commits pinned in\nworkspace/<platform>/cores/makefile at that commit; local modifications ship as patches in\nworkspace/<platform>/cores/patches/. Each core binary remains under its own license\n(texts in this folder).\n' > ./build/PAYLOAD/.system/LICENSES/SOURCES.txt
+	# Zero kernel (GPL-2.0): its notice (source tarball URL + sha256) and the kernel's COPYING travel with the
+	# binary, so only a payload that carries .system/tg5040/kernel gets them (not ZERO_KERNEL=0, not other platforms).
+	@if [ -d ./build/PAYLOAD/.system/tg5040/kernel ]; then \
+		mkdir -p ./build/PAYLOAD/.system/LICENSES/zero-kernel && \
+		cp ./workspace/tg5040/zerokernel/LICENSES/NOTICE.txt ./workspace/tg5040/zerokernel/LICENSES/COPYING ./build/PAYLOAD/.system/LICENSES/zero-kernel/ && \
+		printf '\nThe tg5040 Zero kernel (.system/tg5040/kernel) has its own source tarball, published with\nthe release: see LICENSES/zero-kernel/NOTICE.txt.\n' >> ./build/PAYLOAD/.system/LICENSES/SOURCES.txt; \
+	fi
 	cd ./build/PAYLOAD && zip -r MinUI.zip .system .tmp_update Tools
 	mv ./build/PAYLOAD/MinUI.zip ./build/BASE
 	

@@ -1,0 +1,59 @@
+MinUI Zero kernel for the TrimUI Brick, Brick Pro and Smart Pro (tg5040)
+=======================================================================
+
+.system/tg5040/kernel/ holds a Linux kernel and kernel modules (4.9.191-zero) that
+MinUI Zero can install to the recovery partition. Linux is licensed under the GNU
+General Public License version 2 (COPYING in this folder). So are the patches
+MinUI Zero and plastron apply to it, and MinUI Zero's built-in init (zinit) and
+kernel build scripts.
+
+Corresponding source
+--------------------
+The complete corresponding source for zero-recovery.img and every .ko in
+.system/tg5040/kernel/root/lib/modules/4.9.191-zero/ is the tarball
+
+  zero-tg5040-kernel-4.9.191-zero-ship10-src.tar.gz
+  sha256 09be0b470b138f615125722e97302d29be1a617c2807d26a6265a4f5141d3960
+  https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/download/v1.10.1/zero-tg5040-kernel-4.9.191-zero-ship10-src.tar.gz
+
+It holds every patch in order, the kernel config, the build scripts, the
+toolchain Dockerfile and the source of the built-in init (zinit). The build
+reproduces the shipped files byte for byte (Image md5
+8ba3c20ee111a6562d4d08f55f642e23, zero-recovery.img md5
+00a9ee1e92378cfc3313e73e83f8b24d). It starts from the base kernel
+
+  linux-4.9.191-a133.tar.xz
+  sha256 93710f3a1f1a54678641fe15b7898fd64bc151b63377ac698c5eced8806fa743
+  https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/download/v1.10.1/linux-4.9.191-a133.tar.xz
+  (also at github.com/ericreinsmidt/plastron, release brick-linux-4.9.191-base)
+
+Allwinner's Linux 4.9.191 for the A133, as Creality's Sonic Pad SDK has it
+(github.com/CrealityTech/sonic_pad_os at 7f37a7f, lichee/linux-4.9). It carries
+Allwinner's drivers, X-Powers' AXP2202 drivers, XRadio's XR829 Wi-Fi driver and
+Imagination Technologies' PowerVR kernel driver (dual MIT and GPL-2.0).
+
+Kernel patches and the build method come from plastron by Eric Reinsmidt
+(github.com/ericreinsmidt/plastron at b897f7c, GPL-3.0-or-later; its kernel
+patches are GPL-2.0, as the kernel is), with MinUI Zero's own patches on top.
+
+procd
+-----
+MinUI Zero distributes no procd binary. On the Brick, /usr/lib/zero/procd is
+made on the device at install time from the device's own /sbin/procd (OpenWrt
+procd, GPL-2.0) by .system/tg5040/bin/zerokernel.sh, which carries the patch
+(five constants, each as an offset with its old and new bytes) as plain text.
+
+Closed parts (not covered by the GPL, not ours)
+-----------------------------------------------
+.system/tg5040/kernel/root/usr/lib/zero/gpu/ holds Imagination Technologies'
+PowerVR DDK 1.11@5516664 userspace libraries and GPU firmware for the GE8300
+(libEGL.so, libGLESv2.so, libGLES_CM.so, libIMGegl.so, libsrv_um.so,
+libglslcompiler.so, libusc.so, libpvrNULL_WSEGL.so, rgx.fw.22.102.54.38),
+unmodified, as Allwinner ships them for the A133 (Creality's Sonic Pad SDK,
+github.com/CrealityTech/sonic_pad_os at 7f37a7f,
+package/libs/libgpu/ge8300/fbdev/glibc/lib64), under Imagination's terms. They
+must match the PowerVR kernel driver above; the device's own copies are a
+different DDK version. MinUI Zero has no source for them.
+
+The XR829 Wi-Fi firmware is NOT shipped by MinUI Zero: the kernel loads the
+copy already on the device's own firmware.

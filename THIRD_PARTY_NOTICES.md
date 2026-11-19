@@ -82,3 +82,14 @@ The base release zip ships three prebuilt third-party programs alongside the emu
 ## Heroicons (star outline)
 
 The star glyph's outline is the Heroicons v2 solid "star" icon, (c) Tailwind Labs, Inc., MIT License (https://github.com/tailwindlabs/heroicons/blob/master/LICENSE).
+
+## Zero kernel (tg5040)
+
+`.system/tg5040/kernel/` (staged from `workspace/tg5040/zerokernel/`, installed by `bin/zerokernel.sh`) ships a Linux 4.9.191 kernel and modules built by MinUI Zero. Linux, all kernel patches, MinUI Zero's built-in init (zinit) and its kernel build scripts are GPL-2.0. The notice and the kernel's `COPYING` ship in `LICENSES/zero-kernel/`.
+
+- **Base:** Allwinner's Linux 4.9.191 for the A133 from Creality's Sonic Pad SDK (`CrealityTech/sonic_pad_os` @ `7f37a7f`, `lichee/linux-4.9`), as packed by plastron (`linux-4.9.191-a133.tar.xz`, sha256 `93710f3a1f1a54678641fe15b7898fd64bc151b63377ac698c5eced8806fa743`), published as an asset of each release that ships this kernel.
+- **Patches and build method:** plastron by Eric Reinsmidt (`ericreinsmidt/plastron` @ `b897f7c`, GPL-3.0-or-later; kernel patches GPL-2.0), plus MinUI Zero's own patches.
+- **Corresponding source:** `zero-tg5040-kernel-4.9.191-zero-ship10-src.tar.gz` (sha256 `09be0b470b138f615125722e97302d29be1a617c2807d26a6265a4f5141d3960`), published as an asset of each release that ships this kernel; it rebuilds the shipped image byte for byte.
+- **procd:** MinUI Zero distributes no procd binary. On the Brick, `/usr/lib/zero/procd` is made on the device at install time from the device's own `/sbin/procd` (OpenWrt procd, GPL-2.0) by `bin/zerokernel.sh`, which carries the patch (offsets and bytes) as plain text.
+- **Closed:** Imagination's PowerVR DDK 1.11@5516664 userspace libraries and `rgx.fw.22.102.54.38` (`usr/lib/zero/gpu/`), unmodified, from the same Sonic Pad SDK (`package/libs/libgpu/ge8300/fbdev/glibc/lib64`), under Imagination's terms. No source exists for them.
+- **Not shipped:** the XR829 Wi-Fi firmware; the kernel loads the device's own copy.
