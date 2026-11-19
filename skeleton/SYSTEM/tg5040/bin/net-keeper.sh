@@ -35,6 +35,9 @@ while dev_on; do
 	sleep 15
 	if radio_held; then fails=0; continue; fi
 	a=$(addr); g=$(gw)
+	# WiFi power save adds hundreds of ms to the first packet, so a Mac probe with a short timeout missed a healthy Brick
+	# (2026-11-19; the Brick boots with it on, the Brick Pro and Smart Pro with it off). Every WiFi restart turns it back on.
+	iw dev wlan0 get power_save 2>/dev/null | grep -q ': on' && iw dev wlan0 set power_save off 2>/dev/null
 	# A big transfer (more than 64 KB received since the last check) proves the link is alive: under one the gateway
 	# ping can time out, and bouncing WiFi then killed the transfer itself (an ssh copy to the Brick, 2026-11-18).
 	# Small counts do not count: broadcast traffic keeps arriving on a link that is otherwise wedged.
