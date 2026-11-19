@@ -465,23 +465,38 @@ fi
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
-# Faster boot through two values in the vendor U-Boot env (bin/bootenv.sh: guards, undo, measurements). Runs in
-# the background and only while this boot still shows the stock loglevel=8. Builtin tests in this shell, so a
-# device that is done, skipped or stopped pays no process spawn here. restore-boot-env.txt at the card root undoes it.
+# Faster boot through two values in the vendor U-Boot env (bin/bootenv.sh: guards, undo, measurements), and the
+# Zero kernel's one-shot re-arm (bin/zerokernel.sh: boot from recovery with stock as the automatic fallback). Both
+# read-modify-write the same env and check the whole env after every write, so they run in ONE background chain,
+# bootenv first (design-boot.md section 7). Builtin tests in this shell, so a stock device that is done, skipped or
+# stopped pays no process spawn here; a boot on our kernel always spawns (the re-arm is required, or the next
+# power-on is stock). restore-boot-env.txt at the card root undoes both, zerokernel first.
+read -r _cl < /proc/cmdline
+_sn=${_cl##*androidboot.serialno=}; _sn=${_sn%% *}
+[ "$_sn" = "$_cl" ] && _sn=unknown # same rule as bootenv.sh and zerokernel.sh
+_zd="$SHARED_USERDATA_PATH/.minui/zerokernel"
 if [ -f "$SDCARD_PATH/restore-boot-env.txt" ]; then
-	sh "$SYSTEM_PATH/bin/bootenv.sh" revert &
+	( sh "$SYSTEM_PATH/bin/zerokernel.sh" revert; sh "$SYSTEM_PATH/bin/bootenv.sh" revert ) &
+elif [ -f "$_zd/revert-pending-$_sn" ]; then
+	sh "$SYSTEM_PATH/bin/zerokernel.sh" revert & # an undo whose env write failed: retried until it lands
 else
-	read -r _cl < /proc/cmdline
+	_be=0
 	case " $_cl " in
 	*" loglevel=8 "*)
-		_sn=${_cl##*androidboot.serialno=}; _sn=${_sn%% *}
-		[ "$_sn" = "$_cl" ] && _sn=unknown # same rule as bootenv.sh
 		_bd="$SHARED_USERDATA_PATH/.minui/bootenv"
-		if [ ! -f "$_bd/done-$_sn" ] && [ ! -f "$_bd/skip-$_sn" ] && [ ! -f "$_bd/stop-$_sn" ]; then
-			sh "$SYSTEM_PATH/bin/bootenv.sh" apply &
-		fi
+		[ ! -f "$_bd/done-$_sn" ] && [ ! -f "$_bd/skip-$_sn" ] && [ ! -f "$_bd/stop-$_sn" ] && _be=1
 	;;
 	esac
+	_zk=0; _osr=; read -r _osr < /proc/sys/kernel/osrelease
+	if [ "$_osr" = 4.9.191-zero ]; then
+		_zk=1
+	elif [ -f "$SYSTEM_PATH/kernel/VERSION" ]; then
+		_zv=; read -r _zv < "$SYSTEM_PATH/kernel/VERSION"
+		[ -n "$_zv" ] && [ ! -f "$_zd/off-$_sn" ] && [ ! -f "$_zd/skip-$_sn-$_zv" ] && [ ! -f "$_zd/stop-$_sn-$_zv" ] && _zk=1
+	fi
+	if [ $_be = 1 ] || [ $_zk = 1 ]; then
+		( [ $_be = 1 ] && sh "$SYSTEM_PATH/bin/bootenv.sh" apply; [ $_zk = 1 ] && sh "$SYSTEM_PATH/bin/zerokernel.sh" boot ) &
+	fi
 fi
 
 #######################################
@@ -544,6 +559,7 @@ devmode && zero_boot_receipt
 EXEC_PATH="/tmp/minui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH" # tmpfs; a sync here would flush every filesystem for a file that never touches disk
+: > /tmp/zero-menu-start # builtin, tmpfs: zerokernel.sh re-arms our kernel only once the menu loop is reached
 while [ -f $EXEC_PATH ]; do
 	if [ "$DEVICE" = "brick" ]; then
 		# GPU-dark menu is BRICK-ONLY, for real (re-verified 2026-07-03 after a bad ungate):

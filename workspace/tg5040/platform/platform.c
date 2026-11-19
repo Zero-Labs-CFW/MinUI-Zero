@@ -642,6 +642,18 @@ SDL_Surface* PLAT_captureRendererToSurface(void) {
 	return surface;
 }
 
+// The GLES-present health marker for zerokernel.sh (see platform.h). The fb0 menu (Brick) never needs it. The
+// renderer must be SDL's accelerated GLES one: a software fallback renderer would present nothing on these panels.
+// One open() on tmpfs, once per minui process.
+void PLAT_menuPresented(void) {
+	if (fb_present || !vid.renderer) return;
+	SDL_RendererInfo info;
+	if (SDL_GetRendererInfo(vid.renderer, &info) != 0) return;
+	if (!(info.flags & SDL_RENDERER_ACCELERATED) || !info.name || strncmp(info.name, "opengles", 8)) return;
+	int fd = open("/tmp/zero-gles-ok", O_WRONLY|O_CREAT, 0644);
+	if (fd >= 0) close(fd);
+}
+
 void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	PLAT_uvReassert(); // voltage authority: out-persist the kernel (no-op unless armed)
 	
@@ -740,6 +752,10 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	uint64_t ps_tg = ps_t3;
 	if (pf_on) { pglFinish(); ps_tg = getMicroseconds(); }
 	SDL_RenderPresent(vid.renderer);
+	// A game's first GLES present proves the same thing as the menu's (zerokernel.sh health): an auto-resumed boot
+	// goes straight into minarch and never draws the menu, and must not count as a black screen (review, 2026-11-18)
+	static int gles_marked;
+	if (!gles_marked) { gles_marked = 1; PLAT_menuPresented(); }
 	if (ps_on) {
 		ps_t4 = getMicroseconds();
 		static uint64_t s_up, s_pass, s_copy, s_gpu, s_pres;

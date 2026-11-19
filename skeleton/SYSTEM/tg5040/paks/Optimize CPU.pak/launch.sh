@@ -353,6 +353,23 @@ then run Optimize CPU again."
 	exit 0
 fi
 
+# Zero kernel (bin/zerokernel.sh): calibration must run on the stock kernel only. Take the one-shot back first, so
+# every reset of the campaign boots stock (zerokernel.sh never re-arms while ARMED exists). On our kernel itself,
+# stop here: the first round would run right now, under it. After a restart the device is on stock.
+if [ -f "$SYSTEM_PATH/bin/zerokernel.sh" ]; then
+	if ! sh "$SYSTEM_PATH/bin/zerokernel.sh" disarm; then
+		say.elf "Could not prepare the boot settings.
+Nothing was started."
+		exit 1
+	fi
+	read -r _zo < /proc/sys/kernel/osrelease
+	if [ "$_zo" = 4.9.191-zero ]; then
+		say.elf "Restart the device, then run
+Optimize CPU again."
+		exit 0
+	fi
+fi
+
 # Arm it: bind the campaign before ARMED becomes visible, install the resume hook, then
 # kick off round one. A cancelled same-device campaign keeps these files and resumes.
 AUTO="$SHARED_USERDATA_PATH/../tg5040/auto.sh"

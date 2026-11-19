@@ -1,0 +1,8 @@
+#!/bin/sh
+# Zero kernel (bin/zerokernel.sh), installed as /etc/rc.d/S01zero and /etc/rc.d/K01zero, the only Zero files in rc.d:
+# procd runs boot and shutdown scripts from /etc/rc.d and nowhere else. On the stock kernel this does nothing. Under
+# 4.9.191-zero it runs the real script of the same name, kept with the rest of Zero in /usr/lib/zero/rc. Builtins
+# only, so a stock boot or power-off pays one small read.
+_zo=; read -r _zo < /proc/sys/kernel/osrelease
+case "$_zo" in *-zero) [ -f "/usr/lib/zero/rc/${0##*/}" ] && exec /bin/sh "/usr/lib/zero/rc/${0##*/}" "$@" ;; esac
+exit 0

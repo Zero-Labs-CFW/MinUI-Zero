@@ -61,3 +61,6 @@ CLAUDE.local.md
 
 # generated from workspace/h700/boards.txt by workspace/h700/gen-boards.sh
 workspace/h700/platform/boards.h
+
+# Zero kernel payload: staged binaries, pinned by the tracked workspace/tg5040/zerokernel/payload.sha256
+workspace/tg5040/zerokernel/payload/
