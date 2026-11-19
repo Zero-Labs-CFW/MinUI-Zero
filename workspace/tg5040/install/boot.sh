@@ -42,6 +42,21 @@ while ! udisk_mounted && [ $UDISK_TRIES -lt 10 ]; do
 	UDISK_TRIES=$((UDISK_TRIES + 1))
 done
 mount -o remount,rw,async,noatime "/mnt/UDISK"
+# The vendor's udev replay (S80udev) runs /etc/hotplug.d/block/10-mount for every block device, and on about one boot
+# in two that unmounts the card and mounts it again plain (rw,relatime) at ~5.5 s, after the remount above (Brick on
+# the Zero kernel, caught by a /proc/mounts probe, 2026-11-19). Re-apply noatime for the first 20 s of boot, leaving a
+# read-only mount (shutdown, File Transfer) alone. Builtins only, so it costs a /proc/mounts read every 0.5 s and a remount only when one is undone.
+(
+	NA_I=0
+	while [ $NA_I -lt 40 ]; do
+		while read -r _ NA_MP _ NA_OPT _; do
+			case "$NA_MP" in /mnt/SDCARD|/mnt/UDISK) ;; *) continue ;; esac
+			case ",$NA_OPT," in *,noatime,*|*,ro,*) ;; *) mount -o remount,rw,async,noatime "$NA_MP" 2>/dev/null ;; esac
+		done < /proc/mounts
+		sleep 0.5
+		NA_I=$((NA_I + 1))
+	done
+) </dev/null >/dev/null 2>&1 &
 
 # Persist "LEDs off" where the FIRMWARE reads it, not just in sysfs. The sysfs writes above hold
 # only for this boot and only from the moment this script runs; the boot-logo phase belongs to the
