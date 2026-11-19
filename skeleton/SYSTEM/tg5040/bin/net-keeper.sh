@@ -55,13 +55,12 @@ while dev_on; do
 	# The check at the top of the loop is seconds old by now (the 3 s ping): a WiFi Off, a game or a suspend that
 	# started since then must not be undone (review 2026-11-19), so radio_held is asked again right before the
 	# restart and again before the radio comes back up. A hold seen after the down leaves the radio as the off path
-	# set it (its rfkill block came after our unblock).
+	# set it: our rfkill unblock runs only after that second check.
 	if [ "$fails" -ge 8 ] && [ "${hold:-0}" -le 0 ] && radio_held; then
 		say "link lost, but the radio is now held off on purpose: no restart"
 		fails=0; last_rx=
 	elif [ "$fails" -ge 8 ] && [ "${hold:-0}" -le 0 ]; then
 		say "link lost (addr=${a:-none} gw=${g:-none}), restarting WiFi"
-		rfkill unblock wifi 2>/dev/null
 		for p in $(pidof wpa_supplicant udhcpc 2>/dev/null); do kill "$p" 2>/dev/null; done # by pid: busybox killall skips applets
 		ifconfig wlan0 down 2>/dev/null
 		sleep 1
@@ -70,6 +69,7 @@ while dev_on; do
 			fails=0; last_rx=; hold=8
 			continue
 		fi
+		rfkill unblock wifi 2>/dev/null # only after the re-check, so it never cancels an off path's block
 		ifconfig wlan0 up 2>/dev/null
 		wpa_supplicant -B -D nl80211 -iwlan0 -c /etc/wifi/wpa_supplicant.conf -O /etc/wifi/sockets >/dev/null 2>&1
 		( udhcpc -i wlan0 >/dev/null 2>&1 & )

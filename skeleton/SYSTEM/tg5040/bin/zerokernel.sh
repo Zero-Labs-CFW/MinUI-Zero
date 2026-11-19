@@ -761,6 +761,9 @@ case "$osr" in
 		[ "$REC_KIND" = "ours:$IMG_ID" ] || { log "recovery is '$REC_KIND', not $IMG_ID: rewriting"; update_and_arm on; exit 0; }
 		make_procd  # a power cut after the install's VERSION swap, or a lost file: made again, else stock procd
 		old_clean   # the same power cut can leave the ship10 files
+		# recovery already holds this image, so a card damaged and fixed since an imgnote never reaches update_and_arm:
+		# clear the note and marker here (review 2026-11-19)
+		[ -f "$DIR/imgbad-$serial-$REL" ] && { rm -f "$DIR/imgbad-$serial-$REL" "$SD/zero-kernel-image-FAILED.txt"; sync; }
 		arm armed 0 || exit 0
 		;;
 	failed)
