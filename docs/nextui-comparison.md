@@ -12,7 +12,7 @@ philosophy.
 | Firmware source code | ~21,500 lines | ~51,200 lines |
 | Base install download | 7 MB | 82 MB |
 | Rendering | Lean pipeline; the GPU only displays the finished frame in-game, and powers down at the menu | Fully OpenGL/GPU-based, with shaders and overlays |
-| CPU | Frame-aware closed loop plus a pipelined PS1 frontend; holds full speed at stock clocks, never overclocks | Dynamic scaling; performance mode is a 2.0 GHz overclock |
+| CPU | Lean frontend plus a pipelined PS1 frontend hold full speed at stock clocks; schedutil under per-system caps and a frame-aware ceiling; never overclocks | Dynamic scaling; performance mode is a 2.0 GHz overclock |
 | Undervolting | Self-calibrating per-chip tool, finds each chip's lowest safe voltage (opt-in) | None |
 | Features | Minimal by design: no box art, store, themes, or accounts | Box art, WiFi, Bluetooth audio, cheats, game switcher, Pak Store, LED effects, themes |
 | Background services in-game | keymon only, rewritten for zero idle wakeups | keymon, battery monitor, audio monitor, plus WiFi and Bluetooth stacks when enabled |
@@ -63,8 +63,10 @@ and still drops Bloody Roar.
 | Sonic | 763 | 1749 | 2000 | 1064 |
 | Mario Kart | 617 | 1711 | 2000 | 648 |
 
-NextUI's `auto` rides its 1800 cap on everything, including a Game Boy game; Zero's frame-aware loop
-sits where the frame budget allows. Same 60fps, **41–64% less clock on the light systems**.
+NextUI's `auto` rides near its 1800 cap on everything, including a Game Boy game; Zero sits where the
+work allows. Same 60fps, **41–64% less clock on the light systems**. That gap comes from Zero's leaner
+frontend doing less work per frame, not from its governor: the 2026-11-20 A/B below puts plain
+schedutil on Zero's frontend at clocks just as low.
 
 **Heat, battery, idle, boot, launch:**
 
@@ -131,7 +133,7 @@ Reads `scaling_available_frequencies` live; three modes:
 | Floor | 408 | 408 (just corrected from assumed 480) |
 | Cap | 1800 global (every system) | **per-system** (PS1 1800, 16-bit 1416, 8-bit 600–1008 bracket) |
 | 2.0GHz OC | exposed in Performance mode | **never** (thesis: no overclock) |
-| Frame-aware loop | none | built; the 2026-09 head-to-head showed it holds 60 where NextUI's schedutil default drops PS1 frames |
+| Frame-aware loop | none | built; 2026-11-20 A/B: same 60 fps as plain schedutil everywhere, about 11% less estimated CPU energy on Bloody Roar II, no measurable gain elsewhere |
 | Result | "5–10°C cooler" vs old userspace | 36–37°C sustained PS1; schedutil self-scaled 816–1608 |
 
 ## Three-way comparison: original MinUI vs NextUI vs ours
@@ -165,14 +167,14 @@ POWERSAVE 1200 / **NORMAL 1608 (the default — `minarch_cpu_speed .default_valu
 ## The two findings that matter
 1. **Independent convergence = strong validation.** Two forks, arrived separately at the identical
    core: *schedutil + range-limit, floor 408, cap one step below the 2.0 OC.* We're on the right road.
-2. **Both, as it turned out.** This note originally guessed the closed-loop controller added nothing
-   over plain schedutil and framed it as an either/or with per-system caps. The 2026-09 head-to-head
-   overturned that: plain schedutil (NextUI's default) drops Bloody Roar to 56fps, while Zero's loop
-   holds 60 at a *lower* clock (1570 vs 1760), and Zero holds 60 on every light system at 41–64% less
-   clock. So per-system caps and the frame-aware loop are not competing options — together they are
-   what lets one configuration replace NextUI's three manual modes, each of which compromises
-   something (default drops PS1 frames, powersave hitches, performance cooks). Per-system caps are
-   still the cheapest, clearest edge; the loop is what makes them safe to run low.
+2. **The frontend, not the governor, is what wins.** The 2026-09 head-to-head showed NextUI's default
+   dropping Bloody Roar to 56fps while Zero held 60 at a lower clock, and Zero holding 60 on every light
+   system at 41–64% less clock. This note first credited the frame-aware loop for both. The 2026-11-20
+   A/B (below) says otherwise: plain schedutil on Zero's frontend also holds 60 on Bloody Roar and also
+   runs light systems at clocks just as low. The wins come from the pipelined PS1 frontend (D48) and a
+   frontend that does less work per frame. The loop's own measured value is narrow: about 11% less
+   estimated CPU energy where schedutil would otherwise sit at the top clock (Bloody Roar II), and
+   nothing measurable elsewhere. One configuration still replaces NextUI's three manual modes.
 
 ## On-device A/B result (measured 2026-06-30, same game each run, only clock policy differs)
 Method: `GOV_DISABLE=1` + `userspace`@2000000 reproduces the old MinUI pin; schedutil is our governor.
@@ -204,6 +206,21 @@ and headroom, not overheating-avoidance.
 On Tony Hawk (PS1) the ceiling held at f_max, which first looked like the sink branch was dead. The
 NES run disproved that: the ceiling actively sank toward the 408 floor (408–624 kHz, below the 1008
 cap) because a trivial load has zero frame pressure — while PS1 correctly held high for real demand.
-So the frame-aware loop works as designed. Its *marginal* benefit over plain schedutil is still open
-(schedutil already runs light loads low), but it is not inert. Per-system static caps remain the
-clearest, cheapest edge over NextUI's single global 1800 cap.
+So the frame-aware loop works as designed. Its marginal benefit over plain schedutil was measured on
+2026-11-20 (next section): real on heavy PS1 scenes, nothing measurable on light ones.
+
+## Governor A/B (measured 2026-11-20, Brick)
+Same Zero build, three clock policies: plain schedutil 408–1800 (NextUI-style), the per-system static
+cap, and the full frame-aware loop. Undervolt off, 2 runs per cell, attract demos or a loaded state.
+Energy is an estimate (busy cores × GHz × V² per second) because the Brick was on the charger.
+
+| Game | Static cap vs schedutil | Loop vs schedutil |
+|---|---|---|
+| Bloody Roar II (PS1) | 0% | **−11.5%**, about 1 °C cooler |
+| Yoshi's Island, Star Fox, DKC, Aladdin (SNES) | ±1% | −2% to +2% |
+| Street Fighter II, Sonic, Lion King, Zelda DX | ±2% | ±3% |
+
+Every arm held 60 fps on every game. The loop only lowers a ceiling, so it never makes a game faster;
+it pays where schedutil would otherwise sit at 1800 MHz, where voltage climbs. Light and 16-bit games
+already run at 408–816 MHz at the 900 mV floor, so there is nothing to cut. The static caps did nothing
+measurable in these runs.
