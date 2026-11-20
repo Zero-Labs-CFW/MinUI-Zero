@@ -1571,6 +1571,7 @@ static void setOverclock(int i) {
 static GovState gov_state;
 static GovProfile gov_profile;
 static int gov_active = 0; // governor owns the clock during gameplay once a profile is picked
+static int gov_off = 0;    // GOV_DISABLE=1: the static f_max cap stays, the loop never moves the ceiling
 
 // Pick the per-system clock bracket. The per-pak launch.sh exports MINARCH_FMIN/FMAX
 // in kHz; fall back to a safe default (max holds frame rate, governor sinks from there).
@@ -1616,7 +1617,7 @@ static void Gov_start(void) {
 	{
 		int gm_enabled = (getenv("ZERO_NO_GOV_MEMORY") == NULL);
 		const char* gd = getenv("GOV_DISABLE"); // value semantics match governor.c ("0" = enabled)
-		if (gd && gd[0] && gd[0] != '0') gm_enabled = 0;
+		if (gd && gd[0] && gd[0] != '0') { gm_enabled = 0; gov_off = 1; }
 		govmem_init(&gov_mem, gm_enabled, gm_enabled ? gov_mem_read() : 0, &gov_profile);
 		if (govmem_arm_khz(&gov_mem))
 			LOG_info("gov-memory: fast-sink armed to %d kHz\n", govmem_arm_khz(&gov_mem));
@@ -7565,7 +7566,9 @@ static int zero_boot_timing = -1;
 					if (thread_auto && ta_phase == 0 && fast_forward) {
 						ta_phase_at = 0;
 					}
-					if (!use_ftv2 && thread_auto && ta_phase != 2 && !fast_forward && !was_threaded) {
+					// the trial judges threading by the ceiling sinking, which never happens under GOV_DISABLE:
+					// it would toggle threading mid-run and save a false "single" verdict (review 2026-11-19)
+					if (!use_ftv2 && thread_auto && !gov_off && ta_phase != 2 && !fast_forward && !was_threaded) {
 						uint32_t ta_now = SDL_GetTicks();
 						if (!ta_phase_at) ta_phase_at = ta_now;
 						if (ta_phase == 0 && ta_now - ta_phase_at >= TA_OBSERVE_MS) {

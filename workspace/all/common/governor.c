@@ -282,7 +282,8 @@ int gov_sink_fits_at(int cur_khz, int next_khz, int run_khz, int p95_pure_us, in
 }
 
 static int gov_disabled(void) {
-	// Safety hatch: GOV_DISABLE=1 leaves the static menu clock in charge.
+	// Safety hatch: GOV_DISABLE=1 freezes the ceiling at the pak's f_max (minarch writes it at start),
+	// so schedutil runs under a static per-system cap. It is not plain uncapped schedutil.
 	static int disabled = -1;
 	if (disabled < 0) {
 		const char* e = getenv("GOV_DISABLE");
