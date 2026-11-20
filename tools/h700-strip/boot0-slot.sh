@@ -154,6 +154,8 @@ remove)	# for good, unlike a sleep swap: nothing is left that could put ours bac
 		put /tmp/b0-stock.bin || { echo "putting stock boot0 back in slot 16 failed"; exit 1; }
 	fi
 	_spl_lock_dirty=1
+	dd if=/dev/zero of=$D bs=512 seek=16896 count=1 conv=notrunc,fsync 2>/dev/null || exit 1
+	zero_sector 16896 || { echo "clearing the stage2 header failed"; exit 1; }
 	dd if=/dev/zero of=$D bs=512 seek=$STORE count=1 conv=notrunc,fsync 2>/dev/null || exit 1
 	dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null || exit 1
 	zero_sector "$STORE" && zero_sector 16640 ||

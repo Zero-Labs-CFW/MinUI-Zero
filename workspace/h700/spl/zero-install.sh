@@ -6,7 +6,7 @@
 # our hand-off inside. (Codex review 2026-11-05: the generic upstream SPL and the 800 KB u-boot-sunxi-with-spl.bin
 # both passed the old magic-only check; the second would have overwritten the backup slot at sector 512.)
 #   sh zero-install.sh /tmp/zero-spl.bin [/tmp/zero-loader.bin]
-# Stage2: Plus development path; every other known model requires ZERO_STAGE2_TRIAL=1.
+# Stage2: qualified LPDDR4 Plus and H; other known pairs require ZERO_STAGE2_TRIAL=1.
 # Source-backed profiles are not hardware qualification. Omitting the loader disables its header.
 # Universal SPL (2026-11-06): two builds, one per DRAM type (zero-spl.bin LPDDR4, zero-spl-lp3.bin LPDDR3; the SPL says
 # which with "zero: dram lp4|lp3"). This unit's own stock boot0 (backup slot) must describe exactly what that build
@@ -17,6 +17,7 @@
 #   sh zero-install.sh --check <boot0> <spl.bin> <serial> <binding out>   (host tests: the verdict, no card access)
 set -e
 case $# in
+3) [ "$1" = --stage2-board ] || exit 1 ;;
 1|2|5|6) ;;
 *) echo "usage: zero-install.sh <spl.bin> [loader.bin]"; exit 1 ;;
 esac
@@ -28,13 +29,16 @@ LSTORE=16896; LMAX=983040 # at most 1920 sectors, ending at 18816 (exclusive), b
 u32() { od -An -tu4 -j$2 -N4 "$1" | tr -d ' '; }
 stage2_board_ok() {
 	case "${1-}:${2-}" in
-	plus:7|plus:8) return 0 ;;
-	h:8) [ "${ZERO_STAGE2_TRIAL-}" = 1 ] ;;
+	plus:8|h:8) return 0 ;;
+	plus:7) [ "${ZERO_STAGE2_TRIAL-}" = 1 ] ;;
 	pro:7|pro:8|sp:8|rg40xx-h:7|rg40xx-v:7|rgcubexx-h:8|rg28xx-h:8|rg34xx-h:8|rg34xx-sp:8|rgsp:7|rgsp:8|2024:7|2024:8)
 		[ "${ZERO_STAGE2_TRIAL-}" = 1 ] ;;
 	*) return 1 ;;
 	esac
 }
+if [ "$1" = --stage2-board ]; then
+	[ $# = 3 ] && stage2_board_ok "$2" "$3"; exit $?
+fi
 stage2_consumer_ok() {
 	[ -f "$1" ] && [ -x "$2" ] && [ -f "$3" ] || return 1
 	_ack=$(sh "$1" stage2-contract) || return 1
@@ -138,6 +142,12 @@ spl_lock_acquire /run/zero-spl-busy || exit 75
 }
 # then the backup slot: a valid stock boot0 to pin
 T=/tmp/zi; rm -rf $T; mkdir -p $T
+if [ "${ZERO_SPL_AUTO-}" = 1 ]; then
+	dd if="$D" of="$T/attempt" bs=512 skip="$MARK" count=1 2>/dev/null
+	[ "$(wc -c < "$T/attempt")" -eq 512 ] &&
+		[ "$(tr -d '\000' < "$T/attempt" | wc -c)" -eq 0 ] &&
+		[ "$(busybox devmem 0x0700013c)" = 0x00000000 ] || exit 75
+fi
 dd if=$D of=$T/stock.bin bs=512 skip=512 count=128 2>/dev/null
 [ "$(dd if=$T/stock.bin bs=1 skip=4 count=8 2>/dev/null)" = "eGON.BT0" ] || { echo "backup slot is not eGON: refusing"; exit 1; }
 [ "$(u32 $T/stock.bin 16)" = 65536 ] || { echo "backup slot length is not 64 KiB: refusing"; exit 1; }
@@ -182,10 +192,28 @@ else
 	esac
 fi
 if [ -n "$LOADER" ]; then
-	stage2_board_ok "$board" "$ST" || { echo "stage2 needs a supported model/DRAM pair; non-Plus models need ZERO_STAGE2_TRIAL=1: refusing"; exit 1; }
+	stage2_board_ok "$board" "$ST" || { echo "stage2 needs a qualified or explicitly opted-in model/DRAM pair: refusing"; exit 1; }
+	if [ "${ZERO_SPL_AUTO-}" = 1 ]; then
+		chosen=$(cat /opt/minui-zero/boards/chosen)
+		case "$chosen" in *[!a-z0-9-]*|'') exit 76 ;; esac
+		[ "${chosen#rg35xx-}" = "$board" ] || exit 76
+		pkg=/opt/minui-zero/boards/$chosen/package.fex
+		[ -s "$pkg" ] || { echo "missing chosen boot package"; exit 76; }
+		bytes=$(wc -c < "$pkg")
+		[ "$bytes" -le $(((32800 - 24576) * 512)) ] || exit 76
+		# Both vendor copies must belong to the picker choice. Loader preflight
+		# independently identifies the exact profile before handing off.
+		for sector in 24576 32800; do
+			dd if="$D" bs=512 skip="$sector" count=$(((bytes + 511) / 512)) 2>/dev/null |
+				head -c "$bytes" > "$T/package.bin"
+			cmp -s "$pkg" "$T/package.bin" || { echo "chosen package differs at $sector"; exit 76; }
+		done
+		[ ! -f /mnt/mmc/fast-boot-off.txt ] || exit 75
+		case "$board:$ST" in plus:8|h:8) ;; *) [ -f /mnt/mmc/fast-boot-stage2-trial.txt ] || exit 75 ;; esac
+	fi
 	stage2_consumer_ok /opt/minui-zero/boot0-slot.sh /opt/minui-zero/loader/boot-health \
 		/opt/minui-zero/loader/build-id || { echo 'stage2 needs the health-v1 acknowledgment rootfs: refusing'; exit 1; }
-	[ "$board" = plus ] || echo "TRIAL: stage2 on $board (DRAM type $ST); source-backed is not hardware qualification"
+	case "$board:$ST" in plus:8|h:8) ;; *) echo "TRIAL: stage2 on $board (DRAM type $ST); source-backed is not hardware qualification" ;; esac
 fi
 want=$(md5sum < $T/stock.bin | cut -c1-32)
 _spl_lock_dirty=1

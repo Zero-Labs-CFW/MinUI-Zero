@@ -18,7 +18,8 @@ count = 0
 for board in [*types, 'unknown', '', 'plus extra']:
     for kind in ('', '0', '7', '8', '9'):
         for trial in ('', '0', '1'):
-            expected = kind.isdigit() and int(kind) in types.get(board, set()) and (board == 'plus' or trial == '1')
+            qualified = board in ('plus', 'h') and kind == '8'
+            expected = kind.isdigit() and int(kind) in types.get(board, set()) and (qualified or trial == '1')
             result = subprocess.run(['sh', '-c', function + '\nZERO_STAGE2_TRIAL=$3; stage2_board_ok "$1" "$2"',
                                      'installer-policy', board, kind, trial])
             assert (result.returncode == 0) == bool(expected), (board, kind, trial)

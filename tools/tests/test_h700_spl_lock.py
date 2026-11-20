@@ -9,7 +9,7 @@ import unittest
 import shlex
 import re
 
-from test_h700_stage2_recovery import egon_image
+from test_h700_stage2_recovery import egon_image, loader_image
 
 ROOT = Path(__file__).resolve().parents[2]
 SHELL = shlex.split(os.environ.get('H700_TEST_SHELL', 'sh'))
@@ -79,11 +79,25 @@ class LockTests(unittest.TestCase):
         self.card = self.root / 'card'
         self.card.write_bytes(bytes(19000 * 512))
         with self.card.open('r+b') as f:
+            for lba in (24576, 32800):
+                f.seek(lba * 512); f.write(b'fixture package')
             for lba in (16, 512, 16384, 16512):
                 f.seek(lba * 512); f.write(egon_image(stock=True))
         (self.root / 'spl.bin').write_bytes(egon_image())
         (self.root / 'cmdline').write_text('androidboot.serialno=1234567890abcdef123\n')
         (self.root / 'board').write_text('plus\n')
+        for name in ('rg35xx-plus', 'plus', 'rg35xx-h', 'sp'):
+            path = self.z / 'boards' / name
+            path.mkdir()
+            (path / 'package.fex').write_bytes(b'fixture package')
+        loader = self.z / 'loader'
+        loader.mkdir()
+        (loader / 'zero-loader.bin').write_bytes(loader_image())
+        (loader / 'build-id').write_text('a' * 64 + '\n')
+        health = loader / 'boot-health'
+        health.write_text('#!/bin/sh\ncase "$1" in --contract) echo zero-stage2-health-v1;; '
+                          '--build-id) cat "$FIXTURE/z/loader/build-id";; *) test -e "$FIXTURE/receipt";; esac\n')
+        health.chmod(0o755)
         (self.root / 'cardroot/.system/h700').mkdir(parents=True)
         (self.root / 'cardroot/.system/h700/board').write_text('plus\n')
         (self.root / 'drop_caches').touch()
@@ -100,6 +114,7 @@ class LockTests(unittest.TestCase):
                              ('/proc/cmdline', str(self.root / 'cmdline')),
                              ('/proc/sys/vm/drop_caches', str(self.root / 'drop_caches')),
                              ('/proc/mounts', str(self.root / 'mounts')),
+                             ('/sys/firmware/devicetree/base/chosen/zero,loader', str(self.root / 'receipt')),
                              ('/mnt/mmc/.system/h700/board', str(self.root / 'board')),
                              ('/mnt/mmc', str(self.root / 'cardroot'))))
             source = re.sub('|'.join(re.escape(k) for k in redirects),
@@ -275,7 +290,124 @@ esac
         (self.root / 'continue').touch()
         out, err = proc.communicate(timeout=10)
         self.assertEqual(proc.returncode, 0, out + err)
-        self.assertEqual((self.z / 'spl-state').read_text().strip(), 'installed')
+        self.assertEqual((self.z / 'spl-state').read_text().strip(), 'stage2:auto:plus')
+
+    def test_release_auto_upgrade_and_fallback(self):
+        (self.z / 'boards/chosen').write_text('rg35xx-h\n')
+        (self.root / 'board').write_text('h\n')
+        (self.root / 'cardroot/.system/h700/board').write_text('h\n')
+        spl = self.z / 'spl/zero-spl.bin'
+        spl.write_bytes(egon_image())
+        self.ok(self.call('spl/zero-install.sh', str(spl)))
+        state = self.z / 'spl-state'
+        state.write_text('installed\n')
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(state.read_text().strip(), 'stage2:auto:h')
+        self.assertEqual(self.card.read_bytes()[16896*512:16898*512], loader_image())
+        (self.run / 'zero-stage2-provisioned').unlink()
+        receipt = self.root / 'receipt'
+        receipt.touch()
+        before = self.writes()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(self.writes(), before)
+        receipt.unlink()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(state.read_text().strip(), 'failed')
+        data = self.card.read_bytes()
+        self.assertEqual(data[16*512:144*512], egon_image(stock=True))
+        self.assertEqual(data[16896*512:16897*512], bytes(512))
+        before = self.writes()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(self.writes(), before)
+
+    def select_board(self, name):
+        (self.z / 'boards/chosen').write_text(name + '\n')
+        (self.root / 'board').write_text(name + '\n')
+        (self.root / 'cardroot/.system/h700/board').write_text(name + '\n')
+        (self.z / 'spl/zero-spl.bin').write_bytes(egon_image())
+
+    def test_fresh_plus_and_explicit_off(self):
+        self.select_board('plus')
+        self.ok(self.call('spl-auto.sh'))
+        self.assertFalse(self.writes())  # allow stock training on first chosen boot
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(self.card.read_bytes()[16896*512:16898*512], loader_image())
+        (self.root / 'cardroot/fast-boot-off.txt').touch()
+        self.ok(self.call('spl-auto.sh'))
+        data = self.card.read_bytes()
+        self.assertEqual(data[16*512:144*512], egon_image(stock=True))
+        self.assertEqual(data[16896*512:16897*512], bytes(512))
+        before = self.writes()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(self.writes(), before)
+
+    def test_trial_consent_and_withdrawal(self):
+        self.select_board('sp')
+        state = self.z / 'spl-state'
+        state.write_text('ready\n')
+        self.ok(self.call('spl-auto.sh'))
+        self.assertFalse(self.writes())
+        (self.root / 'cardroot/fast-boot-trial.txt').touch()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(state.read_text().strip(), 'installed')
+        self.assertEqual(self.card.read_bytes()[16896*512:16897*512], bytes(512))
+        marker = self.root / 'cardroot/fast-boot-stage2-trial.txt'
+        marker.touch()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(state.read_text().strip(), 'stage2:trial:sp')
+        self.assertEqual(self.card.read_bytes()[16896*512:16898*512], loader_image())
+        marker.unlink()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(state.read_text().strip(), 'stock')
+        self.assertEqual(self.card.read_bytes()[16896*512:16897*512], bytes(512))
+
+    def test_unknown_board_neither_marker_can_authorize_writes(self):
+        self.select_board('unknown')
+        (self.z / 'spl-state').write_text('ready\n')
+        for name in ('fast-boot-trial.txt', 'fast-boot-stage2-trial.txt'):
+            (self.root / ('cardroot/' + name)).touch()
+            self.ok(self.call('spl-auto.sh'))
+            self.assertFalse(self.writes())
+
+    def test_mismatched_package_refuses_before_raw_writes(self):
+        self.select_board('plus')
+        (self.z / 'boards/plus/package.fex').write_bytes(b'other board')
+        (self.z / 'spl-state').write_text('ready\n')
+        self.ok(self.call('spl-auto.sh'))
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual((self.z / 'spl-state').read_text().strip(), 'failed')
+        self.assertFalse(self.writes())
+
+    def test_off_during_recovery_cannot_rearm(self):
+        self.select_board('plus')
+        state = self.z / 'spl-state'
+        state.write_text('stage2:auto:plus\n')
+        with self.card.open('r+b') as f:
+            f.seek(16896 * 512); f.write(loader_image())
+        marker = self.root / 'cardroot/fast-boot-off.txt'
+        marker.touch()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(state.read_text().strip(), 'failed')
+        self.assertEqual(self.card.read_bytes()[16896*512:16897*512], bytes(512))
+        marker.unlink()
+        before = self.writes()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(self.writes(), before)
+
+    def test_cut_during_header_publish_restores_without_retry(self):
+        self.select_board('plus')
+        state = self.z / 'spl-state'
+        state.write_text('ready\n')
+        # Fail the loader body write, after the old header has been invalidated.
+        self.ok(self.call('spl-auto.sh', PARTIAL_WRITE='16897'))
+        self.assertTrue(self.busy.exists())
+        self.assertEqual(self.card.read_bytes()[16896*512:16897*512], bytes(512))
+        self.busy.unlink()  # /run starts empty at the next boot
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(state.read_text().strip(), 'failed')
+        before = self.writes()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual(self.writes(), before)
 
     def test_ack_releases_before_auto(self):
         (self.run / 'zero-menu-frame').touch()
