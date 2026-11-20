@@ -332,6 +332,7 @@ esac
         self.assertFalse(self.writes())  # allow stock training on first chosen boot
         self.ok(self.call('spl-auto.sh'))
         self.assertEqual(self.card.read_bytes()[16896*512:16898*512], loader_image())
+        (self.root / 'cardroot/fast-boot.txt').touch()
         (self.root / 'cardroot/fast-boot-off.txt').touch()
         self.ok(self.call('spl-auto.sh'))
         data = self.card.read_bytes()
@@ -347,11 +348,11 @@ esac
         state.write_text('ready\n')
         self.ok(self.call('spl-auto.sh'))
         self.assertFalse(self.writes())
-        (self.root / 'cardroot/fast-boot-trial.txt').touch()
-        self.ok(self.call('spl-auto.sh'))
-        self.assertEqual(state.read_text().strip(), 'installed')
-        self.assertEqual(self.card.read_bytes()[16896*512:16897*512], bytes(512))
-        marker = self.root / 'cardroot/fast-boot-stage2-trial.txt'
+        for old in ('fast-boot-trial.txt', 'fast-boot-stage2-trial.txt'):
+            (self.root / 'cardroot' / old).touch()
+            self.ok(self.call('spl-auto.sh'))
+            self.assertFalse(self.writes())
+        marker = self.root / 'cardroot/fast-boot.txt'
         marker.touch()
         self.ok(self.call('spl-auto.sh'))
         self.assertEqual(state.read_text().strip(), 'stage2:trial:sp')
@@ -364,7 +365,7 @@ esac
     def test_unknown_board_neither_marker_can_authorize_writes(self):
         self.select_board('unknown')
         (self.z / 'spl-state').write_text('ready\n')
-        for name in ('fast-boot-trial.txt', 'fast-boot-stage2-trial.txt'):
+        for name in ('fast-boot-trial.txt', 'fast-boot-stage2-trial.txt', 'fast-boot.txt'):
             (self.root / ('cardroot/' + name)).touch()
             self.ok(self.call('spl-auto.sh'))
             self.assertFalse(self.writes())

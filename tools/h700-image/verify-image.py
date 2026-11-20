@@ -257,8 +257,9 @@ def main():
             got = subprocess.run([mtype, '-i', spec, '::/' + dst], capture_output=True).stdout
             check(dst + ' current', got == open(os.path.join(REPO, src), 'rb').read(), '' if got else 'missing')
         if opts.get('--release'):
-            dm = subprocess.run([mtype, '-i', spec, '::/devmode.txt'], capture_output=True).returncode
-            check('no devmode.txt on the card', dm != 0)
+            for marker in ('devmode.txt', 'fast-boot.txt', 'fast-boot-off.txt'):
+                rc = subprocess.run([mtype, '-i', spec, '::/' + marker], capture_output=True).returncode
+                check('no ' + marker + ' on the card', rc != 0)
     else:
         print('  (payload checks skipped: no roms partition or no mtools)')
         # a release is only verified if every check ran: a skipped one must not read as PASS
@@ -465,7 +466,6 @@ def main():
                 check('stage2 payload ' + name + ' is the build', os.path.isfile(built) and have == open(built, 'rb').read())
             mode = debugfs_mode(img, off, '/opt/minui-zero/loader/boot-health')
             check('stage2 health executable', mode is not None and mode & 0o111 == 0o111)
-            check('stage2 does not auto-enable', b'"$spl" 2>&1' in cat('/opt/minui-zero/spl-auto.sh'))
             tuples = subprocess.run([sys.executable, os.path.join(REPO, 'workspace/h700/loader/tools/genprofiles.py'),
                                      '--packaged', os.path.join(assets, 'boards-stage')], capture_output=True, text=True)
             check('stage2 Plus/H artifact compatibility', tuples.returncode == 0, tuples.stdout.strip() or tuples.stderr.strip())

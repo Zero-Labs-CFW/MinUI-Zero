@@ -11,8 +11,8 @@
 #            writes the trained copy back over both slots; zero-install.sh refuses the image's copy in any case. Never
 #            with a sleep swap in flight, an attempt marker or a pending GP15 (an unacknowledged boot).
 #   where    by itself only where it is qualified on hardware: LPDDR4 units of the RG35XX H and Plus. Any other board or
-#            supported DRAM pair stays stock unless opted in: fast-boot-trial.txt is SPL only;
-#            fast-boot-stage2-trial.txt includes stage 2. Qualified pairs install both. DRAM
+#            supported DRAM pair stays stock unless fast-boot.txt opts into both stages.
+#            Qualified pairs install both without a marker. DRAM
 #            types we have no build for (DDR3) stay stock either way.
 #   once     an install the loader's own safety net took back (a refusal, or a boot never acknowledged) is not tried
 #            again on this card, and an installer that refused three times stops being asked. A reflash starts over.
@@ -27,8 +27,7 @@ STATE=$Z/spl-state
 FLAG=$Z/.spl-sleep-swapped
 CARD=/mnt/mmc
 OFF=$CARD/fast-boot-off.txt
-TRIAL=$CARD/fast-boot-trial.txt
-TRIAL2=$CARD/fast-boot-stage2-trial.txt
+TRIAL=$CARD/fast-boot.txt
 L=$Z/loader
 LOG=$CARD/.userdata/h700/logs/fast-boot.txt
 
@@ -94,7 +93,7 @@ case "$st" in installed|stage2:*) ;; *) [ $spl16 = 0 ] || exit 0 ;; esac
 bd=$(cat "$B/chosen"); bd=${bd#rg35xx-}
 if [ "${st#stage2:}" != "$st" ]; then
 	target=failed
-	case "$st" in stage2:trial:*) [ -f "$TRIAL2" ] || target=stock ;; esac
+	case "$st" in stage2:trial:*) [ -f "$TRIAL" ] || target=stock ;; esac
 	if [ "$target" = failed ] && [ "${st##*:}" = "$bd" ] &&
 	   [ "$bd" = "$(cat "$CARD/.system/h700/board" 2>/dev/null)" ] && [ "$spl16" = 1 ]; then
 		# A second policy invocation on the provisioning boot cannot attest the next boot.
@@ -120,33 +119,24 @@ trial=
 stage2=
 case "$pt:$bd" in
 8:h|8:plus) stage2=auto ;;
-*)	if [ ! -f "$TRIAL" ] && [ ! -f "$TRIAL2" ]; then
+*)	if [ ! -f "$TRIAL" ]; then
 		[ "$st" != installed ] || exit 0  # retain ownership of an old stage-1-only installation
-		[ "$st" = stock ] || { log "$bd, DRAM type $pt: not qualified, staying stock (fast-boot-trial.txt at the card root tries it)"; setst stock; }
+		[ "$st" = stock ] || { log "$bd, DRAM type $pt: not qualified, staying stock (fast-boot.txt at the card root tries it)"; setst stock; }
 		exit 0
 	fi
 	ZERO_STAGE2_TRIAL=1 sh "$S/zero-install.sh" --stage2-board "$bd" "$pt" || exit 0
-	trial=1; [ ! -f "$TRIAL2" ] || stage2=trial ;;
+	trial=1; stage2=trial ;;
 esac
-[ "$st" != installed ] || [ -n "$stage2" ] || exit 0
 n=0; case "$st" in tries:[0-9]*) n=${st#tries:} ;; esac
 case "$n" in ''|*[!0-9]*) n=3 ;; esac
 [ "$n" -lt 3 ] || { log "the installer refused 3 times: staying stock"; setst gaveup; exit 0; }
 # counted before the install: a power cut during it uses a try too
 sleep 5   # the menu's own start-up work first
 [ ! -f "$OFF" ] || exit 0
-set -- "$spl"
-if [ -n "$stage2" ]; then
-	[ "$stage2" != trial ] || [ -f "$TRIAL2" ] || exit 0
-	set -- "$spl" "$L/zero-loader.bin"
-	: > /run/zero-stage2-provisioned || exit 1
-	setst "stage2:$stage2:$bd" || exit 1
-else
-	[ -f "$TRIAL" ] || exit 0
-	setst "tries:$((n + 1))" || exit 1
-fi
-if out=$(ZERO_SPL_AUTO=1 ZERO_STAGE2_TRIAL=$trial ZERO_SPL_TRIAL=$trial ZERO_SPL_KEYTEST= sh "$S/zero-install.sh" "$@" 2>&1); then
-	[ -n "$stage2" ] || setst installed
+[ "$stage2" != trial ] || [ -f "$TRIAL" ] || exit 0
+: > /run/zero-stage2-provisioned || exit 1
+setst "stage2:$stage2:$bd" || exit 1
+if out=$(ZERO_SPL_AUTO=1 ZERO_STAGE2_TRIAL=$trial ZERO_SPL_TRIAL=$trial ZERO_SPL_KEYTEST= sh "$S/zero-install.sh" "$spl" "$L/zero-loader.bin" 2>&1); then
 	log "installed ${spl##*/} on $bd${trial:+ (trial)}: $(echo "$out" | tail -n 1)"
 else
 	_install_rc=$?

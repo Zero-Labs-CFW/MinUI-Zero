@@ -209,7 +209,7 @@ if [ -n "$LOADER" ]; then
 			cmp -s "$pkg" "$T/package.bin" || { echo "chosen package differs at $sector"; exit 76; }
 		done
 		[ ! -f /mnt/mmc/fast-boot-off.txt ] || exit 75
-		case "$board:$ST" in plus:8|h:8) ;; *) [ -f /mnt/mmc/fast-boot-stage2-trial.txt ] || exit 75 ;; esac
+		case "$board:$ST" in plus:8|h:8) ;; *) [ -f /mnt/mmc/fast-boot.txt ] || exit 75 ;; esac
 	fi
 	stage2_consumer_ok /opt/minui-zero/boot0-slot.sh /opt/minui-zero/loader/boot-health \
 		/opt/minui-zero/loader/build-id || { echo 'stage2 needs the health-v1 acknowledgment rootfs: refusing'; exit 1; }
