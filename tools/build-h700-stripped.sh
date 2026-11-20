@@ -67,7 +67,7 @@ fi
 # rootfs gains something a payload could depend on (a binary or script in /opt/minui-zero, a kernel module, a muOS
 # script change). PAYLOAD_MIN_ROOTFS is what this payload needs: raise it, up to ROOTFS_LEVEL, only in the release
 # whose card files start depending on that. Raising it means every older image must reflash to get the release.
-# Level 2 (v1.10.1): the rootfs gained the stage-2 boot helpers. A level-1 card that took this zip would update its
+# Level 2 (v1.10.0): the rootfs gained the stage-2 boot helpers. A level-1 card that took this zip would update its
 # frontend and keep its old boot behavior, so the zip needs level 2 and older cards reflash (Codex gate, 2026-11-20).
 ROOTFS_LEVEL=2
 PAYLOAD_MIN_ROOTFS=2

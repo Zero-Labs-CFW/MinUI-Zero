@@ -176,7 +176,7 @@ int main (int argc, char *argv[]) {
 	// trimui_inputd creates the gamepad node (event3, which carries MENU and the volume keys on the Smart Pro)
 	// a moment after it starts, and launch.sh starts keymon right behind it. Once the menu started sooner, keymon
 	// opened its inputs before that node existed and never had the keys: brightness bar shown, MENU + volume did
-	// nothing (Smart Pro, v1.10.1 RC, 2026-11-17). So retry missing nodes for a few seconds after start, then go
+	// nothing (Smart Pro, v1.10.0 RC, 2026-11-17). So retry missing nodes for a few seconds after start, then go
 	// back to blocking with no timeout.
 	gettimeofday(&tod, NULL);
 	uint32_t reopen_until = tod.tv_sec * 1000 + tod.tv_usec / 1000 + 5000;
