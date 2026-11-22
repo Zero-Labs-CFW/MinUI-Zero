@@ -119,8 +119,10 @@ class LockTests(unittest.TestCase):
                              ('/mnt/mmc', str(self.root / 'cardroot'))))
             source = re.sub('|'.join(re.escape(k) for k in redirects),
                             lambda match: redirects[match.group()], source)
-            # ash may use its sleep builtin rather than PATH; keep unit-test time deterministic.
-            source = source.replace('#!/bin/sh\n', '#!/bin/sh\nsleep() { "$FIXTURE/bin/sleep" "$@"; }\n', 1)
+            # ash may prefer built-in applets to PATH. Always use the I/O adapters.
+            adapters = ''.join(f'{tool}() {{ "$FIXTURE/bin/{tool}" "$@"; }}\n'
+                               for tool in ('sleep', 'busybox', 'dd', 'sync', 'wc'))
+            source = source.replace('#!/bin/sh\n', '#!/bin/sh\n' + adapters, 1)
             p = self.z / ('spl/' + name if name == 'zero-install.sh' else name)
             p.write_text(source); p.chmod(0o755)
         (self.bin / 'dd').write_text('#!' + sys.executable + '\n' + DD)
@@ -134,10 +136,13 @@ class LockTests(unittest.TestCase):
 if [ "$#" = 4 ]; then
     echo "$2" >> "$FIXTURE/rtc-writes"
     [ "${FAIL_RTC-}" != "$2" ] || exit 93
+    [ "$2" != 0x0700013c ] || rm -f "$FIXTURE/gp15"
     exit 0
 fi
 [ "${BAD_RTC_READ-}" != "$2" ] || { echo garbage; exit 0; }
 case "$2" in
+0x0700013c) cat "$FIXTURE/gp15" 2>/dev/null || echo 0x00000000;;
+0x07000138) echo "${GP14-0x00000000}";;
 0x03006200) echo 0x00000000;;
 0x03006204) echo 0x12300000;;
 0x03006208) echo 0x4567890a;;
@@ -394,6 +399,44 @@ esac
         before = self.writes()
         self.ok(self.call('spl-auto.sh'))
         self.assertEqual(self.writes(), before)
+
+    def charger_boot(self, step='0x5A560051', mode='charger', reason='charger',
+                     gp14='0x00000000', off=False):
+        self.select_board('h')
+        (self.z / 'boards/chosen').write_text('rg35xx-h\n')
+        state = self.z / 'spl-state'
+        state.write_text('ready\n')
+        self.ok(self.call('spl-auto.sh'))
+        (self.run / 'zero-stage2-provisioned').unlink()
+        with self.card.open('r+b') as f:
+            f.seek(16640 * 512); f.write(b'ZERO-ATTEMPT-V1' + bytes(497))
+        (self.root / 'cmdline').write_text(f'androidboot.mode={mode} bootreason={reason}\n')
+        (self.root / 'gp15').write_text(step)
+        (self.run / 'zero-menu-frame').touch()
+        if off:
+            (self.root / 'cardroot/fast-boot-off.txt').touch()
+        self.ok(self.call('boot0-slot.sh', 'ack', GP14=gp14))
+        return state.read_text().strip()
+
+    def test_charger_handoff_preserves_install_not_future_vendor_boot(self):
+        self.assertEqual(self.charger_boot(), 'stage2:auto:h')
+        self.assertEqual(self.card.read_bytes()[16896*512:16898*512], loader_image())
+        (self.run / 'zero-stage2-charger').unlink()  # next kernel, empty /run
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual((self.z / 'spl-state').read_text().strip(), 'failed')
+
+    def test_charger_optout(self):
+        self.assertEqual(self.charger_boot(off=True), 'off')
+        self.assertEqual(self.card.read_bytes()[16896*512:16897*512], bytes(512))
+
+    def test_generic_vendor_even_in_charger_mode_is_failure(self):
+        self.assertEqual(self.charger_boot(step='0x5A560009'), 'failed')
+
+    def test_handoff_without_charger_reason_is_failure(self):
+        self.assertEqual(self.charger_boot(reason='button'), 'failed')
+
+    def test_handoff_with_recovery_stamp_is_failure(self):
+        self.assertEqual(self.charger_boot(gp14='0x5A56FC01'), 'failed')
 
     def test_cut_during_header_publish_restores_without_retry(self):
         self.select_board('plus')

@@ -69,8 +69,9 @@ fi
 # whose card files start depending on that. Raising it means every older image must reflash to get the release.
 # Level 2 (v1.10.0): the rootfs gained the stage-2 boot helpers. A level-1 card that took this zip would update its
 # frontend and keep its old boot behavior, so the zip needs level 2 and older cards reflash (Codex gate, 2026-11-20).
-ROOTFS_LEVEL=2
-PAYLOAD_MIN_ROOTFS=2
+# Level 3: level-2 candidate cards lack the charger-handoff SPL and its ack/policy pair.
+ROOTFS_LEVEL=3
+PAYLOAD_MIN_ROOTFS=3
 DEVICE="${H700_DEVICE:-rg35xx-plus}"   # or "all": the one image with a first-boot model picker
 # Every board fact below (the list, LPDDR3, an optional own boot0, splash geometry) comes from the board table, the
 # one list the device scripts and platform.c read too; bin/board is its reader.

@@ -52,7 +52,8 @@ if [ -f "$OFF" ]; then
 	case "$st" in stage2:*)
 		# Opt-out on the recovery boot must not erase evidence of a failed trial.
 		if [ ! -e /run/zero-stage2-provisioned ] &&
-		   { [ "$spl16" = 0 ] || [ ! -e /sys/firmware/devicetree/base/chosen/zero,loader ] || ! "$L/boot-health"; }; then
+		   { [ "$spl16" = 0 ] || { [ ! -f /run/zero-stage2-charger ] &&
+		     { [ ! -e /sys/firmware/devicetree/base/chosen/zero,loader ] || ! "$L/boot-health"; }; }; }; then
 			setst failed || exit 1
 			st=failed
 		fi ;;
@@ -98,6 +99,7 @@ if [ "${st#stage2:}" != "$st" ]; then
 	   [ "$bd" = "$(cat "$CARD/.system/h700/board" 2>/dev/null)" ] && [ "$spl16" = 1 ]; then
 		# A second policy invocation on the provisioning boot cannot attest the next boot.
 		[ ! -f /run/zero-stage2-provisioned ] || exit 0
+		[ ! -f /run/zero-stage2-charger ] || exit 0
 		[ -e /sys/firmware/devicetree/base/chosen/zero,loader ] && "$L/boot-health" && exit 0
 	fi
 	if "$Z/boot0-slot.sh" remove; then

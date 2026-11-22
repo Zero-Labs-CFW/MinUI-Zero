@@ -494,7 +494,7 @@ new file mode 100644
 index 00000000..1d521539
 --- /dev/null
 +++ b/arch/arm/mach-sunxi/zero_vendor.c
-@@ -0,0 +1,907 @@
+@@ -0,0 +1,912 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
@@ -1123,7 +1123,7 @@ index 00000000..1d521539
 +
 +/* Invalid/absent loaders leave the stage-1 chain intact. All destinations are fixed, not card-controlled. */
 +static void zv_stage2(struct blk_desc *bd, ulong monitor, ulong uboot, u32 toc_len, const u8 *pin, int card,
-+		      u32 dtb_len, u32 dtbo_len)
++		      u32 dtb_len, u32 dtbo_len, u32 *vendor_step)
 +{
 +	struct zero_loader_hdr *h = (void *)ZL_LOAD_ADDR;
 +	struct zero_params *p = (void *)(ZL_HDR_ADDR + 2048);
@@ -1167,8 +1167,12 @@ index 00000000..1d521539
 +	if (pmic_bus_read(0x20, &reason) || pmic_bus_read(0, &status) || pmic_bus_read(0xf0, &scratch))
 +		return;
 +	/* Vendor's battery-absent repair and one-shot charger mode stay on the vendor path. */
-+	if (!(status & 8) || ((scratch & 8) && (!reason || reason > 16 || (reason & (reason - 1)))))
++	if (!(status & 8))
 +		return;
++	if ((scratch & 8) && (!reason || reason > 16 || (reason & (reason - 1)))) {
++		*vendor_step = 0x51; /* intentional one-shot charger handoff, not a loader receipt */
++		return;
++	}
 +	if (!zv_stage2_battery_ok())
 +		return;
 +	memset(p, 0, sizeof(*p));
@@ -1236,6 +1240,7 @@ index 00000000..1d521539
 +	struct blk_desc *bd;
 +	ulong pkg = ZV_TOC1_ADDR, uboot = 0, monitor = 0;
 +	u32 count, len, i, seen = 0, dtb_len = 0, dtbo_len = 0;
++	u32 vendor_step = 9;
 +
 +	zv_stamp(0x128);
 +	zv_crumb(0x10);
@@ -1364,7 +1369,7 @@ index 00000000..1d521539
 +		zv_status(8, count);
 +		return;
 +	}
-+	zv_stage2(bd, monitor, uboot, len, pin, card, dtb_len, dtbo_len);
++	zv_stage2(bd, monitor, uboot, len, pin, card, dtb_len, dtbo_len, &vendor_step);
 +	memcpy((void *)(uboot + 0x30), pin + 0x38, 0x80);
 +	writel(readl((void *)(uboot + 0x8c)) | BIT(31), (void *)(uboot + 0x8c));	/* no boot0 write-back, see top */
 +	writel(1, (void *)(uboot + 0xe4));			/* booted from the SD card (boot media 0) */
@@ -1380,7 +1385,7 @@ index 00000000..1d521539
 +	zv_stamp(0x124);
 +	zv_crumb(0x50);
 +
-+	zv_status(9, monitor);
++	zv_status(vendor_step, monitor);
 +	if (ZV_STOP == 9)
 +		return;
 +#ifdef ZV_TRACE

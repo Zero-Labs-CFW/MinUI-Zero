@@ -180,7 +180,17 @@ ack)
 		_spl_lock_dirty=1
 		dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null || return 1
 		zero_sector 16640 || return 1
-		rtc_clear_attempt
+		rtc_clear_attempt || return 1
+		# Per-boot exception for the specific SPL charger branch only. Never attest stage 2 here.
+		case "$_stage_mark" in 0x5A560051|0x5a560051)
+			if [ ! -e /sys/firmware/devicetree/base/chosen/zero,loader ] &&
+			   [ "$(busybox devmem 0x07000138)" = 0x00000000 ]; then
+				_cmd=" $(cat /proc/cmdline) "
+				case "$_cmd" in *" androidboot.mode=charger "*) case "$_cmd" in
+					*" bootreason=charger "*) touch /run/zero-stage2-charger || return 1 ;;
+				esac ;; esac
+			fi ;;
+		esac
 	}
 	# A peer may briefly own the card when the first frame arrives. Retry CLEAN
 	# contention only, never a failed health check or a partially written acknowledgment.
