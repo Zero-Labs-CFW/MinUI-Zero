@@ -120,8 +120,10 @@ class LockTests(unittest.TestCase):
             source = re.sub('|'.join(re.escape(k) for k in redirects),
                             lambda match: redirects[match.group()], source)
             # ash may prefer built-in applets to PATH. Always use the I/O adapters.
-            adapters = ''.join(f'{tool}() {{ "$FIXTURE/bin/{tool}" "$@"; }}\n'
-                               for tool in ('sleep', 'busybox', 'dd', 'sync', 'wc'))
+            # Host sh already resolves external tools via PATH. Wrapping dd in a
+            # function there redirects the errexit EXIT trap's diagnostic too.
+            wrapped = ('sleep',) if SHELL == ['sh'] else ('sleep', 'busybox', 'dd', 'sync', 'wc')
+            adapters = ''.join(f'{tool}() {{ "$FIXTURE/bin/{tool}" "$@"; }}\n' for tool in wrapped)
             source = source.replace('#!/bin/sh\n', '#!/bin/sh\n' + adapters, 1)
             p = self.z / ('spl/' + name if name == 'zero-install.sh' else name)
             p.write_text(source); p.chmod(0o755)
