@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage one attended Plus fatal-recovery trial; default is read-only and local.
+"""Stage one attended LPDDR4 Plus or H fatal-recovery trial; default is read-only and local.
 
 There is deliberately no SSH transport. Printed device commands are a reviewable
 handoff, not deployment approval. --execute operates ONLY on a regular-file image.
@@ -17,6 +17,7 @@ import shlex
 import stat
 import struct
 import subprocess
+import sys
 import tempfile
 
 
@@ -90,7 +91,7 @@ def egon(data, stock=False):
     else:
         require(len(data) <= 49152 and data[20:23] == b"SPL", "not a bounded SPL")
         require(b"zero: vendor hand-off" in data and b"zero: dram lp4" in data
-                and b"zero: dram lp3" not in data, "not the Plus LPDDR4 Zero SPL")
+                and b"zero: dram lp3" not in data, "not the LPDDR4 Zero SPL")
 
 
 def loader(data):
@@ -111,11 +112,18 @@ class Cohort:
         encoded = read_file(self.path)
         self.digest = sha(encoded)
         self.manifest = json.loads(encoded)
-        require(self.manifest["board"] == "plus", "cohort must be Plus")
+        self.board = self.manifest["board"]
+        require(self.board in ("plus", "h"), "cohort must be Plus or H")
         self.saved = {name: self.entry(self.manifest["files"][name], name)
                       for name in (*REGIONS, "card.txt", "cmdline.txt")}
         self.config = self.manifest["recovery"]
         self.artifacts = {role: self.entry(self.config["artifacts"][role]) for role in ROLES}
+        if self.board == "h":
+            require(self.entry(self.manifest["files"]["board.txt"], "board.txt").strip() == b"h",
+                    "cohort lacks H board capture")
+            pins = json.loads(read_file(REPO / "tools/tests/fixtures/h700-recovery/h-c7.json"))
+            for role, digest in pins["sha256"].items():
+                require(sha(self.artifacts[role]) == digest, "wrong H candidate fixture: " + role)
         self.cid = self.saved["card.txt"].decode().strip()
         require(re.fullmatch(r"[0-9a-f]{32}", self.cid) and int(self.cid, 16) != 0,
                 "missing known card CID")
@@ -130,7 +138,7 @@ class Cohort:
         self.pin = self.saved["pinA.bin"]
         require(self.pin == self.saved["pinB.bin"] == self.saved["slot512.bin"],
                 "full stock512/pins must be identical")
-        require(u32(self.pin, 60) == 8, "Plus LPDDR4 only")
+        require(u32(self.pin, 60) == 8, "LPDDR4 only")
         require(self.saved["attempt.bin"] == ZERO, "cohort attempt is not zero")
         binding = (b"ZERO-BIND-V1" + bytes(4)
                    + struct.pack("<4I", int(self.serial[:3], 16), int(self.serial[3:11], 16),
@@ -205,7 +213,11 @@ def register(status, name):
 
 
 def guard(cohort, status, recovery=False):
-    require(status["board"] == "plus" and status["card"] == cohort.cid, "wrong Plus/card")
+    require(status["board"] == cohort.board and status["card"] == cohort.cid, "wrong board/card")
+    if cohort.board == "h":
+        require(status.get("serial") == cohort.serial, "wrong H serial")
+        if recovery:
+            require(status.get("loader_dt_present") is False, "expected vendor path")
     require(type(status["capacity"]) is int and 50 < status["capacity"] <= 100, "battery must exceed 50")
     require(status["menu"] is True and status["emu"] == "", "idle menu/no core required")
     require(bool(status["boot_id"]), "missing boot ID")
@@ -342,7 +354,7 @@ def device_commands(cohort, status, action):
              "regis() { v=$(busybox devmem \"$1\") || return 1; case \"$v\" in "
              "0x[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]) "
              "test \"$((v))\" -eq \"$2\" ;; *) return 1 ;; esac; }",
-             "test \"$(cat /mnt/mmc/.system/h700/board)\" = plus",
+             "test \"$(cat /mnt/mmc/.system/h700/board)\" = " + q(cohort.board),
              "test \"$(cat /sys/block/mmcblk0/device/cid)\" = " + q(cohort.cid),
              "b=$(cat /sys/class/power_supply/axp2202-battery/capacity); test \"$b\" -gt 50; test \"$b\" -le 100",
              "test -e /run/zero-menu-frame; test -z \"$(pidof minarch.elf || :)\"",
@@ -352,6 +364,12 @@ def device_commands(cohort, status, action):
              "  c=$(tr '\\000' ' ' < \"$p\" 2>/dev/null || :)",
              "  case \"$c\" in *spl-auto.sh*|*boot0-slot.sh*|*gp-mark-stage2.sh*|*zero-s2-dog*) echo 'STOP: background actor'; exit 1;; esac",
              "done"]
+    if cohort.board == "h":
+        lines.append("grep -Eq " + q(r"(^|[[:space:]])androidboot.serialno=" + cohort.serial
+                                     + r"([[:space:]]|$)") + " /proc/cmdline")
+        if recovering:
+            lines += ["test ! -e /sys/firmware/devicetree/base/chosen/zero,loader",
+                      "test \"$(cat \"$R/boot-id\")\" = " + q(status["return"]["before_boot_id"])]
     if action in ("cleanup", "guarded-reboot"):
         # Hold exclusion across decisive admission, preservation checks and the write/reboot.
         lines.insert(7, "hashis " + sha(cohort.artifacts["spl_lock"]) + " < /opt/minui-zero/spl-lock.sh; "
@@ -497,7 +515,41 @@ def run(args):
         image.close()
 
 
+def seal_h(argv):
+    parser = argparse.ArgumentParser(description="Seal an attended H capture. No device access or writes to the capture.")
+    parser.add_argument("capture", type=Path)
+    for role in ("spl", "normal", "fatal"):
+        parser.add_argument("--" + role, required=True, type=Path)
+    args = parser.parse_args(argv)
+
+    def entry(path):
+        path = path.absolute()
+        data = read_file(path)
+        return {"path": str(path), "bytes": len(data), "sha256": sha(data)}
+
+    files = {name: entry(args.capture / name)
+             for name in (*REGIONS, "card.txt", "cmdline.txt", "board.txt")}
+    artifacts = {role: entry(getattr(args, role)) for role in ("spl", "normal", "fatal")}
+    artifacts.update({role: entry(REPO / path) for role, path in SHIPPING.items()})
+    data = json.dumps({"board": "h", "files": files, "recovery": {"artifacts": artifacts}},
+                      sort_keys=True, indent=2)
+    with tempfile.TemporaryDirectory() as directory:
+        trial = Path(directory) / "manifest.json"
+        trial.write_text(data)
+        Cohort(trial).shipping_check()
+    print(data)
+    return 0
+
+
 def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv[:1] == ["seal-h"]:
+        try:
+            return seal_h(argv[1:])
+        except (Refusal, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+            print("STOP: " + str(error), file=sys.stderr)
+            return 1
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "install-fatal", "guarded-reboot", "prove", "cleanup"))
     parser.add_argument("--manifest", required=True, type=Path)

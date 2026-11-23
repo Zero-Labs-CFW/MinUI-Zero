@@ -173,6 +173,44 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(r.Refusal, "shipping installer --check refused"):
             self.cohort.shipping_check()
 
+    def test_h_manifest_and_attended_proof(self):
+        (self.root / 'board.txt').write_text('h\n')
+        catalog = r.REPO / "tools/tests/fixtures/h700-recovery/h-c7.json"
+        pins = {key: r.sha(self.artifacts[key]) for key in ('spl', 'normal', 'fatal')}
+        real_read = r.read_file
+        # Substitute pins only for these explicitly synthetic regular-file images.
+        def fixture_read(path):
+            return json.dumps({"sha256": pins}).encode() if path == catalog else real_read(path)
+        with patch.object(r, 'read_file', fixture_read):
+            argv = ['seal-h', str(self.root)]
+            for role in pins:
+                argv += ['--' + role, str(self.root / ('artifact-' + role))]
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(r.main(argv), 0)
+            self.manifest_path.write_text(out.getvalue())
+            cohort = r.Cohort(self.manifest_path)
+            with self.image() as image:
+                before = dict(self.status, board='h', serial=cohort.serial)
+                r.install_fatal(cohort, image, before)
+                for wrong in (dict(before, board='plus'), dict(before, serial='0'*19)):
+                    with self.assertRaises(r.Refusal):
+                        r.guard(cohort, wrong)
+            after = dict(self.recovered(), board='h', serial=cohort.serial, loader_dt_present=False)
+            with self.image() as image:
+                self.assertEqual(r.proof(cohort, image, after)['fatal_gp14'], hex(r.FATAL_MARK))
+                for invalid in (dict(after, gp14=0), dict(after, gp13=0x01A8C050),
+                                dict(after, loader_dt_present=True)):
+                    with self.assertRaises(r.Refusal):
+                        r.proof(cohort, image, invalid)
+                for action in ('prepare', 'install-fatal', 'guarded-reboot', 'prove', 'cleanup'):
+                    status = after if action in ('prove', 'cleanup') else dict(before, gp13=0)
+                    commands = r.device_commands(cohort, status, action)
+                    self.assertIn('/board)" = h', commands)
+                    self.assertIn(cohort.serial, commands)
+                    subprocess.run(['sh', '-n'], input=commands, text=True, check=True)
+        with self.assertRaisesRegex(r.Refusal, 'wrong H candidate fixture'):
+            r.Cohort(self.manifest_path)
+
     def test_manifest_and_current_shipping_identity(self):
         for role in r.ROLES:
             with self.subTest(role=role):
