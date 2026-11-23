@@ -70,7 +70,8 @@ fi
 # Level 2 (v1.10.0): the rootfs gained the stage-2 boot helpers. A level-1 card that took this zip would update its
 # frontend and keep its old boot behavior, so the zip needs level 2 and older cards reflash (Codex gate, 2026-11-20).
 # Level 3: level-2 candidate cards lack the charger-handoff SPL and its ack/policy pair.
-ROOTFS_LEVEL=3
+# Level 4: Device Check collector and pre-ack snapshot; level 3 still runs the game payload.
+ROOTFS_LEVEL=4
 PAYLOAD_MIN_ROOTFS=3
 DEVICE="${H700_DEVICE:-rg35xx-plus}"   # or "all": the one image with a first-boot model picker
 # Every board fact below (the list, LPDDR3, an optional own boot0, splash geometry) comes from the board table, the
@@ -285,6 +286,7 @@ cp "$REPO/tools/h700-strip/card-fsck.sh" "$ASSETS/card-fsck.sh"
 cp "$REPO/tools/h700-strip/root-check.sh" "$REPO/tools/h700-strip/udev-bg.awk" "$REPO/tools/h700-strip/mount-fast.awk" "$ASSETS/"
 cp "$REPO/tools/h700-strip/early.sh" "$ASSETS/early.sh"
 cp "$REPO/tools/h700-strip/boot0-slot.sh" "$ASSETS/boot0-slot.sh"
+cp "$REPO/tools/h700-strip/boot-preack.sh" "$REPO/tools/h700-strip/boot-evidence.sh" "$ASSETS/"
 cp "$REPO/tools/h700-strip/spl-lock.sh" "$ASSETS/spl-lock.sh"
 # USB host, second card and WiFi started after boot (workspace/h700/late-usb: the modules, their build, the vendor kernel config); rebuilt
 # whenever their source or build is newer than the cached .ko
@@ -680,6 +682,7 @@ grep -q "^::sysinit:/opt/minui-zero/root-check.sh" "$IT" && grep -q "remount,rw,
 # OUR SPL AND DEEP SLEEP: run after mount -a has established /run and /tmp.
 # Mounting /run over a retained failed-write lock would otherwise hide its quarantine.
 cp /a/boot0-slot.sh "$R/opt/minui-zero/boot0-slot.sh" && chmod 755 "$R/opt/minui-zero/boot0-slot.sh"
+install -m 755 /a/boot-preack.sh /a/boot-evidence.sh "$R/opt/minui-zero/"
 cp /a/spl-lock.sh "$R/opt/minui-zero/spl-lock.sh" && chmod 644 "$R/opt/minui-zero/spl-lock.sh"
 grep -q "^::sysinit:/bin/mount -a\$" "$IT" || { echo "ERROR: inittab mount -a line changed"; exit 1; }
 sed -i "s|^::sysinit:/bin/mount -a\$|&\n::sysinit:/opt/minui-zero/boot0-slot.sh boot\n::sysinit:/bin/busybox setsid /opt/minui-zero/boot0-slot.sh ack|" "$IT"

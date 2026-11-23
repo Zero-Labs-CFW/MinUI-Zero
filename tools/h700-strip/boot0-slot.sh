@@ -163,6 +163,7 @@ remove)	# for good, unlike a sleep swap: nothing is left that could put ours bac
 	rtc_clear_attempt || exit 1
 	echo "removed: stock boot0 in slot 16, nothing stored" ;;
 ack)
+	[ ! -x /opt/minui-zero/boot-preack.sh ] || /opt/minui-zero/boot-preack.sh || :
 	# 15 min: a first boot that expands the card, a long card check or a MinUI.zip install all come before the first
 	# frame; giving up early left the attempt unacknowledged and the next start put stock back (code review)
 	_w=0; until [ -e /run/zero-menu-frame ]; do sleep 1; _w=$((_w + 1)); [ $_w -ge 900 ] && exit 0; done
