@@ -111,7 +111,8 @@ if [ ! -f "$UPDATE_PATH" ]; then
 fi
 [ -f "$UPDATE_PATH" ] || exit 0
 
-note() { echo "$(date '+%F %T') $1" > "$FAILED"; sync; echo "update: $1"; }
+note() { echo "$(date '+%F %T') $1" > "$FAILED"; sync; echo "update: $1"; _noted=1; }
+_noted=
 _msg=
 # This runs before the frontend sets up the environment, so give boardpick.elf the two things it needs from it: the
 # card's lib folder (it links libmsettings.so; without it the message never loaded and an update showed a blank
@@ -215,4 +216,11 @@ else
 fi
 sync
 done_msg
+# a refusal says so on screen: a kept zip showed only the "Updating" frame, boot after boot, with the reason in the
+# card-root note alone (the H, 2026-11-23)
+if [ -n "$_noted" ] && [ -x "$MSG" ]; then
+	DEVICE="$_dev" LD_LIBRARY_PATH="$SDCARD_PATH/.system/h700/lib:/usr/lib:/lib" "$MSG" -m "Update not installed" "The reason is in MinUI-update-failed.txt on the card." >/dev/null 2>&1 & _msg=$!
+	sleep 5
+	done_msg
+fi
 exit 0
