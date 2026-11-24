@@ -18,7 +18,11 @@ id=$(cat /proc/sys/kernel/random/boot_id) || exit 1
 	case "$a" in 5a45524f2d415454454d50542d5631) a=pending ;;
 	000000000000000000000000000000) a=clear-prefix ;; *) a=unknown ;; esac
 	printf 'attempt=%s\n' "$a"
-	if [ -e /sys/firmware/devicetree/base/chosen/zero,loader ]; then echo loader_dt=present; else echo loader_dt=absent; fi
+	dt=/sys/firmware/devicetree/base/chosen/zero,loader
+	if [ -e "$dt" ]; then
+		if cat "$dt" > "$snap.dt"; then echo loader_dt=present
+		else rm -f "$snap.dt"; echo loader_dt=unreadable; fi
+	else echo loader_dt=absent; fi
 } > "$t" && mv "$t" "$snap" || exit 1
 (
 	# Never publish into an unmounted directory or a different volume.
@@ -31,5 +35,16 @@ id=$(cat /proc/sys/kernel/random/boot_id) || exit 1
 	mkdir -p "$dir" || exit 1
 	p=$(mktemp "$dir/.preack.XXXXXX") || exit 1
 	cat "$snap" > "$p" && mv -f "$p" "$dir/boot-preack.txt" || rm -f "$p"
+	base=$dir/stage2-receipts
+	prov=$(cat "$base/current" 2>/dev/null) || exit 0
+	case "$prov:$id" in *[!0-9a-f:-]*) exit 1 ;; esac
+	[ "${#prov}" = 36 ] && [ "${#id}" = 36 ] && [ "$prov" != "$id" ] || exit 0
+	origin=$base/$prov
+	[ -d "$origin/provisioned" ] && [ ! -e "$origin/first-return" ] || exit 0
+	tmp=$(mktemp -d "$origin/.return.XXXXXX") || exit 1
+	trap 'rm -rf "$tmp"' 0
+	cp "$snap" "$tmp/preack-$id.txt" || exit 1
+	if [ -f "$snap.dt" ]; then cp "$snap.dt" "$tmp/loader-$id.bin" || exit 1; fi
+	mv "$tmp" "$origin/first-return"
 ) </dev/null >/dev/null 2>&1 &
 exit 0

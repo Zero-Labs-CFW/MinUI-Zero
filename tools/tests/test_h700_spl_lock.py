@@ -114,6 +114,7 @@ class LockTests(unittest.TestCase):
                              ('/proc/cmdline', str(self.root / 'cmdline')),
                              ('/proc/sys/vm/drop_caches', str(self.root / 'drop_caches')),
                              ('/proc/mounts', str(self.root / 'mounts')),
+                             ('/proc/sys/kernel/random/boot_id', str(self.root / 'boot-id')),
                              ('/sys/firmware/devicetree/base/chosen/zero,loader', str(self.root / 'receipt')),
                              ('/mnt/mmc/.system/h700/board', str(self.root / 'board')),
                              ('/mnt/mmc', str(self.root / 'cardroot'))))
@@ -332,6 +333,48 @@ esac
         (self.root / 'board').write_text(name + '\n')
         (self.root / 'cardroot/.system/h700/board').write_text(name + '\n')
         (self.z / 'spl/zero-spl.bin').write_bytes(egon_image())
+
+    def test_policy_return_receipts(self):
+        self.select_board('h')
+        (self.z/'boards/chosen').write_text('rg35xx-h\n')
+        self.root.joinpath('mounts').write_text(f'{self.card}p6 {self.root}/cardroot vfat rw 0 0\n')
+        boot = self.root / 'boot-id'
+        a, b = ('a'*36, 'b'*36)
+        boot.write_text(a)
+        base = self.root / 'cardroot/.userdata/h700/logs/stage2-receipts'
+        self.ok(self.call('spl-auto.sh'))
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual((base/'current').read_text().strip(), a)
+        self.assertIn('state_now=stage2:auto:h', (base/a/'provisioned/status.txt').read_text())
+        boot.write_text(b)
+        (self.run/'zero-stage2-provisioned').unlink()
+        (self.root/'receipt').touch()
+        health = self.z/'loader/boot-health'
+        health.write_text('#!/bin/sh\necho invoked >> "$FIXTURE/count"\necho wrong-ID >&2\nexit 19\n')
+        self.ok(self.call('spl-auto.sh'))
+        before = base/b/'before-remove'
+        self.assertIn('reason=boot-health-rejected', (before/'status.txt').read_text())
+        self.assertIn('health_exit=19', (before/'status.txt').read_text())
+        self.assertEqual((before/'health.stderr').read_text(), 'wrong-ID\n')
+        self.assertEqual((self.root/'count').read_text(), 'invoked\n')
+        self.assertIn('state_now=failed', (base/b/'after-remove/status.txt').read_text())
+        self.assertEqual((self.z/'spl-state').read_text().strip(), 'failed')
+
+    def test_unwritable_receipts_do_not_veto_install_or_removal(self):
+        self.select_board('plus')
+        (self.z/'boards/chosen').write_text('rg35xx-plus\n')
+        (self.root/'mounts').write_text(f'{self.card}p6 {self.root}/cardroot vfat rw 0 0\n')
+        (self.root/'boot-id').write_text('a'*36)
+        base = self.root/'cardroot/.userdata/h700/logs'
+        base.mkdir(parents=True)
+        (base/'stage2-receipts').touch()  # ENOTDIR even for root
+        self.ok(self.call('spl-auto.sh'))
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual((self.z/'spl-state').read_text().strip(), 'stage2:auto:plus')
+        (self.run/'zero-stage2-provisioned').unlink()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual((self.z/'spl-state').read_text().strip(), 'failed')
+        self.assertEqual(self.card.read_bytes()[16896*512:16897*512], bytes(512))
 
     def test_fresh_plus_and_explicit_off(self):
         self.select_board('plus')

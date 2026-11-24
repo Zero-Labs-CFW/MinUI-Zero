@@ -131,6 +131,10 @@ class DeviceCheck(unittest.TestCase):
     def test_preack_published_without_mutating_attempt(self):
         self.put("/proc/mounts", f"{self.path('/dev/mmcblk0')}p6 {self.path('/mnt/mmc')} vfat rw 0 0\n")
         self.block(16640, b"ZERO-ATTEMPT-V1")
+        base = self.path(self.c+".userdata/h700/logs/stage2-receipts")
+        origin = base / ("a"*36)
+        (origin/"provisioned").mkdir(parents=True)
+        (base/"current").write_text(origin.name)
         self.run_script("boot-preack.sh")
         p = self.path(self.c+".userdata/h700/logs/boot-preack.txt")
         for _ in range(100):
@@ -142,3 +146,20 @@ class DeviceCheck(unittest.TestCase):
         with self.path("/dev/mmcblk0").open("rb") as f:
             f.seek(16640*512)
             self.assertEqual(f.read(15), b"ZERO-ATTEMPT-V1")
+        first = origin/"first-return"
+        for _ in range(100):
+            if first.exists():
+                break
+            time.sleep(.02)
+        self.assertEqual((first/f"preack-{BOOT}.txt").read_bytes(), p.read_bytes())
+        self.assertEqual((first/f"loader-{BOOT}.bin").read_bytes(), self.path(self.dt).read_bytes())
+        self.path("/run/zero-boot-preack").unlink()
+        self.put("/proc/sys/kernel/random/boot_id", "b"*36)
+        self.path(self.dt).unlink()
+        self.run_script("boot-preack.sh")
+        for _ in range(100):
+            if "b"*36 in p.read_text():
+                break
+            time.sleep(.02)
+        self.assertIn("b"*36, p.read_text())
+        self.assertEqual(sorted(x.name for x in first.iterdir()), [f"loader-{BOOT}.bin", f"preack-{BOOT}.txt"])
