@@ -146,6 +146,7 @@ fi
 case "$2" in
 0x0700013c) cat "$FIXTURE/gp15" 2>/dev/null || echo 0x00000000;;
 0x07000138) echo "${GP14-0x00000000}";;
+0x07000134) echo "${GP13-0x00000000}";;
 0x03006200) echo 0x00000000;;
 0x03006204) echo 0x12300000;;
 0x03006208) echo 0x4567890a;;
@@ -446,7 +447,7 @@ esac
         self.assertEqual(self.writes(), before)
 
     def charger_boot(self, step='0x5A560051', mode='charger', reason='charger',
-                     gp14='0x00000000', off=False):
+                     gp14='0x00000000', off=False, gp13='0x00000000', corrupt=False):
         self.select_board('h')
         (self.z / 'boards/chosen').write_text('rg35xx-h\n')
         state = self.z / 'spl-state'
@@ -455,12 +456,14 @@ esac
         (self.run / 'zero-stage2-provisioned').unlink()
         with self.card.open('r+b') as f:
             f.seek(16640 * 512); f.write(b'ZERO-ATTEMPT-V1' + bytes(497))
+            if corrupt:
+                f.seek(16897 * 512); f.write(b'bad')
         (self.root / 'cmdline').write_text(f'androidboot.mode={mode} bootreason={reason}\n')
         (self.root / 'gp15').write_text(step)
         (self.run / 'zero-menu-frame').touch()
         if off:
             (self.root / 'cardroot/fast-boot-off.txt').touch()
-        self.ok(self.call('boot0-slot.sh', 'ack', GP14=gp14))
+        self.ok(self.call('boot0-slot.sh', 'ack', GP14=gp14, GP13=gp13))
         return state.read_text().strip()
 
     def test_charger_handoff_preserves_install_not_future_vendor_boot(self):
@@ -476,6 +479,19 @@ esac
 
     def test_generic_vendor_even_in_charger_mode_is_failure(self):
         self.assertEqual(self.charger_boot(step='0x5A560009'), 'failed')
+
+    def test_h_observed_generic_charger_is_deferred(self):
+        self.assertEqual(self.charger_boot(step='0x5A560009', gp13='0x01A8C050'), 'stage2:auto:h')
+        self.assertTrue((self.run/'zero-stage2-charger').exists())
+        (self.run/'zero-stage2-charger').unlink()
+        self.ok(self.call('spl-auto.sh'))
+        self.assertEqual((self.z/'spl-state').read_text().strip(), 'failed')
+
+    def test_h_generic_button_still_fails(self):
+        self.assertEqual(self.charger_boot(step='0x5A560009', gp13='0x01A8C050', reason='button'), 'failed')
+
+    def test_h_generic_damaged_loader_still_fails(self):
+        self.assertEqual(self.charger_boot(step='0x5A560009', gp13='0x01A8C050', corrupt=True), 'failed')
 
     def test_handoff_without_charger_reason_is_failure(self):
         self.assertEqual(self.charger_boot(reason='button'), 'failed')

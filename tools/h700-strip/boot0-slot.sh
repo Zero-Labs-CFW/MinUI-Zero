@@ -182,8 +182,25 @@ ack)
 		dd if=/dev/zero of=$D bs=512 seek=16640 count=1 conv=notrunc,fsync 2>/dev/null || return 1
 		zero_sector 16640 || return 1
 		rtc_clear_attempt || return 1
-		# Per-boot exception for the specific SPL charger branch only. Never attest stage 2 here.
-		case "$_stage_mark" in 0x5A560051|0x5a560051)
+		# H can take the generic vendor handoff before vendor Linux selects charger mode.
+		# Defer health for this boot only, never for an unreadable/different loader.
+		case "$_stage_mark" in 0x5A560009|0x5a560009)
+			[ "$(cat /opt/minui-zero/spl-state)" = stage2:auto:h ] &&
+			[ "$(cat /opt/minui-zero/boards/chosen)" = rg35xx-h ] &&
+			[ "$(cat /mnt/mmc/.system/h700/board)" = h ] || return 0
+			case "$(busybox devmem 0x07000134)" in
+				0x??A8C050|0x??a8c050) ;;
+				*) return 0 ;;
+			esac
+			_loader=/opt/minui-zero/loader/zero-loader.bin
+			_size=$(wc -c < "$_loader") || return 0
+			[ "$_size" -ge 512 ] && [ "$_size" -le 983040 ] && [ $((_size % 512)) = 0 ] || return 0
+			_copy=$(mktemp /run/zero-charger-loader.XXXXXX) || return 0
+			if rd 16896 "$((_size / 512))" > "$_copy" && cmp -s "$_loader" "$_copy"; then rm -f "$_copy"
+			else rm -f "$_copy"; return 0; fi ;;
+		esac
+		# Neither vendor path attests stage 2. Both require vendor's two charger reasons.
+		case "$_stage_mark" in 0x5A560051|0x5a560051|0x5A560009|0x5a560009)
 			if [ ! -e /sys/firmware/devicetree/base/chosen/zero,loader ] &&
 			   [ "$(busybox devmem 0x07000138)" = 0x00000000 ]; then
 				_cmd=" $(cat /proc/cmdline) "
