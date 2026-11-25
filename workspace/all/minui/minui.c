@@ -477,26 +477,49 @@ static int clearRecents(void) {
 // Written on every launch, so written crash-safe: a temp file, flushed to the card, then renamed over the old list.
 // Truncating in place left an empty Recently Played after a crash at that moment (the Brick Pro's stock kernel
 // panics on its controller i2c bus under WiFi load, r/trimui 2026-11-01).
+// Skipped when the file already holds the same list: every menu start reads the list and saves it back, and that
+// tmp file, fsync and rename sat in front of the first frame at boot.
+static int recentsUnchanged(const char* text, size_t len) {
+	FILE* file = fopen(RECENT_PATH, "r");
+	if (!file) return 0;
+	int same = 1;
+	char buf[4096];
+	size_t off = 0, n;
+	while (same && (n = fread(buf, 1, sizeof(buf), file)) > 0) {
+		if (off + n > len || memcmp(text + off, buf, n)) same = 0;
+		off += n;
+	}
+	fclose(file);
+	return same && off == len;
+}
 static void saveRecents(void) {
+	char* text = NULL;
+	size_t len = 0;
+	FILE* mem = open_memstream(&text, &len);
+	if (!mem) return; // keep the old list rather than write a partial one
+	for (int i=0; i<recents->count; i++) {
+		Recent* recent = recents->items[i];
+		fputs(recent->path, mem);
+		if (recent->alias) {
+			fputs("\t", mem);
+			fputs(recent->alias, mem);
+		}
+		putc('\n', mem);
+	}
+	if (fclose(mem) != 0 || !text) { free(text); return; }
+	if (recentsUnchanged(text, len)) { free(text); return; }
+
 	char tmp[MAX_PATH];
 	snprintf(tmp, sizeof(tmp), "%s.tmp", RECENT_PATH);
 	FILE* file = fopen(tmp, "w");
 	if (file) {
-		int ok = 1;
-		for (int i=0; i<recents->count; i++) {
-			Recent* recent = recents->items[i];
-			if (fputs(recent->path, file) < 0) ok = 0;
-			if (recent->alias) {
-				fputs("\t", file);
-				fputs(recent->alias, file);
-			}
-			putc('\n', file);
-		}
+		int ok = fwrite(text, 1, len, file) == len;
 		if (fflush(file) != 0 || fsync(fileno(file)) != 0) ok = 0;
 		if (fclose(file) != 0) ok = 0;
 		if (ok) rename(tmp, RECENT_PATH);
 		else unlink(tmp);
 	}
+	free(text);
 }
 static void addRecent(char* path, char* alias) {
 	if (flagExists(NO_RECENTS_PATH)) return; // opted out: permanent means we stop recording, not just hiding
@@ -1652,8 +1675,6 @@ int main (int argc, char *argv[]) {
 	Menu_init();
 	if (boot_timing) LOG_info("- menu init: %lu\n", SDL_GetTicks() - main_begin);
 	
-	// now that (most of) the heavy lifting is done, take a load off
-	PWR_setCPUSpeed(CPU_SPEED_MENU);
 	UIMARK("pre_scan");
 	GFX_setVsync(VSYNC_STRICT);
 
@@ -2112,7 +2133,13 @@ int main (int argc, char *argv[]) {
 			}
 
 			GFX_flip(screen);
-			{ static int ui_first = 1; if (ui_first) { ui_first = 0; UIMARK("first_frame"); } }
+			{ static int ui_first = 1; if (ui_first) { ui_first = 0; UIMARK("first_frame");
+#ifdef HAS_MENU_PRESENTED
+				PLAT_menuPresented(); // tg5040: GLES-present marker for the Zero kernel's health check
+#endif
+				// now that the heavy lifting is done, take a load off. After the first frame, not before it: the
+				// menu clock caps the whole cluster, so it slowed the first draw and every boot job beside it.
+				PWR_setCPUSpeed(CPU_SPEED_MENU); } }
 			dirty = 0;
 		}
 		else GFX_sync();

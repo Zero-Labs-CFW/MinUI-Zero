@@ -1,0 +1,9 @@
+{
+  "board": "h",
+  "candidate": "87a8edf7",
+  "sha256": {
+    "spl": "a0040ebb2caef085893ccaa557b9e72b450b1f4150dab5a1f0c8cf9888742b66",
+    "normal": "9ca6e0c98212841a34e11c89aac84ba1251e88247967c9dd4692587fb42b98f3",
+    "fatal": "e3c6eeac3bdc4349c2e59e5fcddcb2bff7eb34b7d3b39a234ec6651a3b4ced12"
+  }
+}

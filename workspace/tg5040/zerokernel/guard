@@ -1,0 +1,79 @@
+#!/bin/sh
+# Zero kernel (bin/zerokernel.sh): the "not our card" guard (Dan, 2026-11-19). Installed as /usr/lib/zero/rc/guard,
+# started in the background by /usr/lib/zero/rc/S01zero, so it runs under 4.9.191-zero only and never on stock.
+#
+# Why: a user who moves to another firmware (NextUI, stock MinUI, an older Zero) without the undo gets one power-on
+# on our kernel. The env is already DISARMED by then (the loader's zero_once saved the stock bootcmd before it booted
+# recovery) and only zerokernel.sh on a Zero card re-arms, so that one boot is all, but it runs a firmware nobody
+# tested on this kernel. The guard restarts the device at once when the card is not MinUI Zero; the power-on that
+# follows is stock.
+#
+# "MinUI Zero" = $CARD/.system/tg5040/bin/zerokernel.sh. That is the script that re-arms, counts, updates and undoes
+# the kernel: a card without it can only ever give our kernel this one start, and it is the same test for every
+# release that ships the kernel (the payload VERSION is not: it changes per release and a damaged unzip can lose it,
+# while zerokernel.sh, if missing, means the card cannot manage the kernel anyway). Zero releases from before the
+# kernel do not have it, and were never tested on it either.
+#
+# Wait: the card normally mounts 1.2 to 1.4 s into the boot (2026-11-18 recon); the guard waits up to 20 s for
+# /mnt/SDCARD in /proc/mounts, which leaves a slow or large card more than ten times the usual time.
+# No card after the wait: restart too. Without a card the stock rootfs starts TrimUI's own menu, which is also a
+# firmware we never tested on our kernel, and the stock kernel boots that menu fine. This is the only case that can
+# also be our kernel's fault (a card our kernel cannot read), so the stock start that follows treats it as benign
+# once and counts it when it repeats before a Zero start reaches the menu (zerokernel.sh, the nocard state).
+#
+# State words written here (zerokernel.sh, st_read/st_write): "foreign" (a card that is not ours was mounted: our
+# kernel booted and read it, nothing for the kernel to answer for) and "nocard". The stock start that follows with
+# a Zero card treats foreign as benign and nocard as benign once, then re-arms as usual. K01zero, on the orderly
+# reboot this makes, leaves both words alone.
+#
+# No restart loop (proof): (1) under our kernel the env on eMMC is disarmed (bootcmd stock, boot_partition=boot):
+# the loader's zero_once saves that before it boots recovery, and the guard checks it with fw_printenv before it
+# restarts; an env that still reads ARMED (a loader that did not save, critique C1) or cannot be read means no
+# restart. (2) The guard writes no env. The only writer that re-arms is zerokernel.sh on a Zero card, which the
+# guard has just found absent; it is checked again right before the state write, and a card mounted after that
+# check cannot get through launch.sh, the menu and the health check in the time the state write, sync and reboot
+# take. (3) A guard state already in the file (foreign or nocard) means this is a second zero start with no stock
+# start on a Zero card in between, which (1) rules out; the guard then leaves the device alone, as a second breaker.
+# So the restart lands on stock, the stock kernel never runs the guard, and the next zero start needs a stock start
+# from a Zero card first.
+#
+# Busybox ash: no local, g_ prefix, no stat/nohup/setsid/timeout. ZK_ROOT and ZK_GUARD_WAIT are for the Mac harness
+# only (device-path prefix, wait in seconds); both are empty on a device. Not yet run on a device.
+R="${ZK_ROOT:-}"
+g_osr=; read -r g_osr 2>/dev/null < "$R/proc/sys/kernel/osrelease"
+case "$g_osr" in *-zero) ;; *) exit 0 ;; esac
+CARD=/mnt/SDCARD
+g_mark="$R$CARD/.system/tg5040/bin/zerokernel.sh"
+g_state="$R/usr/lib/zero/state"
+g_log="$R/usr/lib/zero/guard.log"
+
+g_mounted() { grep -q " $CARD " "$R/proc/mounts" 2>/dev/null; }
+g_note() { # one line on internal storage (the card is not ours, or there is none), kept under 8 KB
+	g_sz=0; [ -f "$g_log" ] && g_sz=$(wc -c < "$g_log" | tr -d ' ')
+	[ "${g_sz:-0}" -gt 8192 ] && tail -n 40 "$g_log" > "$g_log.tmp" 2>/dev/null && mv -f "$g_log.tmp" "$g_log"
+	echo "$(date '+%F %T') $g_osr: $*" >> "$g_log" 2>/dev/null
+}
+
+g_i=0; g_max=$(( ${ZK_GUARD_WAIT:-20} * 5 ))
+while ! g_mounted && [ $g_i -lt $g_max ]; do sleep 0.2; g_i=$((g_i + 1)); done
+if g_mounted; then
+	[ -f "$g_mark" ] && exit 0   # a MinUI Zero card: zerokernel.sh takes it from here
+	g_why=foreign
+else
+	g_why=nocard
+fi
+
+g_w=; g_img=; g_n=0; read -r g_w g_img g_n 2>/dev/null < "$g_state"
+case "$g_w" in foreign|nocard) g_note "$g_why: left alone, the last zero start was a guard restart too (state $g_w)"; exit 0 ;; esac
+g_env=$(fw_printenv 2>&1) || { g_note "$g_why: left alone, fw_printenv failed"; exit 0; }
+echo "$g_env" | grep -qiE "bad crc|warning|cannot|error" && { g_note "$g_why: left alone, the env read failed its checks"; exit 0; }
+echo "$g_env" | grep -qxF 'bootcmd=run setargs_nand boot_normal' && echo "$g_env" | grep -qxF 'boot_partition=boot' \
+	|| { g_note "$g_why: left alone, the env is not disarmed (a restart would come back here)"; exit 0; }
+# last look: a Zero card that mounted during the checks above is not foreign
+g_mounted && [ -f "$g_mark" ] && exit 0
+printf '%s %s %s\n' "$g_why" "${g_img:-none}" "${g_n:-0}" > "$g_state.tmp" && mv -f "$g_state.tmp" "$g_state"
+if [ "$g_why" = foreign ]; then g_note "foreign: $CARD is not MinUI Zero (no .system/tg5040/bin/zerokernel.sh), restarting to stock (was '$g_w')"
+else g_note "nocard: no card at $CARD after ${ZK_GUARD_WAIT:-20} s, restarting to stock (was '$g_w')"; fi
+sync
+reboot
+exit 0

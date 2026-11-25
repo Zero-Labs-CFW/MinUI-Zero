@@ -94,12 +94,13 @@ if [ "$_fsck" = repaired ] && ls "$SDCARD_PATH"/FSCK[0-9][0-9][0-9][0-9].REC >/d
 		mv "$SDCARD_PATH"/FSCK[0-9][0-9][0-9][0-9].REC "$SDCARD_PATH/.userdata/h700/logs/fsck-recovered/" 2>/dev/null
 fi
 
-# THE DOWNLOAD AS-IS (Dan 2026-11-04): the release asset is MinUI-Zero-h700-<version>-update.zip, and renaming it is the step
+# THE DOWNLOAD AS-IS (Dan 2026-11-04): the release asset is MinUI-Zero-anbernic-h700-<version>-update.zip (MinUI-Zero-h700-*
+# before it), and renaming it is the step
 # people get wrong, so one such file on the card root is taken as MinUI.zip (a rename on the card, no copy). A browser's
 # "(1)" copy matches too. Several of them: which one is meant is not ours to guess, so nothing installs and a note says
 # so. MinUI.zip itself, when present, always wins.
 if [ ! -f "$UPDATE_PATH" ]; then
-	set -- "$SDCARD_PATH"/[Mm][Ii][Nn][Uu][Ii]-[Zz][Ee][Rr][Oo]-[Hh]700-*.[Zz][Ii][Pp]   # any case: names on vfat keep theirs, and the shell's glob is case-sensitive
+	set -- "$SDCARD_PATH"/[Mm][Ii][Nn][Uu][Ii]-[Zz][Ee][Rr][Oo]-*[Hh]700-*.[Zz][Ii][Pp]   # any case: names on vfat keep theirs, and the shell's glob is case-sensitive
 	if [ $# -eq 1 ] && [ -f "$1" ]; then
 		mv -f "$1" "$UPDATE_PATH" && sync && echo "update: taking ${1##*/} as MinUI.zip"
 	elif [ $# -gt 1 ]; then
@@ -110,7 +111,8 @@ if [ ! -f "$UPDATE_PATH" ]; then
 fi
 [ -f "$UPDATE_PATH" ] || exit 0
 
-note() { echo "$(date '+%F %T') $1" > "$FAILED"; sync; echo "update: $1"; }
+note() { echo "$(date '+%F %T') $1" > "$FAILED"; sync; echo "update: $1"; _noted=1; }
+_noted=
 _msg=
 # This runs before the frontend sets up the environment, so give boardpick.elf the two things it needs from it: the
 # card's lib folder (it links libmsettings.so; without it the message never loaded and an update showed a blank
@@ -214,4 +216,11 @@ else
 fi
 sync
 done_msg
+# a refusal says so on screen: a kept zip showed only the "Updating" frame, boot after boot, with the reason in the
+# card-root note alone (the H, 2026-11-23)
+if [ -n "$_noted" ] && [ -x "$MSG" ]; then
+	DEVICE="$_dev" LD_LIBRARY_PATH="$SDCARD_PATH/.system/h700/lib:/usr/lib:/lib" "$MSG" -m "Update not installed" "The reason is in MinUI-update-failed.txt on the card." >/dev/null 2>&1 & _msg=$!
+	sleep 5
+	done_msg
+fi
 exit 0

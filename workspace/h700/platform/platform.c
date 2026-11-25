@@ -28,6 +28,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
+#include "display_receipt.h"
 
 #if defined(__aarch64__)
 #include <arm_neon.h>
@@ -682,7 +684,6 @@ static int disp_commit(int page) {
 	// so a separate DISP_LAYER_SET_CONFIG was reset to 255 by the next frame (Plus, 2026-10-07). Byte 2 of
 	// dword 1 is alpha_value (disp_pack). 255 unless a night step is active; no extra ioctl.
 	vid.lraw.dwords[1] = (vid.lraw.dwords[1] & 0xFF00FFFFu) | ((uint32_t)GetNightAlpha() << 16);
-	disp_shown = page;
 	// unsigned long args: the sunxi disp_ioctl copies FOUR LONGS from userspace. uint32_t
 	// worked for MyMinUI's 32-bit builds but truncated our 64-bit pointer (dmesg "para err").
 	unsigned long args[4];
@@ -692,10 +693,11 @@ static int disp_commit(int page) {
 	args[0] = 0; args[1] = (unsigned long)&vid.lraw; args[2] = 1; args[3] = 0;
 	int ret = ioctl(vid.dispfd, DISP_LAYER_SET_CONFIG2, &args);
 	unsigned long cargs[4] = { 0, 4, 1, 0 };
-	ioctl(vid.dispfd, DISP_HWC_COMMIT, &cargs);
+	if (ioctl(vid.dispfd, DISP_HWC_COMMIT, &cargs) < 0) ret = -1;
 	args[0] = 0; args[1] = 0; args[2] = 0; args[3] = 0;
-	ioctl(vid.dispfd, DISP_SHADOW_PROTECT, &args);
+	if (ioctl(vid.dispfd, DISP_SHADOW_PROTECT, &args) < 0) ret = -1;
 	disp_commit_irq = disp_irq_now();
+	if (ret >= 0) disp_shown = page;
 	return ret;
 }
 
@@ -918,10 +920,10 @@ static void fb_blit565(int page) {
 	}
 }
 
-static void fb_pan(int page) {
+static int fb_pan(int page) {
 	vid.vinfo.yoffset = vid.vinfo.yres * page;
 	vid.vinfo.activate = FB_ACTIVATE_VBL;
-	ioctl(vid.fdfb, FBIOPAN_DISPLAY, &vid.vinfo); // blocks ~16.7ms (measured): our vsync
+	return ioctl(vid.fdfb, FBIOPAN_DISPLAY, &vid.vinfo); // blocks ~16.7ms (measured): our vsync
 }
 
 void PLAT_quitVideo(void) {
@@ -1144,6 +1146,46 @@ static void h700_rot_copy(const uint16_t* src, int spitch, int W, int H, int cx,
 	}
 }
 
+// Dev-card screenshots (api.c GFX_maybeScreenshot: L2+R2+SELECT or touch /tmp/take_screenshot): vid.screen is the
+// in-RAM surface every UI draw lands in, so a copy of it is the frame on screen (games present through the renderer
+// path and are not captured here).
+SDL_Surface* PLAT_captureRendererToSurface(void) {
+	return vid.screen ? SDL_ConvertSurface(vid.screen, vid.screen->format, 0) : NULL;
+}
+
+// FIRST FRAME ON SCREEN (boot speed, 2026-11-05): the first flip of the process marks the boot log (/dev/shm/zero-boot,
+// "menu-frame", the real time the menu became visible) and drops /run/zero-menu-frame, which holds muOS's own startup
+// back until the menu is up (early.sh), so its module loads and scans do not compete with the menu for the card.
+static void first_frame_mark(void) {
+	static int done;
+	if (done) return;
+	done = 1;
+	// Unlike the quiet-window marker, only a completed PLAT_flip emits this receipt.
+	struct timespec ts;
+	uint64_t raw_ns = 0;
+	if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts) == 0 && ts.tv_sec >= 0)
+		raw_ns = (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+	char boot_id[38] = {0};
+	int fd = open("/proc/sys/kernel/random/boot_id", O_RDONLY | O_CLOEXEC);
+	if (fd >= 0) {
+		ssize_t n = read(fd, boot_id, sizeof(boot_id) - 1);
+		if (n > 0 && boot_id[n - 1] == '\n') boot_id[n - 1] = 0;
+		close(fd);
+	}
+	h700_write_display_receipt("/run/zero-display-frame", boot_id, raw_ns);
+	if (access("/run/zero-menu-frame", F_OK) == 0) return;	// once per boot: a relaunch, a game or a Tool is not news
+	char up[32] = {0}, line[48];
+	fd = open("/proc/uptime", O_RDONLY);
+	if (fd >= 0) { if (read(fd, up, sizeof(up) - 1) < 0) up[0] = 0; close(fd); }
+	char* sp = strchr(up, ' ');
+	if (sp) *sp = 0;
+	int n = snprintf(line, sizeof(line), "%s menu-frame\n", up[0] ? up : "0");
+	fd = open("/dev/shm/zero-boot", O_WRONLY | O_APPEND | O_CREAT, 0644);
+	if (fd >= 0) { if (write(fd, line, n) < 0) {} close(fd); }
+	fd = open("/run/zero-menu-frame", O_WRONLY | O_CREAT, 0644);
+	if (fd >= 0) close(fd);
+}
+
 void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	int fullframe = vid.blit != NULL; // renderer path = the game redraws its whole rect every frame
 	// MENU CLOSED (UI frame -> game frame). Every page currently holds full-surface menu chrome,
@@ -1216,7 +1258,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			}
 		}
 		// UI needs no reshape: the window is fixed full-surface (see PLAT_blitRenderer).
-		disp_commit(vid.page);
+		int presented = disp_commit(vid.page) >= 0;
 		int shown = vid.page;
 		vid.page = !vid.page;
 		// Suspenders for the settle race above: re-commit the first frames after a vsync-plus.
@@ -1233,7 +1275,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 		if (settle_commits > 0 && !disp_warm) {
 			settle_commits--;
 			usleep(20000);
-			disp_commit(shown);
+			presented = disp_commit(shown) >= 0;
 		}
 		// NEVER write a page here. disp_commit() returns as soon as the ioctls are issued; the DE
 		// does not latch until the next vblank, so until then the panel is STILL scanning the page
@@ -1249,10 +1291,11 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 		// accumulates every draw, so it always holds the complete UI image; the "partial UI redraw"
 		// rationale never applied here. Game frames get the letterbox scrub instead.
 		vid.blit = NULL;
+		if (presented) first_frame_mark();
 		return;
 	}
 	fb_blit565(vid.page);
-	fb_pan(vid.page);                        // synchronous: returns with the page on its way out
+	int presented = fb_pan(vid.page) >= 0;    // successful pan: the page is on its way out
 	if (vid.pages > 1) {
 		int shown = vid.page;
 		vid.page = !vid.page;
@@ -1266,6 +1309,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 			       vid.fbmmap + (size_t)shown * vid.page_bytes, vid.page_bytes);
 	}
 	vid.blit = NULL;
+	if (presented) first_frame_mark();
 }
 
 ///////////////////////////////

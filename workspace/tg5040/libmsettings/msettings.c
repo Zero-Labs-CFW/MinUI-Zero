@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <dlfcn.h>
 #include <string.h>
+#include <sound/asound.h>
 // #include <tinyalsa/mixer.h>
 
 #include "msettings.h"
@@ -72,7 +73,53 @@ static int is_brick = 0;
 // step was raw 4 instead of raw 1, so "minimum brightness" was visibly brighter than it should be.
 static int is_brickpro = 0;
 
-void InitSettings(void) {	
+// Mixer writes go straight to the kernel control device instead of through a forked amixer. Each
+// system("amixer ...") costs about 33 ms on the Brick (fork + sh + exec; 20 runs at the menu, 2026-11-11),
+// InitSettings made five of them, and every frontend process calls InitSettings (164 ms median at boot, 8
+// boots). Plain ioctls rather than libasound (the h700 route), so no frontend process loads a library for it.
+// A card or control that is not found returns -1 and the caller runs the amixer line it replaced.
+static int mixer_open(void) {
+	char path[32];
+	for (int i=0; i<4; i++) {
+		sprintf(path, "/dev/snd/controlC%i", i);
+		int fd = open(path, O_RDWR|O_CLOEXEC);
+		if (fd<0) continue;
+		struct snd_ctl_card_info card;
+		// the card /etc/asound.conf names as ctl.!default, which is the one amixer writes
+		if (ioctl(fd, SNDRV_CTL_IOCTL_CARD_INFO, &card)==0 && exactMatch((char*)card.id, "audiocodec")) return fd;
+		close(fd);
+	}
+	return -1;
+}
+// percent 0: val is the raw value. percent 1: val is 0-100 over the control's range, rounded to nearest, which
+// is where `amixer -M N%` lands on 'digital volume' (the simple mixer reports no dB range for it, so -M maps
+// linearly; without -M amixer rounds up instead). All 21 volume steps compared on the Brick, 2026-11-11.
+static int mixer_set(int fd, const char* name, long val, int percent) {
+	struct snd_ctl_elem_info info;
+	memset(&info, 0, sizeof(info));
+	info.id.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
+	strncpy((char*)info.id.name, name, sizeof(info.id.name)-1);
+	if (ioctl(fd, SNDRV_CTL_IOCTL_ELEM_INFO, &info)<0) return -1;
+
+	struct snd_ctl_elem_value ev;
+	memset(&ev, 0, sizeof(ev));
+	ev.id = info.id;
+	unsigned int count = info.count>2 ? 2 : info.count;
+	if (info.type==SNDRV_CTL_ELEM_TYPE_INTEGER) {
+		long min = info.value.integer.min, max = info.value.integer.max;
+		if (percent) val = min + (val * (max-min) + 50) / 100;
+		if (val<min) val = min;
+		if (val>max) val = max;
+		for (unsigned int i=0; i<count; i++) ev.value.integer.value[i] = val;
+	}
+	else if (info.type==SNDRV_CTL_ELEM_TYPE_ENUMERATED) {
+		for (unsigned int i=0; i<count; i++) ev.value.enumerated.item[i] = val;
+	}
+	else return -1;
+	return ioctl(fd, SNDRV_CTL_IOCTL_ELEM_WRITE, &ev)<0 ? -1 : 0;
+}
+
+void InitSettings(void) {
 	char* device = getenv("DEVICE");
 	is_brick = exactMatch("brick", device);
 	is_brickpro = exactMatch("brickpro", device);
@@ -114,9 +161,11 @@ void InitSettings(void) {
 	}
 	// printf("brightness: %i\nspeaker: %i \n", settings->brightness, settings->speaker);
 	 
-	system("amixer sset 'Headphone' 0"); // 100%
-	system("amixer sset 'digital volume' 0"); // 100%
-	system("amixer sset 'DAC Swap' Off"); // Fix L/R channels
+	int fd = mixer_open();
+	if (fd<0 || mixer_set(fd, "Headphone Volume", 0, 0)<0) system("amixer sset 'Headphone' 0"); // 100%
+	if (fd<0 || mixer_set(fd, "digital volume", 0, 0)<0) system("amixer sset 'digital volume' 0"); // 100%
+	if (fd<0 || mixer_set(fd, "DAC Swap", 0, 0)<0) system("amixer sset 'DAC Swap' Off"); // Fix L/R channels
+	if (fd>=0) close(fd);
 	// volume is set with 'digital volume'
 	
 	SetVolume(GetVolume());
@@ -127,11 +176,23 @@ void QuitSettings(void) {
 	if (is_host) shm_unlink(SHM_KEY);
 }
 static inline void SaveSettings(void) {
-	int fd = open(SettingsPath, O_CREAT|O_WRONLY, 0644);
+	// Skip the write and fsync when the file already holds these bytes: every process start runs SetVolume and
+	// SetBrightness with unchanged values (keymon 3 times, minui twice), and at boot those fsyncs queue on the card
+	// behind everything else. Compared with the file, not a per-process copy, so another process's save is seen.
+	int fd = open(SettingsPath, O_RDONLY);
+	if (fd>=0) {
+		Settings cur;
+		ssize_t n = read(fd, &cur, shm_size);
+		close(fd);
+		if (n==shm_size && !memcmp(&cur, settings, shm_size)) return;
+	}
+	fd = open(SettingsPath, O_CREAT|O_WRONLY, 0644);
 	if (fd>=0) {
 		write(fd, settings, shm_size);
+		// Targeted fsync, not a global sync(): this runs on every brightness and volume step, on every wake, and
+		// twice per process launch from InitSettings. Same change as the miyoomini copy of this function.
+		fsync(fd);
 		close(fd);
-		sync();
 	}
 }
 
@@ -265,16 +326,22 @@ void SetRawVolume(int val) { // 0-100
 	// Note: 'digital volume' mapping is reversed (attenuation-coded) on BOTH devices —
 	// verified by ear on the Smart Pro 2026-07-03 (a "normal direction" branch made
 	// volume-up quieter). Do not "fix" this from the dB table; trust the ear test.
-	char cmd[256];
-	sprintf(cmd, "amixer sset 'digital volume' -M %i%% >/dev/null 2>&1", 100-val);
-	system(cmd);
+	int fd = mixer_open();
+	if (fd<0 || mixer_set(fd, "digital volume", 100-val, 1)<0) {
+		char cmd[256];
+		sprintf(cmd, "amixer sset 'digital volume' -M %i%% >/dev/null 2>&1", 100-val);
+		system(cmd);
+	}
 
 	// Setting just 'digital volume' to 0 still plays audio quietly. Also set DAC volume to 0.
 	// The DAC restore must stay RAW 160: that is the 0dB reference on BOTH devices (the Smart
 	// Pro's DAC range runs to 255 = +72dB of digital GAIN — restoring "100%" there blows the
 	// audio out; verified by ear on-device 2026-07-03). Same values stock and NextUI use.
-	if (val == 0) system("amixer sset 'DAC volume' 0 >/dev/null 2>&1");
-	else system("amixer sset 'DAC volume' 160 >/dev/null 2>&1");
+	if (fd<0 || mixer_set(fd, "DAC volume", val==0 ? 0 : 160, 0)<0) {
+		if (val == 0) system("amixer sset 'DAC volume' 0 >/dev/null 2>&1");
+		else system("amixer sset 'DAC volume' 160 >/dev/null 2>&1");
+	}
+	if (fd>=0) close(fd);
 
 	// TODO: unfortunately doing it this way creating a linker nightmare
 	// struct mixer *mixer = mixer_open(0);

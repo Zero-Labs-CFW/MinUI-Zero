@@ -67,8 +67,12 @@ fi
 # rootfs gains something a payload could depend on (a binary or script in /opt/minui-zero, a kernel module, a muOS
 # script change). PAYLOAD_MIN_ROOTFS is what this payload needs: raise it, up to ROOTFS_LEVEL, only in the release
 # whose card files start depending on that. Raising it means every older image must reflash to get the release.
-ROOTFS_LEVEL=1
-PAYLOAD_MIN_ROOTFS=1
+# Level 2 (v1.10.0): the rootfs gained the stage-2 boot helpers. A level-1 card that took this zip would update its
+# frontend and keep its old boot behavior, so the zip needs level 2 and older cards reflash (Codex gate, 2026-11-20).
+# Level 3: level-2 candidate cards lack the charger-handoff SPL and its ack/policy pair.
+# Level 4: Device Check collector and pre-ack snapshot; level 3 still runs the game payload.
+ROOTFS_LEVEL=4
+PAYLOAD_MIN_ROOTFS=3
 DEVICE="${H700_DEVICE:-rg35xx-plus}"   # or "all": the one image with a first-boot model picker
 # Every board fact below (the list, LPDDR3, an optional own boot0, splash geometry) comes from the board table, the
 # one list the device scripts and platform.c read too; bin/board is its reader.
@@ -277,10 +281,59 @@ cp "$REPO/tools/h700-strip/minui-frontend.sh" "$ASSETS/minui-frontend.sh"
 cp "$REPO/tools/h700-strip/expand-roms.sh" "$ASSETS/expand-roms.sh"
 cp "$REPO/tools/h700-strip/card-update.sh" "$ASSETS/card-update.sh"
 cp "$REPO/tools/h700-strip/card-fsck.sh" "$ASSETS/card-fsck.sh"
+# BOOT SPEED (2026-11-04, .notes/2026-11-04-boot-speed): the boards' boot files are staged fast (oneimage.py ->
+# fastboot.py: no initramfs, so the rootfs takes over the initramfs's jobs) and four muOS boot steps change below.
+cp "$REPO/tools/h700-strip/root-check.sh" "$REPO/tools/h700-strip/udev-bg.awk" "$REPO/tools/h700-strip/mount-fast.awk" "$ASSETS/"
+cp "$REPO/tools/h700-strip/early.sh" "$ASSETS/early.sh"
+cp "$REPO/tools/h700-strip/boot0-slot.sh" "$ASSETS/boot0-slot.sh"
+cp "$REPO/tools/h700-strip/boot-preack.sh" "$REPO/tools/h700-strip/boot-evidence.sh" "$ASSETS/"
+cp "$REPO/tools/h700-strip/spl-lock.sh" "$ASSETS/spl-lock.sh"
+# USB host, second card and WiFi started after boot (workspace/h700/late-usb: the modules, their build, the vendor kernel config); rebuilt
+# whenever their source or build is newer than the cached .ko
+_lu="$ASSETS/late-usb/zero_late_usb.ko"; [ -f "$ASSETS/late-usb/zero_late_mmc.ko" ] || rm -f "$_lu"   # both modules come from one build
+if [ ! -f "$_lu" ] || [ -n "$(find "$REPO/workspace/h700/late-usb" "$REPO/tools/h700-image/symcrc.py" "$ASSETS"/parts*/p4-kernel.img.gz -newer "$_lu" -type f 2>/dev/null)" ]; then
+	sh "$REPO/workspace/h700/late-usb/build.sh" "$ASSETS/late-usb" "$ASSETS/parts/p4-kernel.img.gz" || { echo "ERROR: late-USB module build"; exit 1; }
+fi
+cp "$_lu" "$ASSETS/zero_late_usb.ko"; cp "$ASSETS/late-usb/zero_late_mmc.ko" "$ASSETS/zero_late_mmc.ko"
+# zero-codec (workspace/h700/tools/zero-codec.c): a few KB, links nothing; rebuilt every image
+docker run --rm --platform linux/amd64 -v "$REPO/workspace/h700/tools:/w" -v "$ASSETS:/a" tg5040-toolchain bash -c \
+	"/opt/aarch64-linux-gnu/bin/aarch64-linux-gnu-gcc -Os -static -nostdlib -fno-stack-protector -fno-builtin -Wall -Werror -o /a/zero-codec /w/zero-codec.c && /opt/aarch64-linux-gnu/bin/aarch64-linux-gnu-strip /a/zero-codec" ||
+	{ echo "ERROR: zero-codec build"; exit 1; }
+# lean libSDL2_ttf for the card payload (workspace/h700/sdl2_ttf/build.sh says why), cached until its script changes
+_tt="$ASSETS/sdl2_ttf/libSDL2_ttf-2.0.so.0"
+_tt_ok() { [ -f "$_tt" ] && python3 "$REPO/tools/h700-image/elfcheck.py" "$_tt" libSDL2_ttf-2.0.so.0 TTF_RenderUTF8_Blended; }
+if ! _tt_ok || [ "$REPO/workspace/h700/sdl2_ttf/build.sh" -nt "$_tt" ]; then
+	sh "$REPO/workspace/h700/sdl2_ttf/build.sh" "$ASSETS/sdl2_ttf" || { echo "ERROR: lean SDL2_ttf build"; exit 1; }
+fi
+rm -rf "$ASSETS/e2fsck"; mkdir -p "$ASSETS/e2fsck"
+python3 - "$ASSETS/parts/p4-kernel.img.gz" "$ASSETS/e2fsck" "$REPO" <<"E2PY" || { echo "ERROR: cannot take e2fsck from the stock initramfs"; exit 1; }
+import gzip, os, sys
+sys.path.insert(0, os.path.join(sys.argv[3], "tools", "h700-image"))
+import fastboot
+names = ["e2fsck", "libext2fs.so.2", "libe2p.so.2", "libcom_err.so.2", "libblkid.so.1", "libuuid.so.1"]
+for n, data in fastboot.initramfs_files(gzip.open(sys.argv[1]).read(), names).items():
+    open(os.path.join(sys.argv[2], n), "wb").write(data)
+E2PY
 echo "$ROOTFS_LEVEL" > "$ASSETS/rootfs-level"
 if [ "$DEVICE" = all ]; then
 	cp "$REPO/tools/h700-strip/boardpick.sh" "$ASSETS/boardpick.sh"
 	cp "$REPO/workspace/h700/boardpick/build/h700/boardpick.elf" "$ASSETS/boardpick.elf" || { echo "ERROR: no boardpick.elf, run make h700-build"; exit 1; }
+	# FAST BOOT LOADER (2026-11-06): both SPL builds (LPDDR4, LPDDR3) from the committed sources, by build.sh with all
+	# its checks (docker debian:bookworm arm64; the first build clones U-Boot v2026.10 into $ASSETS/spl/u-boot), cached
+	# in $ASSETS/spl until zero-spl.patch or build.sh change (sources.md5; verify-image.py checks the same sum). On the
+	# device, spl-auto.sh installs the right one with zero-install.sh where it qualifies (boot0-slot.sh ack runs it).
+	_spl="$ASSETS/spl"
+	_spl_sum=$(cat "$REPO/workspace/h700/spl/zero-spl.patch" "$REPO/workspace/h700/spl/build.sh" | md5 -q)
+	if [ ! -f "$_spl/zero-spl.bin" ] || [ ! -f "$_spl/zero-spl-lp3.bin" ] || [ "$(cat "$_spl/sources.md5" 2>/dev/null)" != "$_spl_sum" ]; then
+		rm -f "$_spl/sources.md5" "$_spl/zero-spl.bin" "$_spl/zero-spl-lp3.bin"
+		sh "$REPO/workspace/h700/spl/build.sh" "$_spl" || { echo "ERROR: SPL build"; exit 1; }
+		echo "$_spl_sum" > "$_spl/sources.md5"
+	fi
+	cp "$REPO/workspace/h700/spl/zero-install.sh" "$ASSETS/zero-install.sh"
+	cp "$REPO/tools/h700-strip/spl-auto.sh" "$ASSETS/spl-auto.sh"
+	# Stage2 is packaged for guarded qualification only. spl-auto still installs SPL-only;
+	# carrying this payload must never enable stage2 on a board or DRAM type by itself.
+	sh "$REPO/workspace/h700/loader/build.sh" "$ASSETS/loader" || { echo 'ERROR: stage2 loader build'; exit 1; }
 fi
 # First-boot "Installing MinUI Zero..." frame for expand-roms.sh (raw fb page, panel-sized).
 rm -f "$ASSETS/installing.raw"
@@ -498,11 +551,37 @@ zmark() { # <file> <anchor regex> <label> [after]: insert the mark line before (
 SI="$R/opt/muos/script/init/sysinit"
 zmark "$SI" "^for S in" "sysinit"
 zmark "$SI" "^[ \t]*case ..S. in" "\${S##*/}"   # [ \t], not [[:space:]]: the container awk lacks classes
+# BOOT SPEED (2026-11-04): wait for the main card itself (mount-fast.awk mounts it directly), not for the muOS bind tree;
+# mount_ready still releases the wait if the card never mounts. Kept on one line with mount_ready for the marks below.
+sed -i "s|^until \[ -f \"\$MUOS_STORE_DIR/mount_ready\" \]; do sleep 0.01; done\$|until grep -q \" /mnt/mmc \" /proc/mounts \|\| [ -f \"\$MUOS_STORE_DIR/mount_ready\" ]; do sleep 0.01; done|" "$SU"
+grep -q "^until grep -q .* /mnt/mmc .* /proc/mounts .*mount_ready" "$SU" || { echo "ERROR: startup.sh card wait did not land"; exit 1; }
 zmark "$SU" "^until .*mount_ready" "mount-wait"
 zmark "$SU" "^until .*mount_ready" "mounted" after
 zmark "$SU" "^sh /opt/minui-zero/minui-frontend.sh" "frontend"
 [ "$(grep -c zero-boot "$SI")" = 2 ] && [ "$(grep -c zero-boot "$SU")" = 3 ] || { echo "ERROR: boot marks did not all land"; exit 1; }
 echo "  boot stage marks in sysinit and startup.sh"
+# MENU FIRST: early.sh already checked and mounted the card and started the frontend (it leaves /run/zero-early); when it
+# did not run (or could not mount the card), startup.sh does all of it as before. The frontend sets schedutil itself, so
+# muOS forcing "performance" (which could now land after it) is dropped.
+sed -i "s|^\[ -x /opt/minui-zero/expand-roms.sh \] \&\& /opt/minui-zero/expand-roms.sh\$|[ -e /run/zero-early ] \|\| { [ -x /opt/minui-zero/expand-roms.sh ] \&\& /opt/minui-zero/expand-roms.sh; }|" "$SU"
+sed -i "s|^\[ -x /opt/minui-zero/card-fsck.sh \] \&\& /opt/minui-zero/card-fsck.sh\$|[ -e /run/zero-early ] \|\| { [ -x /opt/minui-zero/card-fsck.sh ] \&\& /opt/minui-zero/card-fsck.sh; }|" "$SU"
+sed -i "s|^sh /opt/minui-zero/minui-frontend.sh \&\$|[ -e /run/zero-early ] \|\| sh /opt/minui-zero/minui-frontend.sh \&|" "$SU"
+sed -i "s|^echo \"performance\" >\"\$GOVERNOR\"\$|true # MinUI Zero: the frontend owns the governor (schedutil)|" "$SU"
+[ "$(grep -c "zero-early" "$SU")" = 3 ] && grep -q "the frontend owns the governor" "$SU" || { echo "ERROR: startup.sh menu-first edits did not all land"; exit 1; }
+# QUIET WINDOW (2026-11-05): on a menu-first boot all of startup.sh waits until the menu is on screen (platform.c drops
+# /run/zero-menu-frame), 3 s at most. The menu needs nothing from it (early.sh mounted the card, the frontend restores
+# the codec and owns the governor, input is evdev), while its module loads, mounts and scans read ~10 MB off the card
+# that otherwise compete with the menu for it (Plus, block_dump: the first frame moved from 2.99 s to 2.34 s with the
+# frontend WiFi gate). Line 2, right after the shebang, before anything else runs.
+sed -i "2i [ -e /run/zero-early ] \&\& { _qw=0; until [ -e /run/zero-menu-frame ] || [ \$_qw -ge 300 ]; do sleep 0.01; _qw=\$((_qw + 1)); done; read -r _zu _ </proc/uptime; echo \"\$_zu quiet-end\" >>/dev/shm/zero-boot; }   # MinUI Zero quiet window" "$SU"
+[ "$(sed -n 2p "$SU" | grep -c "zero-menu-frame")" = 1 ] || { echo "ERROR: startup.sh quiet window did not land"; exit 1; }
+# halt.sh BUG (muOS, found 2026-11-04): it appends its -o omit list to its own arguments, so killall5 got the mode word
+# ("killall5 -TERM reboot": bad option) and killed nothing, umount -ar found / busy, and every reboot through it left the
+# root journal dirty: half of the next boots replayed it (~80 ms on the H, measured). Take the mode off the list first.
+# (Our own power-off remounts everything read-only before it calls halt.sh, so it was not affected.)
+HS="$R/opt/muos/script/system/halt.sh"
+sed -i "s|^for OMIT_PID in \\\$(pidof|HALT_MODE=\$1; shift   # MinUI Zero: the mode word reached killall5 (bad option), so nothing was killed\nfor OMIT_PID in \$(pidof|; s|^\"\\\$1\" -f\$|\"\$HALT_MODE\" -f|" "$HS"
+[ "$(grep -c HALT_MODE "$HS")" = 2 ] && ! grep -q "^\"\\\$1\" -f\$" "$HS" || { echo "ERROR: halt.sh mode fix did not land"; exit 1; }
 
 # BOOT TRIM (2026-08-11). muOS keeps doing work for features this image does not ship. None of it
 # blocks the menu (it is all backgrounded) but it competes for the CPU and the ~10MB/s card during
@@ -545,6 +624,11 @@ sed -i "s|^\([[:space:]]*\)\[ \"\$HAS_NETWORK\" -eq 1 \] && modprobe -q \"\$NET_
 grep -q "modprobe -q \"\$NET_NAME\"\$" "$MS" && { echo "ERROR: module.sh still loads the WiFi driver at boot (anchor changed)"; exit 1; }
 grep -q "WiFi driver not loaded at boot" "$MS" || { echo "ERROR: WiFi boot-load removal did not apply (module.sh anchor changed)"; exit 1; }
 echo "  WiFi driver boot load dropped from module.sh (loads on demand)"
+# depmod -a ran at every boot (3.4 MB of cold reads on the Plus, 2026-11-05) to rebuild a modules.dep that ships in the
+# rootfs and never changes; only build it when it is missing.
+sed -i "s|^depmod -a 2>/dev/null\$|[ -f /lib/modules/\$(uname -r)/modules.dep ] \|\| depmod -a 2>/dev/null   # MinUI Zero: only when missing|" "$MS"
+grep -q "only when missing" "$MS" || { echo "ERROR: module.sh depmod guard did not land"; exit 1; }
+[ -n "$(ls "$R"/lib/modules/*/modules.dep 2>/dev/null)" ] || { echo "ERROR: rootfs has no modules.dep"; exit 1; }
 # GPU CEILING (2026-09-28). The H, Pro, SP and 40XX trees add a 756 MHz at 1.000 V GPU step past the Plus tree
 # top of 648 MHz at 0.96 V (stock trees top at 696), and nothing capped it: any GL client (the Files tool, a
 # port) could drive mali devfreq there. Same rule as the 1512 MHz CPU cap. Newer muOS (d6fe9378) treats
@@ -584,6 +668,54 @@ cp /a/minui-frontend.sh "$R/opt/minui-zero/minui-frontend.sh"
 cp /a/expand-roms.sh "$R/opt/minui-zero/expand-roms.sh"
 cp /a/card-update.sh "$R/opt/minui-zero/card-update.sh"   # MinUI.zip updates (rootfs only: a zip never replaces it)
 cp /a/card-fsck.sh "$R/opt/minui-zero/card-fsck.sh"       # repairs the card before such an install (pre-mount)
+# BOOT SPEED (2026-11-04). The boards boot without an initramfs, so the rootfs does its jobs: inittab checks the root
+# filesystem only when the kernel recorded errors (root-check.sh, e2fsck from the stock initramfs) and remounts / with
+# the options the initramfs used; console and null nodes exist before devtmpfs is mounted.
+mkdir -p "$R/opt/minui-zero/e2fsck"
+cp /a/e2fsck/* "$R/opt/minui-zero/e2fsck/"
+cp /a/root-check.sh "$R/opt/minui-zero/root-check.sh"
+chmod +x "$R/opt/minui-zero/e2fsck/e2fsck" "$R/opt/minui-zero/root-check.sh"
+IT="$R/etc/inittab"
+grep -q "^::sysinit:/bin/mount -o remount,rw /\$" "$IT" || { echo "ERROR: inittab remount line changed"; exit 1; }
+sed -i "s|^::sysinit:/bin/mount -o remount,rw /\$|::sysinit:/opt/minui-zero/root-check.sh\n::sysinit:/bin/mount -o remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /|" "$IT"
+grep -q "^::sysinit:/opt/minui-zero/root-check.sh" "$IT" && grep -q "remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /" "$IT" || { echo "ERROR: inittab root check/remount did not land"; exit 1; }
+# OUR SPL AND DEEP SLEEP: run after mount -a has established /run and /tmp.
+# Mounting /run over a retained failed-write lock would otherwise hide its quarantine.
+cp /a/boot0-slot.sh "$R/opt/minui-zero/boot0-slot.sh" && chmod 755 "$R/opt/minui-zero/boot0-slot.sh"
+install -m 755 /a/boot-preack.sh /a/boot-evidence.sh "$R/opt/minui-zero/"
+cp /a/spl-lock.sh "$R/opt/minui-zero/spl-lock.sh" && chmod 644 "$R/opt/minui-zero/spl-lock.sh"
+grep -q "^::sysinit:/bin/mount -a\$" "$IT" || { echo "ERROR: inittab mount -a line changed"; exit 1; }
+sed -i "s|^::sysinit:/bin/mount -a\$|&\n::sysinit:/opt/minui-zero/boot0-slot.sh boot\n::sysinit:/bin/busybox setsid /opt/minui-zero/boot0-slot.sh ack|" "$IT"
+grep -q "^::sysinit:/opt/minui-zero/boot0-slot.sh boot\$" "$IT" && grep -q "^::sysinit:/bin/busybox setsid /opt/minui-zero/boot0-slot.sh ack\$" "$IT" || { echo "ERROR: inittab boot0-slot lines did not land"; exit 1; }
+[ -e "$R/dev/console" ] || mknod -m 600 "$R/dev/console" c 5 1
+# MENU FIRST (early.sh says how): inittab runs it after the tmpfs mounts and before the muOS sysinit
+cp /a/early.sh "$R/opt/minui-zero/early.sh"
+cp /a/zero_late_usb.ko /a/zero_late_mmc.ko "$R/opt/minui-zero/"
+chmod +x "$R/opt/minui-zero/early.sh"
+grep -q "^::sysinit:/opt/muos/script/init/sysinit\$" "$IT" || { echo "ERROR: inittab muOS sysinit line changed"; exit 1; }
+sed -i "s|^::sysinit:/opt/muos/script/init/sysinit\$|::sysinit:/opt/minui-zero/early.sh\n::sysinit:/opt/muos/script/init/sysinit|" "$IT"
+grep -q "^::sysinit:/opt/minui-zero/early.sh" "$IT" || { echo "ERROR: inittab early.sh did not land"; exit 1; }
+# BUSYBOX MOUNT for the boot mounts (2026-11-05): /bin/mount is util-linux here, and its first run (proc, at the very
+# start of init) read 2.4 MB of libraries (libmount, libblkid, glibc) cold off the card, measured on the Plus with
+# block_dump; busybox is already in memory as init.
+sed -i "s|^::sysinit:/bin/mount |::sysinit:/bin/busybox mount |" "$IT"
+! grep -q "^::sysinit:/bin/mount " "$IT" && [ "$(grep -c "^::sysinit:/bin/busybox mount " "$IT")" -ge 5 ] || { echo "ERROR: inittab busybox mounts did not land"; exit 1; }
+# zero-codec (workspace/h700/tools/zero-codec.c): the codec restore without alsa-lib, see minui-frontend.sh codec_restore
+cp /a/zero-codec "$R/opt/minui-zero/zero-codec" && chmod 755 "$R/opt/minui-zero/zero-codec"
+[ -e "$R/dev/null" ] || mknod -m 666 "$R/dev/null" c 1 3
+# udev off the boot path (udev-bg.awk says why), dbus not started at all (nothing on this image talks to it: wpa_supplicant
+# runs without -u and pipewire is gone; func.sh only exports its address), and the main card mounted directly with the
+# second card and USB in the background (mount-fast.awk). startup.sh then waits for the card itself, not the muOS bind
+# tree, which bind.sh still builds, now in the background. H, warm reboots: 0.57 + 0.19 + 0.45 + 0.1 s.
+UD="$R/opt/muos/script/init/S10udev"
+awk -f /a/udev-bg.awk "$UD" > "$UD.new" || { echo "ERROR: S10udev anchors changed"; exit 1; }
+cat "$UD.new" > "$UD" && rm -f "$UD.new"
+rm -f "$R/opt/muos/script/init/S30dbus"
+MS2="$R/opt/muos/script/mount/start.sh"
+awk -f /a/mount-fast.awk "$MS2" > "$MS2.new" || { echo "ERROR: mount/start.sh anchors changed"; exit 1; }
+grep -q "MinUI Zero fast path" "$MS2.new" && grep -q "one sequence, off the boot path" "$MS2.new" && ! grep -q "^wait\$" "$MS2.new" &&
+	! grep -q "^/opt/muos/script/mount/union.sh start\$" "$MS2.new" || { echo "ERROR: mount/start.sh fast path did not land"; exit 1; }
+cat "$MS2.new" > "$MS2" && rm -f "$MS2.new"
 cp /a/rootfs-level "$R/opt/minui-zero/rootfs-level"       # what this rootfs provides; a zip states what it needs
 # ONE IMAGE: every board boot set plus the picker. The Plus device files are those of the donor rootfs.
 if [ "$DEVICE" = all ]; then
@@ -593,6 +725,14 @@ if [ "$DEVICE" = all ]; then
 	cp /a/boardpick.elf "$R/opt/minui-zero/boardpick.elf"
 	chmod +x "$R/opt/minui-zero/boardpick.sh" "$R/opt/minui-zero/boardpick.elf"
 	echo "  one image: boards staged ($(ls "$R/opt/minui-zero/boards" | tr "\n" " ")), picker installed"
+	# the fast boot loader and its installer (spl-auto.sh, run by boot0-slot.sh ack, says where and when)
+	mkdir -p "$R/opt/minui-zero/spl"
+	cp /a/spl/zero-spl.bin /a/spl/zero-spl-lp3.bin /a/zero-install.sh "$R/opt/minui-zero/spl/"
+	cp /a/spl-auto.sh "$R/opt/minui-zero/spl-auto.sh" && chmod 755 "$R/opt/minui-zero/spl-auto.sh"
+	mkdir -p "$R/opt/minui-zero/loader"
+	cp /a/loader/zero-loader.bin /a/loader/build-id /a/loader/boot-health "$R/opt/minui-zero/loader/"
+	chmod 755 "$R/opt/minui-zero/loader/boot-health"
+	rm -f "$R/opt/minui-zero/spl-state"
 fi
 chmod +x "$R/opt/minui-zero/expand-roms.sh"
 [ -f /a/installing.raw ] && cp /a/installing.raw "$R/opt/minui-zero/installing.raw"
@@ -672,10 +812,25 @@ cat > "$R/opt/muos/script/system/pipewire.sh" <<"PWSH"
 #!/bin/sh
 # MinUI Zero: pipewire removed; keep only the codec init startup.sh needs at boot.
 case "$1" in
-start) alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null ;;
+start)
+	# the frontend restored the codec and applied the user volume (it drops zero-codec-done): nothing to do. Otherwise
+	# retry the restore and, when it works, put the saved volume back over the baseline (minui-frontend.sh
+	# apply_volume, UI 0-20 -> raw 0-63). zero-codec-ready (minui-frontend.sh wait_for_system) only on success.
+	if [ -e /run/zero-codec-done ]; then
+		: >/run/zero-codec-ready
+	elif alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null; then
+		amixer -c 0 -q cset name="tx hub mode" 0 2>/dev/null   # off, as the frontend keeps it (the speaker pop)
+		_v=$(cat /mnt/mmc/.userdata/h700/volume 2>/dev/null)
+		case "$_v" in ""|*[!0-9]*) ;; *) [ "$_v" -gt 20 ] && _v=20
+			/opt/minui-zero/zero-codec set 0 "digital volume" $((_v * 63 / 20)) 2>/dev/null ||
+				amixer -c 0 sset "digital volume" $((_v * 63 / 20)) >/dev/null 2>&1 ;; esac
+		: >/run/zero-codec-ready
+	fi
+	;;
 esac
 exit 0
 PWSH
+sh -n "$R/opt/muos/script/system/pipewire.sh" || { echo "ERROR: generated pipewire.sh does not parse"; exit 1; }
 chmod +x "$R/opt/muos/script/system/pipewire.sh"
 
 # RELEASE GATE ON THE ARTIFACT, not on the inputs. The previous gate checked only the key we copy
@@ -698,7 +853,7 @@ fi
 # FOUND) is a known one on this class of image. Same reasoning applies: a chmod that quietly did
 # not take must fail the BUILD, not the device.
 for _crit in /opt/minui-zero/expand-roms.sh /opt/minui-zero/minui-frontend.sh /opt/minui-zero/card-update.sh /usr/bin/unzip \
-             /opt/minui-zero/card-fsck.sh /sbin/fsck.vfat \
+             /opt/minui-zero/card-fsck.sh /sbin/fsck.vfat /opt/minui-zero/root-check.sh /opt/minui-zero/e2fsck/e2fsck \
              /opt/muos/script/system/startup.sh; do
 	if [ ! -f "$R$_crit" ]; then
 		echo "ERROR: boot-critical script missing from the rootfs: $_crit"; exit 1
@@ -748,6 +903,7 @@ cp "$REPO/workspace/h700/tools/build/nightlayer" "$STAGE/.system/h700/bin/" || \
 cp "$REPO/workspace/h700/tools/build/bootclock" "$STAGE/.system/h700/bin/" || \
 	{ echo "ERROR: bootclock missing for h700, run 'make h700-build' first"; exit 1; }
 cp "$REPO/workspace/h700/libmsettings/libmsettings.so"  "$STAGE/.system/h700/lib/"
+cp "$ASSETS/sdl2_ttf/libSDL2_ttf-2.0.so.0" "$STAGE/.system/h700/lib/"   # lean font library, first on the menu library path (sdl2_ttf/build.sh)
 # card-side libs (2026-09-17): libnl-tiny.so for hostapd (both lifted from the TrimUI firmware,
 # same aarch64 glibc; Device Sync hosts its hotspot with hostapd, wpa_supplicant AP mode dies
 # on the RTL8821CS when a client associates)
@@ -894,6 +1050,12 @@ rm -f "$IMG"
 # Every board's chain, the Plus included, comes from bootchain.py above (poll-interval and the POWER-hold
 # cut, 2026-09-28). No fallback to the unpatched part: a chain that skipped the patches must not ship.
 [ -n "$BUILT_RAW" ] && [ -f "$BUILT_RAW" ] || { echo "ERROR: no patched boot chain for $DEVICE (bootchain.py did not run)"; exit 1; }
+# Single-board images boot their card's own chain for good (no picker), so it carries the fast forms the picker installs
+# on the one image (fastboot.py; the gzip kernel below too). Without them a dev image measured the stock chain.
+if [ "$DEVICE" != all ]; then
+	python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import fastboot; d = open(sys.argv[2], "rb").read(); open(sys.argv[2], "wb").write(fastboot.chain(d))' \
+		"$REPO/tools/h700-image" "$BUILT_RAW" || { echo "ERROR: fast boot chain"; exit 1; }
+fi
 cp "$BUILT_RAW" "$IMG"
 rm -f "$BUILT_RAW"   # rebuilt from the pinned assets every time: scratch once copied
 # PER-DEVICE PARTS: parts-<device>/<file> overrides the shared part. Which boards carry their own kernel and
@@ -908,7 +1070,12 @@ unz() { gunzip -c "$1" > "$OUT_DIR/.part.tmp"; }
 unz "$(part p2-boot.img.gz)";   dd if="$OUT_DIR/.part.tmp" of="$IMG" bs=512 seek=90112  conv=notrunc status=none
 unz "$(part p3-env.img.gz)";    dd if="$OUT_DIR/.part.tmp" of="$IMG" bs=512 seek=155648 conv=notrunc status=none
 BOOTIMG_BYTES=$(gunzip -c "$(part p4-kernel.img.gz)" | head -c 48 | python3 -c 'import sys,struct;d=sys.stdin.buffer.read(48);k,_,r=struct.unpack("<III",d[8:20]);pg=struct.unpack("<I",d[36:40])[0];print(pg*(1+(k+pg-1)//pg+(r+pg-1)//pg))')
-unz "$(part p4-kernel.img.gz)"; head -c "$BOOTIMG_BYTES" "$OUT_DIR/.part.tmp" | dd of="$IMG" bs=512 seek=188416 conv=notrunc status=none
+unz "$(part p4-kernel.img.gz)"; head -c "$BOOTIMG_BYTES" "$OUT_DIR/.part.tmp" > "$OUT_DIR/.p4.tmp"
+if [ "$DEVICE" != all ]; then   # the fast kernel, as for the chain above
+	python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import fastboot; d = open(sys.argv[2], "rb").read(); open(sys.argv[2], "wb").write(fastboot.bootimg(d))' \
+		"$REPO/tools/h700-image" "$OUT_DIR/.p4.tmp" || { echo "ERROR: fast kernel"; exit 1; }
+fi
+dd if="$OUT_DIR/.p4.tmp" of="$IMG" bs=512 seek=188416 conv=notrunc status=none; rm -f "$OUT_DIR/.p4.tmp"
 dd if="$OUT_DIR/p5.img" of="$IMG" bs=512 seek=$P5_FIRST conv=notrunc status=none
 dd if="$OUT_DIR/p6.img" of="$IMG" bs=512 seek=$P6_FIRST conv=notrunc status=none
 python3 "$REPO/tools/h700-image/gpt.py" "$IMG" $TOTAL $P5_LAST $P6_FIRST $P6_LAST

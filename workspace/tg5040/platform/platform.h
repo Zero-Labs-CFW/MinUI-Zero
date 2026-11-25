@@ -189,4 +189,12 @@ extern int is_brickpro;
 
 ///////////////////////////////
 
+// Zero kernel health (bin/zerokernel.sh): minui calls this once after its first menu frame. On a GLES menu
+// (Smart Pro, Brick Pro) with an accelerated GLES renderer it writes /tmp/zero-gles-ok; without that marker a
+// GLES-menu model never re-arms our kernel. tg5040 only: minui.c tests HAS_MENU_PRESENTED.
+#define HAS_MENU_PRESENTED 1
+void PLAT_menuPresented(void);
+
+///////////////////////////////
+
 #endif

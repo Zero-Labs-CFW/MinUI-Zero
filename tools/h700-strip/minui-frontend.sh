@@ -220,7 +220,27 @@ rm -f "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._* 2>/dev/null
 # races minui's InitSettings (which reads the codec volume ONCE at launch). Losing that race left
 # digital volume at the power-on 0 = dead silent (found live 2026-08-06). Doing it here, blocking,
 # guarantees the codec is unmuted and at its 24 baseline before minui ever reads it.
-alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null
+# zero-codec (workspace/h700/tools/zero-codec.c, boot speed 2026-11-05) replays a snapshot of exactly what alsactl sets,
+# through /dev/snd directly: alsactl and amixer cost ~2.6 MB of cold card reads (alsa-lib, its config tree) on the
+# menu's critical path. No snapshot yet, or a driver change (zero-codec exits nonzero when a control's name no longer
+# matches): alsactl as before, then a fresh snapshot.
+ZC=/opt/minui-zero/zero-codec
+CODEC_SNAP=/opt/minui-zero/codec.snap
+# /run/zero-codec-done tells muOS's pipewire.sh (after the menu is up) that the codec is restored and the user volume
+# applied, so it must not restore the baseline over it; a failed restore leaves no marker and pipewire.sh tries again.
+# "tx hub mode" stays Off: muOS's asound.state turns it On, and that one switch was the speaker pop at every power-on
+# (when the restore set it) and every power-off (it was still on when the rails dropped). Found 2026-11-05 by moving
+# each restore step seconds apart while Dan listened; with it Off both pops are gone and game sound works (direct ALSA
+# does not use the hub; muOS's pipewire setup did). The snapshot never replays it; the first-boot alsactl path turns it
+# back Off before saving. A rootfs zero-codec too old for the skip list fails the fast path and alsactl runs as before.
+codec_restore() {
+	[ -x "$ZC" ] && [ -f "$CODEC_SNAP" ] && "$ZC" restore "$CODEC_SNAP" "tx hub mode" && { : >/run/zero-codec-done; return 0; }
+	alsactl -U -f /opt/muos/device/control/asound.state restore 2>/dev/null || return 0   # never snapshot a failed restore
+	amixer -c 0 -q cset name="tx hub mode" 0 2>/dev/null   # amixer: an older rootfs zero-codec cannot set it
+	: >/run/zero-codec-done
+	[ -x "$ZC" ] && "$ZC" save "$CODEC_SNAP.new" && mv "$CODEC_SNAP.new" "$CODEC_SNAP"
+}
+codec_restore
 
 # Re-assert the USER's volume over that baseline, and again at every process boundary below.
 # Why this exists: the only muter is PWR_enterSleep (api.c SetRawVolume(MUTE_VOLUME_RAW) -> raw 0),
@@ -236,10 +256,11 @@ apply_volume() {
 	_ui=$(cat "$VOL_FILE" 2>/dev/null)
 	case "$_ui" in ''|*[!0-9]*) return 0 ;; esac   # ignore a garbage/partial file
 	[ "$_ui" -gt 20 ] && _ui=20
-	amixer -c 0 sset 'digital volume' $(( _ui * 63 / 20 )) >/dev/null 2>&1   # UI 0-20 -> raw 0-63
+	# UI 0-20 -> raw 0-63
+	{ [ -x "$ZC" ] && "$ZC" set 0 'digital volume' $(( _ui * 63 / 20 )); } || amixer -c 0 sset 'digital volume' $(( _ui * 63 / 20 )) >/dev/null 2>&1
 }
 apply_volume
-echo "audio: digital volume $(amixer -c 0 sget 'digital volume' 2>/dev/null | grep -oE '[0-9]+ \[' | tr -d ' [')" >> "$LOG"
+echo "audio: codec restored ($([ -f "$CODEC_SNAP" ] && echo snapshot || echo alsactl)), volume file $(cat "$VOL_FILE" 2>/dev/null)" >> "$LOG"
 
 # THE THESIS: own the governor. schedutil + our minui/minarch write the ceiling on top.
 echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
@@ -282,7 +303,10 @@ WIFI_TXT=/mnt/mmc/wifi.txt
 
 # A board with no radio (bin/board radio: the RG28XX's device config) skips the bring-up and its monitor, which
 # would otherwise re-run a connect that can never work every 90 s for as long as the device is on.
-( if [ -f "$WIFI_TXT" ] && [ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" != none ]; then
+( # quiet window (boot speed, 2026-11-05): on a menu-first boot the driver load (2.7 MB from the card) waits until the
+  # menu is on screen (platform.c drops /run/zero-menu-frame), 3 s at most
+  [ -e /run/zero-early ] && { _qw=0; until [ -e /run/zero-menu-frame ] || [ $_qw -ge 300 ]; do sleep 0.01; _qw=$((_qw + 1)); done; }
+  if [ -f "$WIFI_TXT" ] && [ "$(sh "$SYSTEM_PATH/bin/board" radio 2>/dev/null)" != none ]; then
 	# wifi.txt: "SSID:password" per line, '#' comments; first network wins. Creds are written to muOS's
 	# config at RUNTIME (never baked into the image — the build wipes them) and consumed by net.sh
 	# connect below. SSID must be BROADCAST: muOS's scan-based SSID_PRESENT + password.sh (normal-length
@@ -467,6 +491,12 @@ save_clock() { [ "$(date +%Y)" -ge 2025 ] && date +'%F %T' > "$DATETIME_PATH" 2>
 # backstop cuts power if a remount hangs on a failing card. Then the muOS way to cut power (AXP register; plain
 # poweroff reboots), with halt.sh and poweroff -f as fallbacks. cd / first, so no cwd holds the card.
 power_off() {
+	# Speaker amp off first: PLAT_powerOff only mutes the digital volume, so the amp (codec SPK/LINEOUT switches, the
+	# device tree's pa-pin with a 100 ms delay) was still on when the rails dropped, and the speaker popped at every
+	# power-off (Dan, 2026-11-05). Give it the pin's delay before anything else.
+	{ "$ZC" set 0 "SPK Switch" 0 && "$ZC" set 0 "LINEOUT Switch" 0; } 2>/dev/null ||
+		{ amixer -c 0 -q sset SPK off; amixer -c 0 -q sset LINEOUT off; } 2>/dev/null   # an older zero-codec: integers only
+	sleep 0.15
 	save_clock
 	sync
 	cd /
@@ -495,9 +525,11 @@ devmode && zero_boot_receipt
 # ...and where the time went, same dev cards: the pre-kernel part (boot0, U-Boot, kernel load: bin/bootclock reads
 # the ARM counter that starts at reset) and every stage mark since, one line per boot in logs/boot-stages.txt
 if devmode; then
-	zmark menu-ready
+	zmark frontend-start
 	_bc=$("$SYSTEM_PATH/bin/bootclock" 2>/dev/null)
-	echo "$(date +%Y-%m-%d) ${_bc:-pre ? post ? total ?} | $(awk '{ printf "%s %s  ", $2, $1 }' /dev/shm/zero-boot 2>/dev/null)" >> "$LOGS_PATH/boot-stages.txt"
+	_bid=
+	read -r _bid < /proc/sys/kernel/random/boot_id
+	echo "$(date +%Y-%m-%d) ${_bc:-pre ? post ? total ?} boot=$_bid | $(awk '{ printf "%s %s  ", $2, $1 }' /dev/shm/zero-boot 2>/dev/null)" >> "$LOGS_PATH/boot-stages.txt"
 fi
 
 # The card copy got through its setup to the first launch: clear its tries (see the top of this file). Here, before
@@ -517,6 +549,24 @@ fi
 # Same block as MinUI.pak/launch.sh (f6e7d824): keep the two in step.
 #
 # Every failure falls through to the normal launcher path, which is the safe default.
+# MENU FIRST (boot speed, 2026-11-04): on an image boot early.sh starts this file before muOS's startup has loaded the
+# GPU module and restored the codec, which the menu does not need and a game does. So the first launch of a game waits
+# for both (the codec restore drops /run/zero-codec-ready, pipewire.sh), up to 5 s, then goes ahead regardless. Not
+# started by early.sh (no /run/zero-early): nothing to wait for, as before.
+_sys_ready=
+wait_for_system() {
+	[ -n "$_sys_ready" ] && return 0
+	_sys_ready=1
+	[ -e /run/zero-early ] || return 0
+	_w=0
+	until [ -d /sys/module/mali_kbase ] && [ -e /run/zero-codec-ready ]; do
+		[ $_w -ge 500 ] && { echo "wait_for_system: gave up after 5 s (mali $([ -d /sys/module/mali_kbase ] && echo y || echo n), codec $([ -e /run/zero-codec-ready ] && echo y || echo n))" >> "$LOG"; return 0; }
+		sleep 0.01; _w=$((_w + 1))
+	done
+	[ $_w -gt 0 ] && echo "wait_for_system: waited $((_w * 10)) ms for the GPU module and codec" >> "$LOG"
+	return 0
+}
+
 AUTO_RESUME="$SHARED_USERDATA_PATH/.minui/auto_resume.txt"
 if [ -f "$AUTO_RESUME" ]; then
 	_rel=$(head -1 "$AUTO_RESUME" 2>/dev/null)
@@ -535,6 +585,8 @@ if [ -f "$AUTO_RESUME" ]; then
 		rm -f "$AUTO_RESUME"; sync            # consume it FIRST: never resume-loop on a bad entry
 		echo "boot-to-game: $_tag <- $_rel" >> "$LOG"
 		echo 9 > /tmp/resume_slot.txt      # AUTO_RESUME_SLOT, read by minarch
+		: >/run/zero-menu-frame            # no menu this boot: release the quiet window now, the game needs startup.sh
+		wait_for_system
 		apply_volume
 		zero_rotate_prev_log "$_pak"
 		sh "$_pak" "$_rom" >> "$LOG" 2>&1
@@ -574,6 +626,7 @@ while : ; do
 		FAILS=0
 		CMD=$(cat /tmp/next)
 		echo "launch: $CMD" >> "$LOG"
+		wait_for_system
 		apply_volume   # a mute left behind by the menu process must not follow us into the game
 		zero_rotate_prev_log_cmd "$CMD"
 		sh -c "$CMD"

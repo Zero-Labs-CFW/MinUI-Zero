@@ -14,6 +14,7 @@
 #define MAIN_ROW_COUNT 6
 #define HAS_POWER_BUTTON 1
 #define exactMatch(a,b) (strcmp((a),(b))==0)
+static int row_count = MAIN_ROW_COUNT; // minui.c's rows per page with Menu Hints on (af9ca690)
 
 // These types, cleanup functions and input branches are extracted from minui.c.
 #include "recent_types.inc"

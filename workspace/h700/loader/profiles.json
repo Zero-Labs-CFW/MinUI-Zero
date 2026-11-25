@@ -1,0 +1,339 @@
+{
+  "version": 2,
+  "upstream": "5508406582f6f7120dce0c4b3059819a41788db2",
+  "profiles": [
+    {
+      "id": 1,
+      "board": "plus",
+      "ram_mib": 1024,
+      "qualification": "development-only",
+      "panel_rule": "strap-pull",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        137714,
+        3072,
+        2048,
+        7244333,
+        512
+      ],
+      "sha256": "2766be31771085a019854f63ee8f88cbd74e99ec73f7f5343e6c44882b3a4151",
+      "dram_types": [
+        7,
+        8
+      ],
+      "display": {
+        "lcd_width": 640,
+        "lcd_height": 480,
+        "manager_width": 640,
+        "manager_height": 480,
+        "frame_width": 640,
+        "frame_height": 480
+      }
+    },
+    {
+      "id": 2,
+      "board": "h",
+      "ram_mib": 1024,
+      "qualification": "host-only",
+      "panel_rule": "strap-pull",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        138325,
+        3072,
+        2048,
+        7023217,
+        512
+      ],
+      "sha256": "43b1136747a0854fc1ee8e2e3a721d2c1b48c743dfd2481f57e1f928ed4de54b",
+      "variants": [
+        {
+          "name": "image-rootflags-inode-readahead-0",
+          "sha256": "a97274a5dcbec80ad50e64f0f983e539a2922021ad1d4b87db2fc9e505c48f6b",
+          "boot_header_sha256": "f5c3275e7207ad632ec3e91049e9e5b6c913aef33af9931cd8fccdbdff6f6d73"
+        }
+      ],
+      "dram_types": [
+        7,
+        8
+      ],
+      "display": {
+        "lcd_width": 640,
+        "lcd_height": 480,
+        "manager_width": 640,
+        "manager_height": 480,
+        "frame_width": 640,
+        "frame_height": 480
+      }
+    },
+    {
+      "id": 3,
+      "board": "pro",
+      "ram_mib": 1024,
+      "qualification": "source-backed",
+      "panel_rule": "strap-pull",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        138325,
+        3072,
+        2048,
+        7023100,
+        512
+      ],
+      "sha256": "caf5492559867f0ab6e0e876a7814e43e7e7e076d7873602f73fffec1096cf81",
+      "dram_types": [
+        7,
+        8
+      ],
+      "display": {
+        "lcd_width": 640,
+        "lcd_height": 480,
+        "manager_width": 640,
+        "manager_height": 480,
+        "frame_width": 640,
+        "frame_height": 480
+      }
+    },
+    {
+      "id": 4,
+      "board": "sp",
+      "ram_mib": 1024,
+      "qualification": "source-backed",
+      "panel_rule": "strap-unchanged",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        137688,
+        3072,
+        2048,
+        7244333,
+        512
+      ],
+      "sha256": "c177723fcc6c33e554db5432f1b346974bf5106cb8604fa7d36c0522b008b5ef",
+      "dram_types": [
+        8
+      ],
+      "display": {
+        "lcd_width": 640,
+        "lcd_height": 480,
+        "manager_width": 640,
+        "manager_height": 480,
+        "frame_width": 640,
+        "frame_height": 480
+      }
+    },
+    {
+      "id": 5,
+      "board": "rg40xx-h",
+      "ram_mib": 1024,
+      "qualification": "source-backed",
+      "panel_rule": "strap-unchanged",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        138207,
+        3072,
+        2048,
+        7244333,
+        512
+      ],
+      "sha256": "3c120340aac54ffca2255f73365bacc4236dc88c67c0ccde68561ea08cafc937",
+      "dram_types": [
+        7
+      ],
+      "display": {
+        "lcd_width": 640,
+        "lcd_height": 480,
+        "manager_width": 640,
+        "manager_height": 480,
+        "frame_width": 640,
+        "frame_height": 480
+      }
+    },
+    {
+      "id": 6,
+      "board": "rg40xx-v",
+      "ram_mib": 1024,
+      "qualification": "source-backed",
+      "panel_rule": "strap-unchanged",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        138207,
+        3072,
+        2048,
+        7244333,
+        512
+      ],
+      "sha256": "018396eb460c9b00a1efb66ee01ed56afea714c0dea814844de77c8c80f9b7bd",
+      "dram_types": [
+        7
+      ],
+      "display": {
+        "lcd_width": 640,
+        "lcd_height": 480,
+        "manager_width": 640,
+        "manager_height": 480,
+        "frame_width": 640,
+        "frame_height": 480
+      }
+    },
+    {
+      "id": 7,
+      "board": "rgcubexx-h",
+      "ram_mib": 1024,
+      "qualification": "source-backed",
+      "panel_rule": "boe",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        138259,
+        3072,
+        2048,
+        7022886,
+        512
+      ],
+      "sha256": "306ce29e955d5e64b4cf482609ef35b85939a1aa860f429a10e5c0aa1cb92bb4",
+      "dram_types": [
+        8
+      ],
+      "display": {
+        "lcd_width": 720,
+        "lcd_height": 720,
+        "manager_width": 720,
+        "manager_height": 720,
+        "frame_width": 720,
+        "frame_height": 720
+      }
+    },
+    {
+      "id": 8,
+      "board": "rg28xx-h",
+      "ram_mib": 1024,
+      "qualification": "source-backed",
+      "panel_rule": "old",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        137862,
+        3072,
+        2048,
+        7015791,
+        512
+      ],
+      "sha256": "9408a193da504a85606e299c8cf6436faa754d6cbaa0ddee1e193129e80bbf9d",
+      "dram_types": [
+        8
+      ],
+      "display": {
+        "lcd_width": 480,
+        "lcd_height": 640,
+        "manager_width": 480,
+        "manager_height": 640,
+        "frame_width": 480,
+        "frame_height": 640
+      }
+    },
+    {
+      "id": 9,
+      "board": "rg34xx-h",
+      "ram_mib": 1024,
+      "qualification": "source-backed",
+      "panel_rule": "strap-pull",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        137938,
+        3072,
+        2048,
+        7018071,
+        512
+      ],
+      "sha256": "7d7fa1184d4532814fa0c0de96afd3ab5e315cc587748c8e491ad3edaacae75d",
+      "dram_types": [
+        8
+      ],
+      "display": {
+        "lcd_width": 720,
+        "lcd_height": 480,
+        "manager_width": 720,
+        "manager_height": 480,
+        "frame_width": 720,
+        "frame_height": 480
+      }
+    },
+    {
+      "id": 10,
+      "board": "rg34xx-sp",
+      "ram_mib": 2048,
+      "qualification": "source-backed",
+      "panel_rule": "strap-pull",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        137988,
+        3072,
+        2048,
+        7093021,
+        512
+      ],
+      "sha256": "25369fac147d5f1558f3ad46ebfb8e6cda0f44585978fa7f453eeb688f28cf55",
+      "dram_types": [
+        8
+      ],
+      "display": {
+        "lcd_width": 720,
+        "lcd_height": 480,
+        "manager_width": 720,
+        "manager_height": 480,
+        "frame_width": 720,
+        "frame_height": 480
+      }
+    },
+    {
+      "id": 11,
+      "board": "rgsp",
+      "ram_mib": 1024,
+      "qualification": "source-backed",
+      "panel_rule": "strap-pull",
+      "lengths": [
+        1536,
+        107520,
+        1048576,
+        137837,
+        3072,
+        2048,
+        7092638,
+        512
+      ],
+      "sha256": "99aaf4a6fe7ef7c93fe9d7ace2e4799ef5f45891baa0fc63c4f94ba0505fc0cd",
+      "dram_types": [
+        7,
+        8
+      ],
+      "display": {
+        "lcd_width": 720,
+        "lcd_height": 480,
+        "manager_width": 720,
+        "manager_height": 480,
+        "frame_width": 720,
+        "frame_height": 480
+      }
+    }
+  ],
+  "artifact_aliases": {
+    "2024": "plus"
+  }
+}

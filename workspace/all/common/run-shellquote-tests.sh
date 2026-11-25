@@ -12,8 +12,10 @@ trap 'rm -rf "$OUT"' EXIT
 
 [ -f "$SRC" ] || { echo "cannot find minui.c at $SRC"; exit 1; }
 
-# Pull out the two size constants and the function body verbatim.
+# Pull out the two size constants and the function body verbatim. QUOTED_MAX is sized from MAX_PATH since the
+# long-path fixes (383defa1), so take that from defines.h too.
 {
+	grep -E '^#define MAX_PATH ' "$HERE/defines.h"
 	grep -E '^#define (QUOTED_MAX|CMD_MAX)' "$SRC"
 	awk '/^static int shellQuote\(/,/^}/' "$SRC"
 } > "$OUT/shellquote_extracted.h"

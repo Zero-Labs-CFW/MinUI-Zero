@@ -45,10 +45,9 @@ miyoomini:PLAT_setSystemRumble
 h700:PLAT_setSystemRumble
 
 # ---- Devmode screenshot (b447b2ce) ----
-# Dev tool that reads tg5040's SDL2 renderer / vid.screen; the MMP (MI_GFX) and h700 (DE layer + fb0)
-# have no SDL renderer, so api.c's weak fallback returns NULL and the tool logs "no readable renderer".
+# Dev tool that reads tg5040's SDL2 renderer / vid.screen; the MMP (MI_GFX) has no SDL renderer (h700 implements it now),
+# so api.c's weak fallback returns NULL there and the tool logs "no readable renderer".
 miyoomini:PLAT_captureRendererToSurface
-h700:PLAT_captureRendererToSurface
 
 # ---- Tools/Settings rows NOT on h700, and why (rechecked 2026-09-27) ----
 # The toggle tools folded into one Settings screen (a8d48449). Deep Sleep is no longer a gap: it is
@@ -57,3 +56,8 @@ h700:PLAT_captureRendererToSurface
 #   Optimize CPU — the undervolt harness drives the TCS4838 PMIC, tg5040 silicon only (same earned
 #                  divergence as the PLAT undervolt suite above).
 # (Comment only — the checker ignores non "<platform>:<symbol>" lines.)
+
+# ---- Zero kernel GLES-present marker (bin/zerokernel.sh health on the GLES-menu models) ----
+# tg5040 only: the own kernel ships there alone, and minui.c calls it under HAS_MENU_PRESENTED.
+miyoomini:PLAT_menuPresented
+h700:PLAT_menuPresented

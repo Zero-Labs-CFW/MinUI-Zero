@@ -97,4 +97,72 @@ if load_calibration; then
 	exit 1
 fi
 
+# --- tool screens: an armed campaign must always offer a cancel that works ---
+# Stand-ins for confirm.elf/say.elf that read their arguments the way
+# workspace/all/confirm/confirm.c does and answer from a scripted list of presses. A press
+# on a button the screen does not offer is ignored, as on the device; running out of
+# presses means the user is stuck on that screen.
+BIN="$TMP/bin"
+mkdir -p "$BIN"
+cat > "$BIN/confirm.elf" <<'EOF'
+#!/bin/sh
+ok=0
+if [ "${1-}" = "--ok" ]; then ok=1; shift; [ "$#" -gt 0 ] && shift; fi
+a=${2-CONFIRM}; b=${3-CANCEL}; x=${4-}
+echo "confirm ok=$ok a=[$a] b=[$b] x=[$x]" >> "$UI_LOG"
+while :; do
+	p=$(head -1 "$UI_PRESSES" 2>/dev/null)
+	[ -n "$p" ] || exit 99
+	tail -n +2 "$UI_PRESSES" > "$UI_PRESSES.tmp"; mv "$UI_PRESSES.tmp" "$UI_PRESSES"
+	case "$p" in
+		A) [ -n "$a" ] && exit 0 ;;
+		B) exit 1 ;;
+		X) [ -n "$x" ] && exit 2 ;;
+	esac
+done
+EOF
+printf '%s\n' '#!/bin/sh' 'echo "say [$(printf "%s" "$1" | head -1)]" >> "$UI_LOG"' > "$BIN/say.elf"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$BIN/sync"
+chmod +x "$BIN/confirm.elf" "$BIN/say.elf" "$BIN/sync"
+UI_LOG="$TMP/ui.log"
+UI_PRESSES="$TMP/ui.presses"
+export UI_LOG UI_PRESSES
+
+eval "$(sed -n '/^armed_screen()/,/^}/p' "$TOOL_SCRIPT")"
+if ! type armed_screen > /dev/null 2>&1; then
+	echo "tool has no armed_screen(): the armed screens are not testable" >&2
+	exit 1
+fi
+
+armed_press() { # armed_press "<presses>": show the armed screen to a user pressing these buttons
+	: > "$UI_LOG"
+	printf '%s\n' $1 > "$UI_PRESSES"
+	touch "$TMP/ARMED"
+	if ! ( PATH="$BIN:$PATH"; armed_screen "Measuring... 0 of 8 steps done." ); then
+		echo "armed screen left the user stuck after: $1" >&2
+		cat "$UI_LOG" >&2
+		exit 1
+	fi
+}
+
+armed_press "X A"
+if [ -f "$TMP/ARMED" ]; then
+	echo "CANCEL then CANCEL IT left the campaign armed" >&2
+	cat "$UI_LOG" >&2
+	exit 1
+fi
+# the pills the user sees: B backs out, X cancels, A is not offered
+if [ "$(head -1 "$UI_LOG")" != "confirm ok=0 a=[] b=[BACK] x=[CANCEL]" ]; then
+	echo "armed screen buttons are wrong: $(head -1 "$UI_LOG")" >&2
+	exit 1
+fi
+for PRESSES in "B" "X B" "A B"; do
+	armed_press "$PRESSES"
+	if [ ! -f "$TMP/ARMED" ]; then
+		echo "armed screen cancelled the campaign on: $PRESSES" >&2
+		exit 1
+	fi
+done
+rm -f "$TMP/ARMED"
+
 echo "== undervolt data tests: ALL PASS =="

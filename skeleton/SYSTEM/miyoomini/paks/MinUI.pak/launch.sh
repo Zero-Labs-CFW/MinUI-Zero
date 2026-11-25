@@ -22,6 +22,13 @@ if [ ! -f /sys/devices/gpiochip0/gpio/gpio59/direction ]; then
 	echo in > /sys/devices/gpiochip0/gpio/gpio59/direction
 fi
 
+# The SPI-NOR env read (fw_printenv, 10 ms measured warm, 2026-07-25) starts here, in the background, and is
+# collected with `wait` where MIYOO_VERSION is set below; the card sweeps and checks in between overlap it.
+# Same command, read fresh every boot; the /tmp file is a tmpfs hand-off inside this one boot, not a cache.
+# Started after the LCD init on purpose, so nothing new runs while the panel comes up.
+/etc/fw_printenv miyoo_version > /tmp/zero-miyoo-version &
+_fwenv_pid=$!
+
 
 #######################################
 
@@ -64,11 +71,26 @@ export SAVES_PATH="$SDCARD_PATH/Saves"
 # not accumulate; known junk names only, never a user file (parity with the Brick launcher, 2026-09-22).
 # The Spotlight index, fsevents logs and no-index markers were missed in that port (.Spotlight-V100 left on
 # the H after a Mac mount, 2026-11-02): the markers stop a Mac indexing the card at all.
-rm -rf "$SDCARD_PATH/.Spotlight-V100" "$SDCARD_PATH/.Trashes" "$SDCARD_PATH/System Volume Information" 2>/dev/null
-touch "$SDCARD_PATH/.metadata_never_index" 2>/dev/null
-mkdir -p "$SDCARD_PATH/.fseventsd" && touch "$SDCARD_PATH/.fseventsd/no_log" 2>/dev/null
-find "$SDCARD_PATH/.fseventsd" -type f ! -name no_log -exec rm -f {} + 2>/dev/null
-rm -f "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._* 2>/dev/null
+# Each sweep below is guarded by a builtin existence test: on a card that is already clean (every boot after a
+# sweep, until the next Mac or PC mount) the rm/touch/mkdir/find is a fork for nothing, about seven on this path.
+# _any is true when any of its arguments exists (or is a link, which rm would also remove).
+_any() { for _a; do [ -e "$_a" ] || [ -h "$_a" ] && return 0; done; return 1; }
+_any "$SDCARD_PATH/.Spotlight-V100" "$SDCARD_PATH/.Trashes" "$SDCARD_PATH/System Volume Information" &&
+	rm -rf "$SDCARD_PATH/.Spotlight-V100" "$SDCARD_PATH/.Trashes" "$SDCARD_PATH/System Volume Information" 2>/dev/null
+[ -e "$SDCARD_PATH/.metadata_never_index" ] || touch "$SDCARD_PATH/.metadata_never_index" 2>/dev/null
+{ [ -d "$SDCARD_PATH/.fseventsd" ] || mkdir -p "$SDCARD_PATH/.fseventsd"; } &&
+	{ [ -e "$SDCARD_PATH/.fseventsd/no_log" ] || touch "$SDCARD_PATH/.fseventsd/no_log" 2>/dev/null; }
+# The find only when .fseventsd holds anything besides no_log (a file, or a folder a file could be in), or is
+# itself a file, which the find removes.
+if [ -d "$SDCARD_PATH/.fseventsd" ]; then
+	for _f in "$SDCARD_PATH/.fseventsd"/* "$SDCARD_PATH/.fseventsd"/.[!.]* "$SDCARD_PATH/.fseventsd"/..?*; do
+		[ "$_f" = "$SDCARD_PATH/.fseventsd/no_log" ] && continue
+		_any "$_f" && { find "$SDCARD_PATH/.fseventsd" -type f ! -name no_log -exec rm -f {} + 2>/dev/null; break; }
+	done
+elif _any "$SDCARD_PATH/.fseventsd"; then
+	find "$SDCARD_PATH/.fseventsd" -type f ! -name no_log -exec rm -f {} + 2>/dev/null
+fi
+_any "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._* && rm -f "$SDCARD_PATH/.DS_Store" "$SDCARD_PATH"/._* 2>/dev/null
 # the & belongs OUTSIDE the subshell: inside it backgrounded only the find, and the sleep 15 ran in the
 # foreground of every boot (menu-ready 7 s -> 22 s on the Brick and Smart Pro, 2026-09-22)
 ( sleep 15; while pidof minarch.elf >/dev/null 2>&1; do sleep 30; done; nice -n 19 find "$SDCARD_PATH/Roms" "$BIOS_PATH" "$SAVES_PATH" "$SDCARD_PATH/Collections" \( -name "._*" -o -name ".DS_Store" -o -name "Thumbs.db" -o -name "ehthumbs.db" -o -name "desktop.ini" \) -exec rm -f {} + 2>/dev/null ) &
@@ -113,9 +135,10 @@ if [ -f "$SDCARD_PATH/.system/res/zero-log.sh" ]; then . "$SDCARD_PATH/.system/r
 else zero_rotate_prev_log() { :; }; zero_rotate_prev_log_cmd() { :; }; zero_boot_receipt() { :; }; fi
 export DATETIME_PATH="$SHARED_USERDATA_PATH/datetime.txt" # used by bin/shutdown
 
-mkdir -p "$USERDATA_PATH"
-mkdir -p "$LOGS_PATH"
-mkdir -p "$SHARED_USERDATA_PATH/.minui"
+# guarded: these exist on every boot after the first, and each bare mkdir -p is a fork
+[ -d "$USERDATA_PATH" ] || mkdir -p "$USERDATA_PATH"
+[ -d "$LOGS_PATH" ] || mkdir -p "$LOGS_PATH"
+[ -d "$SHARED_USERDATA_PATH/.minui" ] || mkdir -p "$SHARED_USERDATA_PATH/.minui"
 
 #######################################
 
@@ -224,10 +247,12 @@ fi
 # Settings.pak now. Drop the old paks from cards that had them. Clock and Focus Mode are ours by
 # name; the WiFi copy is marker-guarded because FAT32 folds case, so "WiFi.pak" is also the
 # community Wifi.pak, which we must never delete.
+# Existence-guarded (builtin tests): on a card already cleaned these were four forks every boot.
 for _p in "Clock.pak" "Focus Mode.pak" "WiFi Toggle.pak"; do
-	rm -rf "$SDCARD_PATH/Tools/miyoomini/$_p" 2>/dev/null
+	_any "$SDCARD_PATH/Tools/miyoomini/$_p" && rm -rf "$SDCARD_PATH/Tools/miyoomini/$_p" 2>/dev/null
 done
-grep -q 'styled like Deep Sleep.pak' "$SDCARD_PATH/Tools/miyoomini/WiFi.pak/launch.sh" 2>/dev/null && rm -rf "$SDCARD_PATH/Tools/miyoomini/WiFi.pak" 2>/dev/null
+[ -f "$SDCARD_PATH/Tools/miyoomini/WiFi.pak/launch.sh" ] &&
+	grep -q 'styled like Deep Sleep.pak' "$SDCARD_PATH/Tools/miyoomini/WiFi.pak/launch.sh" 2>/dev/null && rm -rf "$SDCARD_PATH/Tools/miyoomini/WiFi.pak" 2>/dev/null
 
 # SSH visibility, DEV CARDS ONLY (Dan, 2026-09-08: "We should do that and enable with devmode").
 # The pak ships stashed in .system and this block owns the Tools copy, gated on devmode.txt so a user card never gets
@@ -256,14 +281,32 @@ echo $CPU_SPEED_MENU > /sys/devices/system/cpu/cpufreq/policy0/scaling_setspeed 
 # the answer cannot change without a firmware reflash. Cache it. (Same fix as the tg5040
 # model-detect cache.) Delete $USERDATA_PATH/model.txt to force a re-probe.
 MODEL_CACHE="$USERDATA_PATH/model.txt"
+# _one_word FILE: builtin read, true (value in $_ow) only when FILE is one line of plain characters, and only
+# then is the value certain to equal `cat` in backticks however this ash treats export. Anything else (several
+# lines, spaces, CR) returns false and the caller takes the original fork.
+_one_word() {
+	_ow=; _ow_x=
+	{ IFS= read -r _ow; while IFS= read -r _ow_l || [ -n "$_ow_l" ]; do _ow_x="$_ow_x$_ow_l"; done; } 2>/dev/null < "$1"
+	[ -n "$_ow" ] && [ -z "$_ow_x" ] || return 1
+	case "$_ow" in *[!A-Za-z0-9_.=-]*) return 1 ;; esac
+	return 0
+}
 if [ -s "$MODEL_CACHE" ]; then
-	export MY_MODEL=`cat "$MODEL_CACHE"`
+	if _one_word "$MODEL_CACHE"; then export MY_MODEL="$_ow" # builtin read, no cat fork
+	else export MY_MODEL=`cat "$MODEL_CACHE"`; fi
 else
 	export MY_MODEL=`strings -n 5 /customer/app/MainUI | grep MY`
 	[ -n "$MY_MODEL" ] && echo "$MY_MODEL" > "$MODEL_CACHE"   # never cache a failed probe: it stuck forever (audit 2026-09-23)
 fi
 
-MIYOO_VERSION=`/etc/fw_printenv miyoo_version`
+# Collect the fw_printenv started at the top of this file. A missing hand-off file falls back to the in-line read.
+wait $_fwenv_pid
+if [ -f /tmp/zero-miyoo-version ]; then
+	if _one_word /tmp/zero-miyoo-version; then MIYOO_VERSION=$_ow
+	else MIYOO_VERSION=`cat /tmp/zero-miyoo-version`; fi
+else
+	MIYOO_VERSION=`/etc/fw_printenv miyoo_version`
+fi
 export MIYOO_VERSION=${MIYOO_VERSION#miyoo_version=}
 
 #######################################
@@ -385,7 +428,13 @@ lumon.elf & # adjust lcd luma and saturation
 # 0 -> duty 6, otherwise value*10.
 MSETTINGS="$USERDATA_PATH/msettings.bin"
 if [ -s "$MSETTINGS" ]; then
-	B=$(od -An -tu4 -j4 -N4 "$MSETTINGS" 2>/dev/null | tr -d ' ')
+	# od alone, and the `tr -d ' '` done with builtins: drop every space, then the newlines that end up trailing
+	# (the $(...) of the old pipeline stripped those after tr). Same string, one process instead of a pipeline.
+	B=$(od -An -tu4 -j4 -N4 "$MSETTINGS" 2>/dev/null)
+	while :; do case "$B" in *" "*) B=${B%%" "*}${B#*" "} ;; *) break ;; esac; done
+	while :; do case "$B" in *"
+") B=${B%"
+"} ;; *) break ;; esac; done
 	case "$B" in
 		''|*[!0-9]*) B="" ;;
 		*) [ "$B" -gt 10 ] && B="" ;;   # out of range: leave the boot default alone
@@ -517,13 +566,15 @@ if [ -f "$AUTO_PATH" ]; then
 	"$AUTO_PATH"
 fi
 
-cd $(dirname "$0")
+case "$0" in */*) cd "${0%/*}" ;; esac # dirname without the fork
 
 #######################################
 
 EXEC_PATH=/tmp/minui_exec
 NEXT_PATH="/tmp/next"
-touch "$EXEC_PATH"  && sync
+# `true` is a regular ash builtin, so a failed redirect returns false as touch did, rather than ending the shell
+# the way it would on the special builtin `:`. The sync stays: it also commits this boot's card writes.
+true > "$EXEC_PATH" && sync
 while [ -f "$EXEC_PATH" ]; do
 	minui.elf &> $LOGS_PATH/minui.txt
 	

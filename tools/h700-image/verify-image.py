@@ -12,14 +12,16 @@ Checks, each against bytes rebuilt from the pinned assets rather than a remember
   p2 p3 p4     the boot, env and kernel partitions equal the board's parts
   payload      .system/version.txt names the expected version (mtools); a release carries no devmode.txt
   rootfs       (docker debugfs) root locked, dropbear key-only, muOS lid.sh and boot-time WiFi off, GPU
-               ceiling, no baked ssh key on a release, and the /opt/muos/device overlay is this board's
+               ceiling, no baked ssh key on a release, and the /opt/muos/device overlay is this board's; on the one
+               image, both SPL builds of the committed sources and their installers (spl-auto.sh, zero-install.sh)
 Replaces the per-release scratch verify-images.py / verify-rootfs.py copies in .notes.
 """
-import filecmp, gzip, io, os, shutil, struct, subprocess, sys, tarfile, tempfile, zlib
+import filecmp, gzip, hashlib, io, os, shutil, struct, subprocess, sys, tarfile, tempfile, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from oneimage import bootimg_len, BOARDS, LPDDR3   # the p4 trim and the board table, shared with the stager
+import fastboot   # single-board images carry the fast chain and kernel (build-h700-stripped.sh)
 REPO = os.path.dirname(os.path.dirname(HERE))
 RAW36 = 36 << 20
 BOOT0_OFFS = (8192, 262144)
@@ -87,7 +89,21 @@ def expected_chain(assets, device, tmp):
         b = open(b0, 'rb').read()
         for off in BOOT0_OFFS:
             chain[off:off + len(b)] = b
-    return bytes(chain)
+    return bytes(chain) if device == 'all' else fastboot.chain(bytes(chain))
+
+
+def spl_ok(b, t):
+    """One of our SPL builds as zero-install.sh accepts it: eGON + "SPL", declared length = size <= 48 KiB in whole
+    sectors, a good checksum, our hand-off, and exactly its own DRAM type string (t: b'lp4' or b'lp3')."""
+    if len(b) < 512 or b[4:12] != b'eGON.BT0' or b[20:23] != b'SPL':
+        return False
+    n = struct.unpack('<I', b[16:20])[0]
+    if n != len(b) or n > 49152 or n % 512:
+        return False
+    y = bytearray(b); y[12:16] = struct.pack('<I', 0x5F0A6C39)
+    other = b'lp3' if t == b'lp4' else b'lp4'
+    return (sum(struct.unpack('<%dI' % (n // 4), bytes(y))) & 0xffffffff == struct.unpack('<I', b[12:16])[0] and
+            b'zero: vendor hand-off' in b and b'zero: dram ' + t in b and b'zero: dram ' + other not in b)
 
 
 def debugfs(img, off, path):
@@ -218,6 +234,8 @@ def main():
                 data = g.read()
             if name.startswith('p4'):   # the build writes only the Android boot image's own length
                 data = data[:bootimg_len(data)]
+                if device != 'all':     # fast form on single-board images
+                    data = fastboot.bootimg(data)
             f.seek(seek * SECTOR)
             check(name.split('.')[0] + ' matches ' + os.path.relpath(part(assets, device, name), assets),
                   f.read(len(data)) == data)
@@ -234,12 +252,14 @@ def main():
         for src, dst in (('workspace/h700/boards.txt', '.system/h700/boards.txt'),
                          ('skeleton/SYSTEM/h700/bin/board', '.system/h700/bin/board'),
                          ('skeleton/SYSTEM/res/zero-log.sh', '.system/res/zero-log.sh'),
+                         ('skeleton/SYSTEM/h700/bin/suspend', '.system/h700/bin/suspend'),
                          ('tools/h700-strip/minui-frontend.sh', '.system/h700/bin/minui-frontend.sh')):
             got = subprocess.run([mtype, '-i', spec, '::/' + dst], capture_output=True).stdout
             check(dst + ' current', got == open(os.path.join(REPO, src), 'rb').read(), '' if got else 'missing')
         if opts.get('--release'):
-            dm = subprocess.run([mtype, '-i', spec, '::/devmode.txt'], capture_output=True).returncode
-            check('no devmode.txt on the card', dm != 0)
+            for marker in ('devmode.txt', 'fast-boot.txt', 'fast-boot-off.txt'):
+                rc = subprocess.run([mtype, '-i', spec, '::/' + marker], capture_output=True).returncode
+                check('no ' + marker + ' on the card', rc != 0)
     else:
         print('  (payload checks skipped: no roms partition or no mtools)')
         # a release is only verified if every check ran: a skipped one must not read as PASS
@@ -257,6 +277,12 @@ def main():
             bad = z.testzip()
             fe = '.system/h700/bin/minui-frontend.sh'
             fe_ok = fe in names and z.read(fe) == open(os.path.join(REPO, 'tools/h700-strip/minui-frontend.sh'), 'rb').read()
+            # the lean font library the menu loads first (sdl2_ttf/build.sh): a broken one is a menu that never starts
+            tt = '.system/h700/lib/libSDL2_ttf-2.0.so.0'
+            ttb = z.read(tt) if tt in names else b''
+            import elfcheck
+            ttf_ok = (elfcheck.sound(ttb, (b'libSDL2_ttf-2.0.so.0', b'TTF_RenderUTF8_Blended')) and b'libharfbuzz' not in ttb and
+                      400000 < len(ttb) < 2000000)
             mr = '.system/h700/min-rootfs'
             if mr in names and z.read(mr).strip().isdigit():
                 zip_min_rootfs = int(z.read(mr).strip())
@@ -268,6 +294,7 @@ def main():
         check('update zip complete', not missing, ', '.join(missing))
         check('update zip has no picked model', '.system/h700/board' not in names)
         check('update zip frontend current', fe_ok)
+        check('update zip lean SDL2_ttf', ttf_ok)
         check('update zip states its min-rootfs', zip_min_rootfs is not None)
     elif opts.get('--release'):
         check('update zip present (%s)' % os.path.basename(zp), False)
@@ -323,6 +350,69 @@ def main():
         check('updating frame for every board', not bad, ', '.join(bad))
         mode = debugfs_mode(img, off, '/sbin/fsck.vfat')
         check('fsck.vfat for card-fsck', mode is not None and mode & 0o111 == 0o111)
+        # BOOT SPEED (2026-11-04): the boards boot without an initramfs, so the rootfs must do its jobs, and the muOS boot
+        # steps taken off the boot path must stay off it
+        it = cat('/etc/inittab').decode(errors='replace')
+        check('inittab checks root then remounts it with options',
+              '::sysinit:/opt/minui-zero/root-check.sh\n::sysinit:/bin/busybox mount -o remount,rw,noatime,nodiratime,nobarrier,noauto_da_alloc /' in it)
+        for src, dst in (('tools/h700-strip/root-check.sh', '/opt/minui-zero/root-check.sh'),):
+            mode = debugfs_mode(img, off, dst)
+            check('root-check.sh current + executable', cat(dst) == open(os.path.join(REPO, src), 'rb').read() and
+                  mode is not None and mode & 0o111 == 0o111)
+        mode = debugfs_mode(img, off, '/opt/minui-zero/e2fsck/e2fsck')
+        check('e2fsck for root-check', mode is not None and mode & 0o111 == 0o111 and
+              all(debugfs_mode(img, off, '/opt/minui-zero/e2fsck/' + l) is not None for l in
+                  ('libext2fs.so.2', 'libe2p.so.2', 'libcom_err.so.2', 'libblkid.so.1', 'libuuid.so.1')))
+        check('watchdog applet for root-check (RG34XX H)', debugfs_mode(img, off, '/sbin/watchdog') is not None)
+        check('console and null nodes in /dev', debugfs_mode(img, off, '/dev/console') is not None and
+              debugfs_mode(img, off, '/dev/null') is not None)
+        check('udev off the boot path', b'udev off the boot path' in cat('/opt/muos/script/init/S10udev'))
+        check('dbus not started', debugfs_mode(img, off, '/opt/muos/script/init/S30dbus') is None)
+        ms = cat('/opt/muos/script/mount/start.sh').decode(errors='replace')
+        check('main card mounted directly', 'MinUI Zero fast path' in ms and 'one sequence, off the boot path' in ms)
+        # MENU FIRST and late USB: early.sh starts the frontend before the muOS sysinit, startup.sh skips what it did
+        mode = debugfs_mode(img, off, '/opt/minui-zero/early.sh')
+        check('early.sh current + executable', cat('/opt/minui-zero/early.sh') == open(os.path.join(REPO, 'tools/h700-strip/early.sh'), 'rb').read()
+              and mode is not None and mode & 0o111 == 0o111)
+        check('inittab runs early.sh before the muOS sysinit',
+              '::sysinit:/opt/minui-zero/early.sh\n::sysinit:/opt/muos/script/init/sysinit' in it)
+        su_txt = cat('/opt/muos/script/system/startup.sh').decode(errors='replace')
+        check('startup.sh defers to early.sh', su_txt.count('zero-early') == 4 and 'the frontend owns the governor' in su_txt)
+        # quiet window: startup.sh and udev wait for the menu's first frame; busybox mounts; no per-boot depmod
+        check('startup.sh quiet window', su_txt.split('\n')[1].count('zero-menu-frame') == 1)
+        check('udev waits for the menu', b'zero-menu-frame' in cat('/opt/muos/script/init/S10udev'))
+        check('inittab busybox mounts', '::sysinit:/bin/mount ' not in it and it.count('::sysinit:/bin/busybox mount ') >= 5)
+        # /run must be mounted before a failed boot-slot transaction can retain a lock there.
+        mode = debugfs_mode(img, off, '/opt/minui-zero/boot0-slot.sh')
+        check('boot0-slot.sh current + executable', cat('/opt/minui-zero/boot0-slot.sh') ==
+              open(os.path.join(REPO, 'tools/h700-strip/boot0-slot.sh'), 'rb').read() and mode is not None and mode & 0o111 == 0o111)
+        check('spl-lock.sh current', cat('/opt/minui-zero/spl-lock.sh') ==
+              open(os.path.join(REPO, 'tools/h700-strip/spl-lock.sh'), 'rb').read())
+        for marker in ('/run/zero-spl-busy', '/run/zero-spl-auto', '/run/zero-spl-sleep',
+                       '/opt/minui-zero/.spl-sleep-swapped'):
+            check('no initial ' + marker, debugfs_mode(img, off, marker) is None)
+        check('inittab finishes a sleep swap and acknowledges our SPL',
+              '::sysinit:/bin/busybox mount -a\n::sysinit:/opt/minui-zero/boot0-slot.sh boot\n'
+              '::sysinit:/bin/busybox setsid /opt/minui-zero/boot0-slot.sh ack\n' in it)
+        check('boot-slot recovery precedes frontend startup',
+              0 <= it.find('::sysinit:/opt/minui-zero/boot0-slot.sh boot\n') <
+              it.find('::sysinit:/opt/minui-zero/early.sh\n'))
+        check('depmod only when missing', b'only when missing' in cat('/opt/muos/script/device/module.sh'))
+        zc = cat('/opt/minui-zero/zero-codec')
+        check('zero-codec', zc[:4] == b'\x7fELF' and len(zc) < 16384)
+        # the late-start modules: their symbol CRCs must be every board kernel's own, or insmod fails every boot and the
+        # controllers the boot package held back stay off (USB host; second card + WiFi) (Codex)
+        import glob as _g, symcrc
+        kimgs = [symcrc.image_of(kp) for kp in sorted(set(_g.glob(os.path.join(assets, 'parts*', 'p4-kernel.img.gz'))))]
+        for mod, label in (('zero_late_usb', 'late-USB'), ('zero_late_mmc', 'late-MMC')):
+            ko = cat('/opt/minui-zero/%s.ko' % mod)
+            check(label + ' module', b'vermagic=4.9.170 SMP preempt mod_unload modversions aarch64' in ko)
+            want = symcrc.module_versions(ko) if ko[:4] == b'\x7fELF' else {}
+            bad = [str(i) for i, k in enumerate(kimgs) if symcrc.crcs(k, sorted(want))[0] != want]
+            check(label + ' module CRCs match every kernel', bool(want) and bool(kimgs) and not bad, ', '.join(bad))
+        check('codec ready marker', b'zero-codec-ready' in cat('/opt/muos/script/system/pipewire.sh'))
+        check('startup waits for the card', 'until grep -q " /mnt/mmc " /proc/mounts' in
+              cat('/opt/muos/script/system/startup.sh').decode(errors='replace'))
         # the rootfs level must cover what this build's own zip needs, or a fresh image refuses its own update
         lvl = cat('/opt/minui-zero/rootfs-level').decode(errors='replace').strip()
         check('rootfs-level covers the zip', lvl.isdigit() and (zip_min_rootfs is None or int(lvl) >= zip_min_rootfs),
@@ -346,6 +436,40 @@ def main():
             # the frontend and the picker test these by existence, so check existence, not contents
             for n in ('chosen', 'chosen.new', 'trying', 'pending', 'pending.new', 'undo-boot0.img'):
                 check('no boards/' + n + ' yet', debugfs_mode(img, off, '/opt/minui-zero/boards/' + n) is None)
+            # the fast boot loader: both builds, from these sources (the build's cache carries their sum), and the
+            # scripts that install it once the model is known (spl-auto.sh, run by boot0-slot.sh ack)
+            spl_src = os.path.join(REPO, 'workspace', 'h700', 'spl')
+            want_sum = hashlib.md5(open(os.path.join(spl_src, 'zero-spl.patch'), 'rb').read() +
+                                   open(os.path.join(spl_src, 'build.sh'), 'rb').read()).hexdigest()
+            spl_cache = os.path.join(assets, 'spl')
+            try:
+                have_sum = open(os.path.join(spl_cache, 'sources.md5')).read().strip()
+            except OSError:
+                have_sum = ''
+            check('SPL builds are of these sources', have_sum == want_sum, have_sum or 'no build cache')
+            for name, t in (('zero-spl.bin', b'lp4'), ('zero-spl-lp3.bin', b'lp3')):
+                have = cat('/opt/minui-zero/spl/' + name)
+                built = os.path.join(spl_cache, name)
+                check('SPL ' + name + ' well-formed', spl_ok(have, t), '%d bytes' % len(have))
+                check('SPL ' + name + ' is the build', os.path.isfile(built) and have == open(built, 'rb').read())
+            for src, dst, x in (('workspace/h700/spl/zero-install.sh', '/opt/minui-zero/spl/zero-install.sh', False),
+                                ('tools/h700-strip/spl-auto.sh', '/opt/minui-zero/spl-auto.sh', True)):
+                mode = debugfs_mode(img, off, dst)
+                check(os.path.basename(dst) + ' current' + (' + executable' if x else ''),
+                      cat(dst) == open(os.path.join(REPO, src), 'rb').read() and mode is not None and
+                      (not x or mode & 0o111 == 0o111))
+            check('ack runs spl-auto.sh', b'sh /opt/minui-zero/spl-auto.sh' in cat('/opt/minui-zero/boot0-slot.sh'))
+            loader_cache = os.path.join(assets, 'loader')
+            for name in ('zero-loader.bin', 'build-id', 'boot-health'):
+                built = os.path.join(loader_cache, name)
+                have = cat('/opt/minui-zero/loader/' + name)
+                check('stage2 payload ' + name + ' is the build', os.path.isfile(built) and have == open(built, 'rb').read())
+            mode = debugfs_mode(img, off, '/opt/minui-zero/loader/boot-health')
+            check('stage2 health executable', mode is not None and mode & 0o111 == 0o111)
+            tuples = subprocess.run([sys.executable, os.path.join(REPO, 'workspace/h700/loader/tools/genprofiles.py'),
+                                     '--packaged', os.path.join(assets, 'boards-stage')], capture_output=True, text=True)
+            check('stage2 Plus/H artifact compatibility', tuples.returncode == 0, tuples.stdout.strip() or tuples.stderr.strip())
+            check('no spl-state yet', debugfs_mode(img, off, '/opt/minui-zero/spl-state') is None)
             with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(img))) as tmp:
                 have = rdump(img, off, '/opt/minui-zero/boards', tmp)
                 os.makedirs(os.path.join(tmp, 'dev'))

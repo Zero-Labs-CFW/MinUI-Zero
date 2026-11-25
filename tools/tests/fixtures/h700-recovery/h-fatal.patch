@@ -1,0 +1,8 @@
+diff --git a/main.c b/main.c
+--- a/main.c
++++ b/main.c
+@@ -154,1 +154,3 @@
+-	if (zl_prepare_hardware())
++	if ((p->flags & ZP_PROFILE_MASK) == ZP_PROFILE_H)
++		zl_fail(ZL_FAIL_GUNZIP);
++	if (zl_prepare_hardware())

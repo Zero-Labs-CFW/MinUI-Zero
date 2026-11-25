@@ -24,7 +24,39 @@ echo 0 > /sys/class/led_anim/max_scale_f1f2 2>/dev/null
 
 # for Brick (noatime: nothing reads atime, so skip the per-access metadata writeback to SD)
 mount -o remount,rw,async,noatime "$SDCARD_PATH"
+# The boot hook hands off the moment the SD card is mounted, but the vendor's `block mount` mounts
+# /mnt/UDISK right AFTER the card (30-170 ms later). On about one boot in five this script got here
+# first: the remount below failed, UDISK stayed sync,relatime for the whole session, and the
+# system.json sweep found no file (Brick, 4 of 20 boots, 2026-11-11). Wait for it, bounded, so a
+# device whose UDISK never mounts still boots. The check is shell builtins only, so the usual
+# boot (already mounted) pays no process spawn for it.
+udisk_mounted() {
+	while read -r _ UDISK_MP _; do
+		[ "$UDISK_MP" = /mnt/UDISK ] && return 0
+	done < /proc/mounts
+	return 1
+}
+UDISK_TRIES=0
+while ! udisk_mounted && [ $UDISK_TRIES -lt 10 ]; do
+	sleep 0.05
+	UDISK_TRIES=$((UDISK_TRIES + 1))
+done
 mount -o remount,rw,async,noatime "/mnt/UDISK"
+# The vendor's udev replay (S80udev) runs /etc/hotplug.d/block/10-mount for every block device, and on about one boot
+# in two that unmounts the card and mounts it again plain (rw,relatime) at ~5.5 s, after the remount above (Brick on
+# the Zero kernel, caught by a /proc/mounts probe, 2026-11-19). Re-apply noatime for the first 20 s of boot, leaving a
+# read-only mount (shutdown, File Transfer) alone. Builtins only, so it costs a /proc/mounts read every 0.5 s and a remount only when one is undone.
+(
+	NA_I=0
+	while [ $NA_I -lt 40 ]; do
+		while read -r _ NA_MP _ NA_OPT _; do
+			case "$NA_MP" in /mnt/SDCARD|/mnt/UDISK) ;; *) continue ;; esac
+			case ",$NA_OPT," in *,noatime,*|*,ro,*) ;; *) mount -o remount,rw,async,noatime "$NA_MP" 2>/dev/null ;; esac
+		done < /proc/mounts
+		sleep 0.5
+		NA_I=$((NA_I + 1))
+	done
+) </dev/null >/dev/null 2>&1 &
 
 # Persist "LEDs off" where the FIRMWARE reads it, not just in sysfs. The sysfs writes above hold
 # only for this boot and only from the moment this script runs; the boot-logo phase belongs to the
@@ -57,16 +89,29 @@ fi
 # power. Bluetooth is always disabled (no feature uses it); wifi stays up ONLY when the dev
 # enable-ssh flag is present (SSH access). Zero user-facing loss, less idle drain + heat.
 SHARED_UD="$SDCARD_PATH/.userdata/shared"
-killall -q bluetoothd bluealsa hciattach 2>/dev/null
-[ -x /etc/init.d/hciattach ] && /etc/init.d/hciattach stop >/dev/null 2>&1
-for r in /sys/class/rfkill/rfkill*; do
-	[ "$(cat "$r/type" 2>/dev/null)" = "bluetooth" ] && echo 0 > "$r/state" 2>/dev/null
+# The Bluetooth part runs in the background so the menu does not wait for it (about 0.12 s of boot.sh on the
+# Brick, 2026-11-12). Nothing later depends on WHEN Bluetooth goes down. The WiFi part below stays in line:
+# launch.sh may bring WiFi back up, so its order matters.
+(
+# One builtin pass over /proc instead of killall: busybox killall rescans /proc per NAME, about 50 ms each
+# on the Brick (three names 100 ms, this loop 30 ms, 8 boots per arm, 2026-11-11).
+for _c in /proc/[0-9]*/comm; do
+	read -r _n 2>/dev/null < "$_c" || continue
+	case "$_n" in bluetoothd|bluealsa|hciattach) _p=${_c#/proc/}; kill "${_p%/comm}" 2>/dev/null ;; esac
 done
+[ -x /etc/init.d/hciattach ] && /etc/init.d/hciattach stop >/dev/null 2>&1
+# builtin read, not $(cat): each cat is a fork (about 10 ms on the Brick)
+for r in /sys/class/rfkill/rfkill*; do
+	_t=; read -r _t 2>/dev/null < "$r/type"
+	[ "$_t" = "bluetooth" ] && echo 0 > "$r/state" 2>/dev/null
+done
+) &
 if [ ! -f "$SHARED_UD/enable-ssh" ]; then
 	killall -q wpa_supplicant 2>/dev/null
 	ifconfig wlan0 down 2>/dev/null
 	for r in /sys/class/rfkill/rfkill*; do
-		[ "$(cat "$r/type" 2>/dev/null)" = "wlan" ] && echo 0 > "$r/state" 2>/dev/null
+		_t=; read -r _t 2>/dev/null < "$r/type"
+		[ "$_t" = "wlan" ] && echo 0 > "$r/state" 2>/dev/null
 	done
 fi
 

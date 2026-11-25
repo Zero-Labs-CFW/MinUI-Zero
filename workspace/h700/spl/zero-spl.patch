@@ -1,0 +1,1625 @@
+diff --git a/arch/arm/lib/crt0_64.S b/arch/arm/lib/crt0_64.S
+index 3e7627aa..943b05ad 100644
+--- a/arch/arm/lib/crt0_64.S
++++ b/arch/arm/lib/crt0_64.S
+@@ -158,6 +158,10 @@ relocation_return:
+ /*
+  * Clear BSS section
+  */
++#if defined(CONFIG_XPL_BUILD) && defined(CONFIG_MACH_SUN50I_H616)
++	/* MinUI Zero: BSS is in SRAM and already cleared and in use (zero_vendor_early: the card is up before DRAM) */
++	b	clear_done
++#endif
+ 	adrp	x0, __bss_start
+ 	add	x0, x0, #:lo12:__bss_start
+ 	adrp	x1, __bss_end
+@@ -166,6 +170,7 @@ clear_loop:
+ 	str	xzr, [x0], #8
+ 	cmp	x0, x1
+ 	b.lo	clear_loop
++clear_done:
+ 
+ 	/* call board_init_r(gd_t *id, ulong dest_addr) */
+ 	mov	x0, x18				/* gd_t */
+diff --git a/arch/arm/mach-sunxi/Kconfig b/arch/arm/mach-sunxi/Kconfig
+index b0c5d3cd..222c4a18 100644
+--- a/arch/arm/mach-sunxi/Kconfig
++++ b/arch/arm/mach-sunxi/Kconfig
+@@ -303,7 +303,8 @@ config SUNXI_GEN_SUN6I
+ config SUN50I_GEN_H6
+ 	bool
+ 	select FIT
+-	select SPL_LOAD_FIT if SPL
++	# MinUI Zero H616 uses BOOT_DEVICE_BOARD and the vendor handoff, never the FIT loader.
++	select SPL_LOAD_FIT if SPL && !MACH_SUN50I_H616
+ 	select MMC_SUNXI_HAS_NEW_MODE
+ 	select SUPPORT_SPL
+ 	help
+diff --git a/arch/arm/mach-sunxi/Makefile b/arch/arm/mach-sunxi/Makefile
+index ff475d8f..74348804 100644
+--- a/arch/arm/mach-sunxi/Makefile
++++ b/arch/arm/mach-sunxi/Makefile
+@@ -31,6 +31,7 @@ obj-y	+= timer.o
+ endif
+ 
+ ifdef CONFIG_XPL_BUILD
++obj-$(CONFIG_MACH_SUN50I_H616)	+= zero_vendor.o	# MinUI Zero H700 vendor hand-off
+ obj-y				+= clock.o
+ obj-$(CONFIG_MACH_SUNIV)	+= dram_suniv.o
+ obj-$(CONFIG_DRAM_SUN4I)	+= dram_sun4i.o
+diff --git a/arch/arm/mach-sunxi/board.c b/arch/arm/mach-sunxi/board.c
+index 432b1c10..4d4cf8eb 100644
+--- a/arch/arm/mach-sunxi/board.c
++++ b/arch/arm/mach-sunxi/board.c
+@@ -212,9 +212,17 @@ static int gpio_init(void)
+ 	return 0;
+ }
+ 
++void zero_vendor_boot(void);
++
+ static int spl_board_load_image(struct spl_image_info *spl_image,
+ 				struct spl_boot_device *bootdev)
+ {
++	if (IS_ENABLED(CONFIG_MACH_SUN50I_H616)) {
++		zero_vendor_boot();	/* MinUI Zero: boot the vendor chain from the card; returns only on failure */
++		if (sunxi_get_boot_device() != BOOT_DEVICE_BOARD)
++			for (;;)	/* card boot: the watchdog armed by zero_vendor_early resets into the restore */
++				;
++	}
+ 	debug("Returning to FEL sp=%x, lr=%x\n", fel_stash.sp, fel_stash.lr);
+ 	return_to_fel(fel_stash.sp, fel_stash.lr);
+ 
+@@ -372,6 +380,8 @@ unsigned long board_spl_mmc_get_uboot_raw_sector(struct mmc *mmc,
+ 
+ u32 spl_boot_device(void)
+ {
++	if (IS_ENABLED(CONFIG_MACH_SUN50I_H616))
++		return BOOT_DEVICE_BOARD;	/* MinUI Zero: card boots go through the vendor hand-off too */
+ 	return sunxi_get_boot_device();
+ }
+ 
+diff --git a/arch/arm/mach-sunxi/dram_sun50i_h616.c b/arch/arm/mach-sunxi/dram_sun50i_h616.c
+index 42a0550e..e05d3e3d 100644
+--- a/arch/arm/mach-sunxi/dram_sun50i_h616.c
++++ b/arch/arm/mach-sunxi/dram_sun50i_h616.c
+@@ -22,6 +22,7 @@
+ #include <asm/arch/prcm.h>
+ #include <linux/bitops.h>
+ #include <linux/delay.h>
++#include "zero_dram_layout.h"
+ 
+ enum {
+ 	MBUS_QOS_LOWEST = 0,
+@@ -1319,7 +1320,17 @@ bool mctl_core_init(const struct dram_para *para,
+ 	return mctl_ctrl_init(para, config);
+ }
+ 
+-static const struct dram_para para = {
++#ifdef CONFIG_SUNXI_DRAM_H616_LPDDR3
++/*
++ * MinUI Zero (universal SPL, 2026-11-06): the LPDDR3 build trains with the unit's own delays (tpr6/11/12), which
++ * zero_vendor_early takes from the unit binding once it has passed (zero_dram_check.h). Kconfig holds 0 for them, and
++ * until they are set nothing here touches DRAM. The LPDDR4 build is unchanged (const, mainline delays).
++ */
++#define ZERO_PARA_CONST
++#else
++#define ZERO_PARA_CONST const
++#endif
++static ZERO_PARA_CONST struct dram_para para = {
+ 	.clk = CONFIG_DRAM_CLK,
+ #ifdef CONFIG_SUNXI_DRAM_H616_DDR3_1333
+ 	.type = SUNXI_DRAM_TYPE_DDR3,
+@@ -1340,21 +1351,40 @@ static const struct dram_para para = {
+ 	.tpr12 = CONFIG_DRAM_SUNXI_TPR12,
+ };
+ 
++#ifdef CONFIG_SUNXI_DRAM_H616_LPDDR3
++void zero_dram_trained(u32 tpr6, u32 tpr11, u32 tpr12)
++{
++	para.tpr6 = tpr6;
++	para.tpr11 = tpr11;
++	para.tpr12 = tpr12;
++}
++#endif
++
+ unsigned long sunxi_dram_init(void)
+ {
+ 	void *const prcm = (void *)SUNXI_PRCM_BASE;
+ 	struct dram_config config;
+ 	unsigned long size;
+ 
++#ifdef CONFIG_SUNXI_DRAM_H616_LPDDR3
++	if (!para.tpr11 || !para.tpr12)
++		return 0;	/* not validated: no DRAM (the caller hangs, the watchdog resets into the safety net) */
++#endif
+ 	setbits_le32(prcm + CCU_PRCM_RES_CAL_CTRL, BIT(8));
+ 	clrbits_le32(prcm + CCU_PRCM_OHMS240, 0x3f);
+ 
+ 	mctl_auto_detect_rank_width(&para, &config);
+ 	mctl_auto_detect_dram_size(&para, &config);
+ 
+-	mctl_core_init(&para, &config);
++	if (!zero_dram_layout_size(config.cols, config.rows, config.ranks,
++				   config.bus_full_width))
++		return 0;
++	if (!mctl_core_init(&para, &config))
++		return 0;
+ 
+ 	size = mctl_calc_size(&config);
++	if (!size)
++		return 0;
+ 
+ 	mctl_set_master_priority();
+ 
+diff --git a/arch/arm/mach-sunxi/zero_dram_check.h b/arch/arm/mach-sunxi/zero_dram_check.h
+new file mode 100644
+index 00000000..2ef4b956
+--- /dev/null
++++ b/arch/arm/mach-sunxi/zero_dram_check.h
+@@ -0,0 +1,112 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * MinUI Zero: which H700 units an SPL build may train (universal SPL, 2026-11-06). Pure C, no U-Boot headers: the same
++ * file is compiled by the host tests (.notes/2026-11-06-universal/tests) and run over every staged stock boot0.
++ *
++ * DRAM type is per UNIT, not per board (the RG35XX Pro and RG40XX H ship LPDDR3 and LPDDR4 units), so the source is
++ * the unit's own stock boot0, pinned by the installer from the backup slot after a stock boot (the vendor chain writes
++ * the strap-selected, trained words there). The installer also writes a UNIT BINDING sector (ZDC_BIND_SECTOR):
++ *   0x00  "ZERO-BIND-V1" (16 bytes, zero padded)
++ *   0x10  the unit's SID, as the vendor serial number carries it: SID word 1 >> 20, word 2, word 3 (androidboot.serialno
++ *         is "%03x%08x%08x" of exactly these, vendor U-Boot 0x4a00500c, research-fdt-fixups.md)
++ *   0x1c  0
++ *   0x20  the 32 DRAM words of the pinned boot0 (its +0x38)
++ * The SPL reads this one sector before it touches the PMIC or DRAM. A card moved to another unit (SID differs), a unit
++ * whose words this build cannot train exactly as stock describes them, or a unit stock boot0 would wire differently
++ * is refused: stock goes back before any PMIC voltage or DRAM access. Never a guess, never another unit's values.
++ *
++ * Word layout (decode-boot0.py): 0 clk, 1 type, 2 dx_odt, 3 dx_dri, 4 ca_dri, 5 odt_en, 6 para1, 7 para2, 8-21 mode
++ * registers (mr0..mr6, mr11..mr14, mr16, mr17, mr22), 22 tpr0, 23 tpr1, 24 tpr2, 25 tpr3, 26 tpr6, 27 tpr10, 28 tpr11,
++ * 29 tpr12, 30 tpr13, 31 tpr14.
++ */
++#ifndef ZERO_DRAM_CHECK_H
++#define ZERO_DRAM_CHECK_H
++
++#define ZDC_BIND_SECTOR	16641		/* after the attempt marker (16640), before the stored SPL (16768) */
++#define ZDC_BIND_MAGIC	"ZERO-BIND-V1"
++
++#define ZDC_LPDDR3	7		/* = upstream SUNXI_DRAM_TYPE_LPDDR3 and the vendor word (dram_sun50i_h616.h) */
++#define ZDC_LPDDR4	8
++
++/* The electrical sets every staged boot0 carries, identical within a type (11 boards, report 2026-11-05). The builds
++ * must use exactly these: zero_vendor.c fails the build when its Kconfig values differ. */
++#define ZDC_DX_ODT(t)	((t) == ZDC_LPDDR4 ? 0x08080808 : 0x06060606)
++#define ZDC_DX_DRI(t)	((t) == ZDC_LPDDR4 ? 0x0e0e0e0e : 0x0d0d0d0d)
++#define ZDC_CA_DRI(t)	((t) == ZDC_LPDDR4 ? 0x0e0e : 0x1919)
++#define ZDC_ODT_EN(t)	((t) == ZDC_LPDDR4 ? 0x7887bbbb : 0x9988eeee)
++#define ZDC_TPR10(t)	((t) == ZDC_LPDDR4 ? 0x402f6633 : 0x402f4489)
++#define ZDC_CLK		672		/* both builds: CONFIG_DRAM_CLK */
++
++/* refusal reasons (RTC GP14 = 0x5a56fd00 | reason after a refusal) */
++enum {
++	ZDC_OK = 0,
++	ZDC_NO_BIND = 1,	/* no binding sector: never installed by this installer */
++	ZDC_BIND_IO = 2,	/* the binding sector could not be read (after retries) */
++	ZDC_OTHER_UNIT = 3,	/* SID differs: the card (and its pinned boot0) belongs to another unit */
++	ZDC_PHY_MAP0 = 4,	/* stock boot0 would use PHY address map 0 on this chip; both builds are map 1 */
++	ZDC_CLOCK = 5,
++	ZDC_TYPE = 6,		/* a different DRAM type than this build trains */
++	ZDC_ELECTRICAL = 7,	/* drive/ODT words not the known set */
++	ZDC_MODE_REGS = 8,	/* mode registers not the ones upstream programs */
++	ZDC_TPR = 9,		/* tpr0/tpr2/tpr10 not the known set */
++	ZDC_SIZE = 10,		/* not 1 or 2 GiB, or an unknown rank/width field */
++	ZDC_UNTRAINED = 11,	/* LPDDR3 with zero delays: never trained by stock, nothing to train with */
++	ZDC_PIN_DIFFERS = 12,	/* (after DRAM) the pinned boot0's words are not the bound ones */
++	ZDC_SIZE_DIFFERS = 13,	/* (after DRAM) detected size is not the one stock recorded */
++	ZDC_PMIC = 14,		/* the PMIC at 0x34 answers, but not the way stock boot0 identifies its AXP2202 */
++	ZDC_PMIC_IO = 15,	/* no answer from 0x34 on two consecutive starts (each after retries) */
++};
++
++/* the mode registers upstream hardcodes (dram_timings/h616_lpddr{3,4}*.c init[] writes), words 8-21 */
++static const unsigned int zdc_mr_lp4[14] = { 0, 0x34, 0x1b, 0x33, 3, 0, 0, 4, 0x72, 0, 9, 0, 0, 0x24 };
++static const unsigned int zdc_mr_lp3[14] = { 0, 0x83, 0x1c, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
++
++/*
++ * Stock boot0's PHY wiring choice (H boot0 0x25644/0x25712/0x25766, the same code in all 11 staged boot0s): SID word 0
++ * matching one of these picks map 0, anything else map 1. Read from our own dump 2026-11-06 (phy-remap.py), the tables
++ * matched to upstream's; BaseOS reached the same reading. The RG35XX Plus reads SID word 0 = 0x33806c00: map 1.
++ */
++static inline int zdc_phy_map0(unsigned int sid0)
++{
++	return (sid0 & 0xfbff) == 0x5000 || (sid0 & 0xfeff) == 0x5c00 || (sid0 & 0xf7ff) == 0x2000;
++}
++
++/* bind: the 128 words of the binding sector; type: the build's ZDC_LPDDR3/4; sid: SID words 0-3 as read live */
++static inline int zdc_check(const unsigned int *bind, unsigned int type, const unsigned int *sid)
++{
++	const unsigned char *m = (const unsigned char *)bind, *want = (const unsigned char *)ZDC_BIND_MAGIC;
++	const unsigned int *w = bind + 8, *mr = type == ZDC_LPDDR4 ? zdc_mr_lp4 : zdc_mr_lp3;
++	unsigned int i;
++
++	for (i = 0; i < 16; i++)
++		if (m[i] != (i < sizeof(ZDC_BIND_MAGIC) - 1 ? want[i] : 0))
++			return ZDC_NO_BIND;
++	if (bind[7] || !(bind[4] | bind[5] | bind[6]))
++		return ZDC_NO_BIND;
++	if (bind[4] != sid[1] >> 20 || bind[5] != sid[2] || bind[6] != sid[3])
++		return ZDC_OTHER_UNIT;
++	if (zdc_phy_map0(sid[0]))
++		return ZDC_PHY_MAP0;
++	if (w[0] != ZDC_CLK)
++		return ZDC_CLOCK;
++	if (w[1] != type || (type != ZDC_LPDDR3 && type != ZDC_LPDDR4))
++		return ZDC_TYPE;
++	if (w[2] != ZDC_DX_ODT(type) || w[3] != ZDC_DX_DRI(type) || w[4] != ZDC_CA_DRI(type) ||
++	    w[5] != ZDC_ODT_EN(type))
++		return ZDC_ELECTRICAL;
++	for (i = 0; i < 14; i++)
++		if (w[8 + i] != mr[i])
++			return ZDC_MODE_REGS;
++	if (w[22] || w[24] != 1 || w[27] != ZDC_TPR10(type))
++		return ZDC_TPR;
++	/* para2: size in MiB in the top half (1 GiB 0x0400, 2 GiB 0x0800 on the 2-rank RG34XX SP); the low half 0 or 0x1000
++	 * (2 ranks), as in every staged boot0 and BaseOS's normalizer. More than 2 GiB would leave the 32-bit window. */
++	if ((w[7] >> 16 != 1024 && w[7] >> 16 != 2048) || ((w[7] & 0xffff) != 0 && (w[7] & 0xffff) != 0x1000))
++		return ZDC_SIZE;
++	/* LPDDR3 trains with the unit's own delays (the LPDDR4 build uses mainline's, proven on the H and Plus) */
++	if (type == ZDC_LPDDR3 && (!w[28] || !w[29] || !(w[26] >> 16 & 0xff)))
++		return ZDC_UNTRAINED;
++	return ZDC_OK;
++}
++
++#endif
+diff --git a/arch/arm/mach-sunxi/zero_dram_layout.h b/arch/arm/mach-sunxi/zero_dram_layout.h
+new file mode 100644
+index 00000000..903ef6b0
+--- /dev/null
++++ b/arch/arm/mach-sunxi/zero_dram_layout.h
+@@ -0,0 +1,21 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++#ifndef ZERO_DRAM_LAYOUT_H
++#define ZERO_DRAM_LAYOUT_H
++
++/* H700's bound unit records admit at most 2 GiB. A broken data path can make
++ * alias detection report its maximum geometry; mctl_calc_size would then touch
++ * 3/4 of that fictitious size, beyond the 32-bit DRAM window. Reject before it
++ * probes. This is a layout bound, not admission of another board or RAM size. */
++static inline unsigned long long zero_dram_layout_size(unsigned int cols,
++		unsigned int rows, unsigned int ranks, unsigned int full_width)
++{
++	unsigned long long size;
++
++	if (cols < 8 || cols > 11 || rows < 13 || rows > 17 ||
++	    (ranks != 1 && ranks != 2) || full_width > 1)
++		return 0;
++	size = (1ULL << (cols + rows + 3)) * (full_width ? 4 : 2) * ranks;
++	return size <= 0x80000000ULL ? size : 0;
++}
++
++#endif
+diff --git a/arch/arm/mach-sunxi/zero_early.h b/arch/arm/mach-sunxi/zero_early.h
+new file mode 100644
+index 00000000..b3f23b95
+--- /dev/null
++++ b/arch/arm/mach-sunxi/zero_early.h
+@@ -0,0 +1,112 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * MinUI Zero: the card-boot safety net's decisions before PMIC and DRAM (zero_vendor_early), as one function the host
++ * tests compile and run unchanged (.notes/2026-11-06-universal/tests/early_harness.c). The includer defines the
++ * zvo_* operations first: zero_vendor.c with the real card, RTC and PMIC; the harness with recorded fakes.
++ *
++ * Invariants (review of d9a409f2, 2026-11-06):
++ *  - PMIC writes and DRAM happen only after this start's binding and PMIC checks passed (ZV_EARLY_CHECKED), or, in the
++ *    LPDDR4 build only, on a fallback start (the card work died last time, or the card is not up yet) of a unit whose
++ *    RTC records a passing check by this build type, whose PMIC identified on this start, and with no refusal pending.
++ *  - A refusal is sticky (GP15 ZV_REFUSE, on-card marker) until its restore finishes, and its reason in GP14 stays.
++ *  - The PMIC is identified read-only before anything that can reset; zv_reset writes DCDC1 only to an identified
++ *    PMIC (zv_pmic_ok), which keeps c101c7b6 (rail first, then the reset into stock) on the H/Plus AXP2202.
++ *  - A bus error is not a refusal: the first one resets and retries with the pending state unchanged; only a second
++ *    consecutive one refuses (stock then has to cope with the same bus).
++ */
++#ifndef ZERO_EARLY_H
++#define ZERO_EARLY_H
++
++#define ZV_RESTORE	0x5a56ffffU	/* GP15: an unacknowledged attempt, restore stock next start */
++#define ZV_REFUSE	0x5a56fffdU	/* GP15: this build refused the unit; restore pending, never PMIC/DRAM before it */
++#define ZV_ATTEMPT	0x5a560001U	/* GP15: this start is an attempt */
++
++/* GP13 = start count (31:24) | validated record (23:16) | PMIC note (15:8) | crumb (7:0). The record is set when this unit
++ * passed the binding and PMIC checks for this build type, cleared by a refusal, and lost with the RTC: missing means
++ * "never validated", which only takes the fallbacks away. */
++#define ZV_VALID(t)	(0xa0 | (t))
++#define ZV_PMIC_NOTE(r)	(0xc0 | (r))	/* GP13 15:8: this start's PMIC identification (0xc0 ok, 0xc1 other, 0xc2 silent) */
++
++enum { ZV_PMIC_OK, ZV_PMIC_OTHER, ZV_PMIC_BUSERR };
++enum { ZV_EARLY_CHECKED = 1, ZV_EARLY_FALLBACK = 2 };
++
++static int zv_pmic_ok;		/* the PMIC identified as stock's AXP2202 on this start: zv_reset may set DCDC1 */
++
++/* the operations, defined by the includer after this header */
++static void zvo_gp14(u32 v);
++static void zvo_gp15(u32 v);
++static void zvo_wdog(void);
++static int zvo_pmic_id(void);		/* ZV_PMIC_*, read-only */
++static void zvo_crumb(u32 c);
++static void zvo_reset(void) __attribute__((noreturn));		/* DCDC1 first if zv_pmic_ok */
++static int zvo_card_up(void);
++static int zvo_pending(void);		/* GP15 ZV_RESTORE/ZV_REFUSE, or the on-card attempt marker */
++static void zvo_restore(void) __attribute__((noreturn));
++static int zvo_bind_check(void);	/* zero_dram_check.h reason, ZDC_BIND_IO after retries */
++static void zvo_refuse(int reason) __attribute__((noreturn));
++static void zvo_valid_set(u32 v);
++static void zvo_pmic_note(u32 v);
++static void zvo_trained(void);
++static void zvo_marker_on(void);
++
++static inline int zv_skip_crumb(u32 prev)	/* the last start died inside the early card work */
++{
++	return prev == 0x02 || prev == 0x20 || ((prev & 0xf0) == 0x30 && prev != 0x34);
++}
++
++/* last: GP15 at entry; prev: GP13's crumb at entry; valid: GP13's record at entry. Returns how DRAM may proceed. */
++static int zv_early_flow(u32 last, u32 prev, u32 valid)
++{
++	int pmic, r, fallback;
++
++	if (last == ZV_REFUSE) {
++		/* a refusal whose restore did not finish: GP14 keeps the reason, GP15 stays a refusal */
++	} else if (last) {
++		if (last != ZV_RESTORE)
++			zvo_gp14(last);		/* where the last attempt stopped */
++		zvo_gp15(ZV_RESTORE);
++	} else {
++		zvo_gp15(ZV_ATTEMPT);
++	}
++	zvo_wdog();				/* 8 s: a hang anywhere before the hand-off resets back here */
++	pmic = zvo_pmic_id();			/* read-only, retried */
++	zv_pmic_ok = pmic == ZV_PMIC_OK;
++	zvo_pmic_note(ZV_PMIC_NOTE(pmic));
++	if (pmic == ZV_PMIC_BUSERR && prev != 0x07) {
++		zvo_crumb(0x07);
++		zvo_gp15(last);			/* not an attempt: the same state again after the reset */
++		zvo_reset();
++	}
++	fallback = ZV_TYPE == ZDC_LPDDR4 && last != ZV_REFUSE && zv_pmic_ok && valid == ZV_VALID(ZV_TYPE);
++	/*
++	 * If the last start died inside this card work (its crumb still 0x02, 0x20, or 0x30-0x3f but not 0x34, a finished
++	 * restore), skip it once: the hand-off does the same work after DRAM, so a hang here cannot loop forever. Only as
++	 * a fallback (above): the LPDDR3 build, a unit never validated and a refused one loop instead.
++	 */
++	if (fallback && zv_skip_crumb(prev)) {
++		zvo_crumb(0x06);
++		return ZV_EARLY_FALLBACK;
++	}
++	zvo_crumb(0x02);
++	if (!zvo_card_up()) {
++		zvo_crumb(0x05);
++		if (fallback)
++			return ZV_EARLY_FALLBACK;	/* the hand-off tries again after DRAM, then checks */
++		zvo_gp15(last);			/* retry; card trouble alone never uninstalls */
++		zvo_reset();
++	}
++	if (zvo_pending())
++		zvo_restore();
++	r = zvo_bind_check();
++	if (!r && pmic != ZV_PMIC_OK)
++		r = pmic == ZV_PMIC_BUSERR ? ZDC_PMIC_IO : ZDC_PMIC;
++	if (r)
++		zvo_refuse(r);
++	zvo_valid_set(ZV_VALID(ZV_TYPE));
++	zvo_trained();
++	zvo_marker_on();
++	zvo_crumb(0x0e);			/* card work done: DRAM next */
++	return ZV_EARLY_CHECKED;
++}
++
++#endif
+diff --git a/arch/arm/mach-sunxi/zero_params.h b/arch/arm/mach-sunxi/zero_params.h
+new file mode 100644
+index 00000000..9d988e26
+--- /dev/null
++++ b/arch/arm/mach-sunxi/zero_params.h
+@@ -0,0 +1,69 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * MinUI Zero H700 stage 2 (2026-11-06): what the SPL hands our DRAM loader. The SPL jumps to the loader's entry at
++ * EL3 (AArch64, MMU and caches off) with x0 pointing at this block, in DRAM. Every address is physical. The same
++ * header is compiled into the SPL (arch/arm/mach-sunxi/zero_params.h) and into the loader: keep them identical.
++ */
++#ifndef ZERO_PARAMS_H
++#define ZERO_PARAMS_H
++
++#define ZP_MAGIC	0x5a504152u	/* "ZPAR" */
++#define ZP_VERSION	2u
++#define ZL_IMAGE_VERSION 2u
++
++/* DRAM map shared by the SPL and the loader (1 GiB from 0x40000000; the SPL's own heap, BSS and page tables sit at
++ * 0x4f000000 and up and die with it) */
++#define ZL_LOAD_ADDR	0x4c000000ull	/* loader image (64-byte header first), 1 MiB region incl. its stack */
++#define ZL_LOAD_MAX	0x00100000ull
++#define ZL_KGZ_ADDR	0x45000000ull	/* compressed kernel as stored in boot.img (vendor U-Boot's own boot.img address) */
++#define ZL_KGZ_MAX	0x02000000ull	/* 32 MiB */
++#define ZL_FDT_MAX	0x00080000ull	/* room the loader has to grow the package dtb (built in place at its load address) */
++#define ZL_HDR_ADDR	0x44f00000ull	/* the 2048-byte boot.img header */
++
++/* loader image header (64 bytes, at ZL_LOAD_ADDR); the SPL refuses the loader unless magic, length and sum match */
++#define ZL_HDR_MAGIC	"ZEROLDR1"	/* 8 bytes */
++#define ZL_HDR_LEN	64
++#define ZL_SUM_STAMP	0x5f0a6c39u	/* the sum field counts as this, like eGON */
++struct zero_loader_hdr {
++	char magic[8];
++	unsigned int length;		/* whole image incl. this header, multiple of 512, <= ZL_LOAD_MAX - 64 KiB */
++	unsigned int entry;		/* offset of the entry point from the image start (64) */
++	unsigned int sum;		/* sum of every 32-bit word of the image, this field read as ZL_SUM_STAMP */
++	unsigned int version;		/* ZL_IMAGE_VERSION */
++	unsigned int preflight;		/* image-relative C-ABI entry; returns profile ID or 0, no writes/MMIO */
++	unsigned int reserved[9];
++};
++
++#define ZP_FLAG_CARD	(1u << 0)	/* booted from the card (not FEL) */
++#define ZP_PROFILE_SHIFT 8
++#define ZP_PROFILE_PLUS  (1u << ZP_PROFILE_SHIFT)
++#define ZP_PROFILE_H     (2u << ZP_PROFILE_SHIFT)
++#define ZP_PROFILE_MASK  (255u << ZP_PROFILE_SHIFT)
++
++struct zero_params {
++	unsigned int magic;
++	unsigned int version;
++	unsigned int size;		/* sizeof(struct zero_params) */
++	unsigned int flags;		/* ZP_FLAG_* */
++	unsigned long long monitor;	/* vendor monitor run address; its head: +0x14 entry, +0x24 block, +0x30 words, +0xb0 fdt */
++	unsigned long long uboot;	/* vendor U-Boot loaded at 0x4a000000, intact until preflight returns */
++	unsigned long long dtb, dtb_len;	/* package dtb as read (raw bytes, at the address where the FDT is also built) */
++	unsigned long long dtbo, dtbo_len;	/* package dtbo as read, dtbo_len 0 if none */
++	unsigned long long bootimg_hdr;		/* the 2048-byte boot.img header */
++	unsigned long long kernel_gz, kernel_gz_len;	/* compressed kernel exactly as stored */
++	unsigned long long ramdisk, ramdisk_len;	/* ramdisk as stored (the Zero image ships a 512-byte dummy) */
++	unsigned long long kernel_addr;	/* inflate to here (boot.img kernel_addr) */
++	unsigned long long kernel_max;	/* room there */
++	unsigned long long fdt_max;	/* room to grow the dtb in place */
++	unsigned int dram_mib;
++	unsigned int toc1_len;
++	unsigned int dram_words[32];	/* stock boot0 +0x38, the trained values the monitor needs for resume */
++	unsigned char board_block[8];	/* stock boot0 +0xf0 */
++	unsigned int spl_us[4];		/* SPL timing, microseconds since reset: start, DRAM up, card ready, all reads done */
++	unsigned int card_khz;
++	unsigned int bus_width;
++	unsigned int pmic_boot_regs;	/* AXP2202 reg 0x20 | reg 0x00 << 8 | reg 0xf0 << 16; all reads succeeded */
++	unsigned long long toc1_head, toc1_head_len; /* original TOC1 header/table, before vendor fixups */
++};
++
++#endif
+diff --git a/arch/arm/mach-sunxi/zero_vendor.c b/arch/arm/mach-sunxi/zero_vendor.c
+new file mode 100644
+index 00000000..1d521539
+--- /dev/null
++++ b/arch/arm/mach-sunxi/zero_vendor.c
+@@ -0,0 +1,912 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * MinUI Zero: hand off from the upstream SPL to the H700 vendor monitor and vendor U-Boot (boot speed, 2026-11-04).
++ *
++ * The stock boot0 is replaced only for DRAM (and everything before it); the rest of the stock chain runs unchanged.
++ * This does exactly what boot0's own hand-off does (read from the RG35XX H boot0, routine at 0x2adda / 0x2ac34):
++ *  - read the boot package (TOC1, sector 32800) and load each item to the run address in its own image header (+0x2c):
++ *    u-boot 0x4a000000, monitor 0x48000000; dtbo to u-boot + 1 MiB, dtb to u-boot + 2 MiB;
++ *  - u-boot head: 32 DRAM words at +0x30, storage type +0xe4 (1 = SD card), optee/monitor/func flags +0x4e8..+0x4ea,
++ *    package length +0x4f4, DRAM size in MiB +0x4f8;
++ *  - monitor: the same 32 DRAM words at +0x30, boot0's 8-byte block at +0x24, the dtb address at +0xb0;
++ *  - point the RVBAR at the monitor and warm-reset into AArch64 (RMR), as boot0 does.
++ * One difference on purpose: bit 31 of the U-Boot head word +0x8c (DRAM word 23) is set. The vendor U-Boot reads it as
++ * "boot0 DRAM parameters need no update" (get_boot_dram_update_flag, 0x4a00296c in the Plus U-Boot); clear, it takes
++ * the boot0 in the first BROM slot (ours), pastes 0x80 bytes of DRAM words over +0x38 (our code) and writes that to
++ * BOTH slots with a fixed checksum, which bricked two cards (2026-11-04, Codex review).
++ * The DRAM words and the 8-byte block come from a pinned copy of the stock boot0 (see the card layout below): the
++ * vendor monitor uses them to bring DRAM back after standby, so they must be the stock trained values.
++ * Idea and contract cross-checked against BaseOS's notes (pvaibhav); this code is ours.
++ *
++ * CARD LAYOUT (reserved: 8 MiB in, inside the empty 8513-20071 gap that the image and the Plus card share; clear of
++ * the boot packages at 24576/32800 and of secure storage near 12288): two pinned copies of the stock boot0
++ * (128 sectors each) at ZV_PIN_A and ZV_PIN_B, written by the installer before ours goes into BROM's first slot, and
++ * one attempt-marker sector at ZV_MARK.
++ *
++ * SAFETY NET. zero_vendor_early() (first thing in sunxi_board_init, before PMIC/DRAM, no card access: BSS and MMC
++ * state live in DRAM): RTC GP15 nonzero = the last attempt was never acknowledged: keep it in GP14, mark a restore
++ * pending; arm an 8 s watchdog. zero_vendor_boot() (after DRAM): a pending restore (RTC flag or the on-card marker,
++ * which survives a power cut that clears the RTC) restores the pinned stock boot0 to slot 512 then slot 16, each body
++ * first and header last, each verified, then clears both markers and resets into the stock chain. Otherwise it writes
++ * the on-card marker, verifies it, and hands off. Acknowledgement (clearing both markers) is Linux's job once it runs.
++ * Known gap: a DRAM-init failure on the recovery boot itself loops (restore needs DRAM).
++ * (Both superseded: the card work moved before DRAM, 2026-11-05.)
++ *
++ * UNIVERSAL (2026-11-06): one build per DRAM type (build.sh: zero-spl.bin LPDDR4, zero-spl-lp3.bin LPDDR3). Before PMIC
++ * and DRAM, zero_vendor_early checks the unit binding the installer wrote (zero_dram_check.h: this unit's SID, its own
++ * pinned DRAM words, the known electrical set of this build's type, the PHY map stock would pick) and that the PMIC
++ * answers the way stock boot0 identifies its AXP2202. Anything else is REFUSED: RTC GP14 = 0x5a56fd00 | reason,
++ * GP15 = ZV_REFUSE, and the pinned stock boot0 goes back exactly as for an unacknowledged attempt. After DRAM the
++ * hand-off checks again that the pin it hands over carries the bound words and that the size matches. A refusal is
++ * sticky until stock is back: a refused start never takes the skip-the-card-work path into DRAM.
++ */
++#include <cpu_func.h>
++#include <mmc.h>
++#include <part.h>
++#include <spl.h>
++#include <asm/io.h>
++#include <asm/global_data.h>
++#include <asm/arch/cpu.h>
++#include <asm/armv8/mmu.h>
++#include <asm/arch/timer.h>
++#include <asm/arch/watchdog.h>
++#include <linux/delay.h>
++#include <linux/string.h>
++#include <time.h>
++#include "zero_params.h"
++#include "zero_dram_check.h"
++#include <asm/arch/pmic_bus.h>
++#include <axp_pmic.h>
++
++DECLARE_GLOBAL_DATA_PTR;
++
++#define ZV_SLOT_PRIMARY	16	/* BROM tries this first */
++#define ZV_SLOT_BACKUP	512	/* BROM falls back here on a bad header or checksum */
++#define ZV_PIN_A	16384	/* pinned stock boot0 copies (ours, reserved; see the card layout above) */
++#define ZV_PIN_B	16512
++#define ZV_MARK		16640	/* on-card attempt marker */
++#define ZV_B0_SECTORS	128	/* 64 KiB stock boot0 */
++#define ZV_B0_LEN	0x10000
++#ifndef ZV_TOC1_SECTOR
++#define ZV_TOC1_SECTOR	32800	/* test builds may read the backup copy at 24576 instead */
++#endif
++#define ZV_TOC1_ADDR	0x42e00000UL
++#define ZV_TOC1_MAX	(4 << 20)
++#define ZV_ITEM_SIZE	368
++#define ZV_PIN_BUF	0x43800000UL	/* 64 KiB: the validated pinned boot0 */
++#define ZV_CHK_BUF	0x43820000UL	/* 64 KiB, then the MMC DMA descriptors (2 KiB, sunxi_mmc.c zdma_des) */
++#define ZV_STAMP	0x5f0a6c39
++#define ZV_MARK_MAGIC	"ZERO-ATTEMPT-V1"
++
++#ifdef CONFIG_SUNXI_DRAM_H616_LPDDR3
++#define ZV_TYPE		ZDC_LPDDR3
++#define ZV_DRAM_ID	"zero: dram lp3"	/* build.sh and zero-install.sh read the build's type from this */
++void zero_dram_trained(u32 tpr6, u32 tpr11, u32 tpr12);
++#else
++#define ZV_TYPE		ZDC_LPDDR4
++#define ZV_DRAM_ID	"zero: dram lp4"
++#endif
++#include "zero_early.h"	/* the early flow; zv_pmic_ok */
++/* the build trains exactly the set the check accepts */
++#if CONFIG_DRAM_CLK != ZDC_CLK || CONFIG_DRAM_SUNXI_DX_ODT != ZDC_DX_ODT(ZV_TYPE) || \
++    CONFIG_DRAM_SUNXI_DX_DRI != ZDC_DX_DRI(ZV_TYPE) || CONFIG_DRAM_SUNXI_CA_DRI != ZDC_CA_DRI(ZV_TYPE) || \
++    CONFIG_DRAM_SUNXI_ODT_EN != ZDC_ODT_EN(ZV_TYPE) || CONFIG_DRAM_SUNXI_TPR10 != ZDC_TPR10(ZV_TYPE) || \
++    CONFIG_DRAM_SUNXI_TPR0 != 0 || CONFIG_DRAM_SUNXI_TPR2 != 1 || !defined(CONFIG_DRAM_SUNXI_PHY_ADDR_MAP_1)
++#error "zero: the DRAM Kconfig values are not the set zero_dram_check.h validates"
++#endif
++
++static u32 rd32(ulong a) { return readl((void *)a); }
++
++/* progress words for the FEL harness (read back with sunxi-fel in the same run): step, detail */
++#define ZV_STATUS	0x47ff0000UL
++#ifndef ZV_STOP
++#define ZV_STOP	99	/* test builds: return to FEL after this step */
++#endif
++/* the same checkpoint in RTC general-purpose register 15 (survives watchdog resets) */
++#define ZV_RTC_GP15	(SUNXI_RTC_BASE + 0x13c)
++#define ZV_RTC_GP14	(SUNXI_RTC_BASE + 0x138)
++
++static struct sunxi_wdog *zv_wdog(void)
++{
++	return &((struct sunxi_timer_reg *)SUNXI_TIMER_BASE)->wdog[0];
++}
++
++static void zv_status(u32 step, u32 detail)
++{
++	writel(0x5a560000 | step, (void *)ZV_RTC_GP15);
++	writel(0x5a560000 | step, (void *)ZV_STATUS);
++	writel(detail, (void *)(ZV_STATUS + 4));
++	flush_dcache_range(ZV_STATUS, ZV_STATUS + 64);
++}
++
++static void zv_wdog_arm(u32 intv)	/* 0x7 = 8 s, 0 = 0.5 s */
++{
++	writel(WDT_CFG_RESET, &zv_wdog()->cfg);
++	writel((intv << 4) | WDT_MODE_EN, &zv_wdog()->mode);
++	writel(WDT_CTRL_KEY | WDT_CTRL_RESTART, &zv_wdog()->ctl);
++}
++
++/*
++ * After a restore, the next start is stock boot0, which raises the CPU to 1008 MHz before it sets the CPU rail, and a
++ * watchdog reset keeps the rail: from before PMIC init that is the 0.9 V Linux left at idle. The likely cause of a
++ * restore whose reset into stock boot0 hung, dark, until a 10 s power hold (RG35XX H, 2026-11-06). Set the rail first,
++ * as our own start does.
++ */
++static void __noreturn zv_reset(void)
++{
++#ifdef CONFIG_AXP_DCDC1_VOLT
++	if (zv_pmic_ok && !pmic_bus_init())
++		axp_set_dcdc1(CONFIG_AXP_DCDC1_VOLT);
++#endif
++	zv_wdog_arm(0);
++	for (;;)
++		;
++}
++
++static int zv_read(struct blk_desc *bd, ulong sector, ulong bytes, void *dst)
++{
++	ulong n = (bytes + 511) / 512;
++
++	return blk_dread(bd, sector, n, dst) == n ? 0 : -EIO;
++}
++
++static int zv_write(struct blk_desc *bd, ulong sector, ulong count, const void *src)
++{
++	return blk_dwrite(bd, sector, count, src) == count ? 0 : -EIO;
++}
++
++/* the eGON checksum: every word summed, the checksum field counted as the stamp */
++static u32 zv_egon_sum(const u8 *img, u32 len)
++{
++	u32 sum = 0, i;
++
++	for (i = 0; i < len; i += 4)
++		sum += (i == 12) ? ZV_STAMP : *(const u32 *)(img + i);
++	return sum;
++}
++
++/* a stock boot0 we may restore from: eGON magic, exactly 64 KiB, a valid checksum, and not an upstream SPL (whose
++ * header carries "SPL" at +0x14) */
++static int zv_stock_ok(const u8 *img)
++{
++	return !memcmp(img + 4, "eGON.BT0", 8) && *(const u32 *)(img + 16) == ZV_B0_LEN &&
++	       zv_egon_sum(img, ZV_B0_LEN) == *(const u32 *)(img + 12) && memcmp(img + 0x14, "SPL", 3);
++}
++
++static int zv_load_pin(struct blk_desc *bd, u8 *buf)
++{
++	if (!zv_read(bd, ZV_PIN_A, ZV_B0_LEN, buf) && zv_stock_ok(buf))
++		return 0;
++	if (!zv_read(bd, ZV_PIN_B, ZV_B0_LEN, buf) && zv_stock_ok(buf))
++		return 0;
++	return -ENOENT;
++}
++
++/*
++ * The safety net runs before DRAM (2026-11-05, universal SPL): a board whose DRAM init fails must still get its stock
++ * boot0 back by itself, and the old restore needed DRAM. So the card is read and written here through two 2 KiB SRAM
++ * buffers (BSS lives in SRAM on this SoC, see zero_vendor_early), under the MMC driver's DMA threshold: the CPU path.
++ */
++#define ZV_CHUNK	4	/* sectors per transfer */
++static u8 zv_buf[ZV_CHUNK * 512] __aligned(64), zv_chk[ZV_CHUNK * 512] __aligned(64);
++
++static u32 zv_sum_chunk(ulong s, u32 sum)
++{
++	u32 i;
++
++	for (i = 0; i < sizeof(zv_buf); i += 4)
++		sum += (!s && i == 12) ? ZV_STAMP : *(const u32 *)(zv_buf + i);
++	return sum;
++}
++
++/* a pinned stock boot0, streamed: eGON magic, exactly 64 KiB, not an SPL, a valid checksum */
++static int zv_pin_ok(struct blk_desc *bd, ulong pin)
++{
++	u32 sum = 0, want = 0;
++	ulong s;
++
++	for (s = 0; s < ZV_B0_SECTORS; s += ZV_CHUNK) {
++		if (zv_read(bd, pin + s, sizeof(zv_buf), zv_buf))
++			return 0;
++		if (!s) {
++			if (memcmp(zv_buf + 4, "eGON.BT0", 8) || *(const u32 *)(zv_buf + 16) != ZV_B0_LEN ||
++			    !memcmp(zv_buf + 0x14, "SPL", 3))
++				return 0;
++			want = *(const u32 *)(zv_buf + 12);
++		}
++		sum = zv_sum_chunk(s, sum);
++	}
++	return sum == want;
++}
++
++/*
++ * One BROM slot from a validated pin, header last: the old header is invalidated first, so a power cut mid-way leaves
++ * a slot BROM skips. Each body chunk is read back, and the body copied must still sum to the pin's checksum before the
++ * header goes down.
++ */
++static int zv_put_slot(struct blk_desc *bd, ulong slot, ulong pin)
++{
++	u32 sum, want = 0, skip;
++	ulong s;
++	int tries;
++
++	for (tries = 0; tries < 3; tries++) {
++		memset(zv_chk, 0, 512);
++		if (zv_write(bd, slot, 1, zv_chk))
++			continue;
++		sum = 0;
++		for (s = 0; s < ZV_B0_SECTORS; s += ZV_CHUNK) {
++			if (zv_read(bd, pin + s, sizeof(zv_buf), zv_buf))
++				break;
++			if (!s)
++				want = *(const u32 *)(zv_buf + 12);
++			sum = zv_sum_chunk(s, sum);
++			skip = s ? 0 : 1;	/* the header sector goes last */
++			if (zv_write(bd, slot + s + skip, ZV_CHUNK - skip, zv_buf + skip * 512) ||
++			    zv_read(bd, slot + s + skip, (ZV_CHUNK - skip) * 512, zv_chk) ||
++			    memcmp(zv_chk, zv_buf + skip * 512, (ZV_CHUNK - skip) * 512))
++				break;
++		}
++		if (s < ZV_B0_SECTORS || sum != want)
++			continue;
++		if (zv_read(bd, pin, 512, zv_buf) || *(const u32 *)(zv_buf + 12) != want ||
++		    zv_write(bd, slot, 1, zv_buf) || zv_read(bd, slot, 512, zv_chk) || memcmp(zv_chk, zv_buf, 512))
++			continue;
++		return 0;
++	}
++	return -EIO;
++}
++
++static int zv_marker_set(struct blk_desc *bd, int on)
++{
++	static u8 m[512] __aligned(64), chk[512] __aligned(64);
++
++	memset(m, 0, sizeof(m));
++	if (on)
++		strcpy((char *)m, ZV_MARK_MAGIC);
++	if (zv_write(bd, ZV_MARK, 1, m) || zv_read(bd, ZV_MARK, 512, chk) || memcmp(chk, m, 512))
++		return -EIO;
++	return 0;
++}
++
++static int zv_marker_get(struct blk_desc *bd)
++{
++	static u8 m[512] __aligned(64);
++
++	return !zv_read(bd, ZV_MARK, 512, m) && !memcmp(m, ZV_MARK_MAGIC, sizeof(ZV_MARK_MAGIC));
++}
++
++/*
++ * Stock boot0 leaves these PLLs enabled (GPU0 0x030, VE 0x058, AUDIO 0x078, 0x0e0) and the vendor kernel relies on it:
++ * without them, once its drivers load, the CPUs crawl and timers seem frozen (sleeps never return, the logo stays).
++ * Found 2026-11-05 by diffing CCU state on the RG35XX H; the factor fields already match stock, only the enable bit
++ * differs.
++ */
++static void zv_plls_on(void)
++{
++	static const u16 off[] = { 0x030, 0x058, 0x078, 0x0e0 };
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(off); i++)
++		setbits_le32((void *)(ulong)(SUNXI_CCM_BASE + off[i]), BIT(31));
++	udelay(100);	/* let them lock before anything downstream uses them */
++}
++
++/*
++ * Data cache on for the hand-off's card reads. With the MMU off every AArch64 data access is Device-nGnRnE, so each
++ * word the MMC FIFO hands us is a strictly ordered uncached DRAM store: the 1.3 MB boot package read at ~5 MB/s
++ * (264 ms, RG35XX H, 2026-11-05). Upstream turns the D-cache on in SPL for ARMv7 only. Our own map: SRAM A1/C (where
++ * the SPL runs and keeps its stack) and DRAM normal cacheable, everything else device. The hand-off flushes and turns
++ * it off again before the jump (flush_dcache_all, dcache_disable).
++ */
++#define ZV_TLB		0x4f000000UL	/* page tables, below the SPL's malloc (0x4fd00000) and BSS */
++#define ZV_TLB_LEN	0x10000UL
++
++static struct mm_region zv_mem_map[] = {
++	{ .virt = 0x0UL, .phys = 0x0UL, .size = 0x100000UL,
++	  .attrs = PTE_BLOCK_MEMTYPE(MT_NORMAL) | PTE_BLOCK_INNER_SHARE },
++	{ .virt = 0x100000UL, .phys = 0x100000UL, .size = 0x40000000UL - 0x100000UL,
++	  .attrs = PTE_BLOCK_MEMTYPE(MT_DEVICE_NGNRNE) | PTE_BLOCK_NON_SHARE },
++	{ .virt = 0x40000000UL, .phys = 0x40000000UL, .size = CONFIG_SUNXI_DRAM_MAX_SIZE,
++	  .attrs = PTE_BLOCK_MEMTYPE(MT_NORMAL) | PTE_BLOCK_INNER_SHARE },
++	{ 0, }
++};
++
++static void zv_cache_on(void)
++{
++	mem_map = zv_mem_map;
++	gd->arch.tlb_addr = ZV_TLB;
++	gd->arch.tlb_size = ZV_TLB_LEN;
++	gd->arch.tlb_fillptr = 0;
++	dcache_enable();
++}
++
++/*
++ * Boot timing: microseconds since reset (the 24 MHz generic counter runs from reset; the Linux boot clock reads the
++ * same counter) into RTC general-purpose registers, read back from Linux: GP11 SPL start, GP10 DRAM up (hand-off code
++ * entry), GP8 card ready, GP9 boot package loaded (just before the jump).
++ */
++static void zv_stamp(u32 reg)
++{
++	u64 c;
++
++	asm volatile("isb; mrs %0, cntpct_el0" : "=r"(c));
++	writel((u32)(c / 24), (void *)(ulong)(SUNXI_RTC_BASE + reg));
++}
++
++/*
++ * Breadcrumbs for the wake path (2026-11-05): GP13 = starts since the RTC lost power (top byte) | the last step
++ * reached (low byte); GP12 = DRAM MiB (bits 31:16).
++ */
++#define ZV_RTC_GP13	(SUNXI_RTC_BASE + 0x134)
++#define ZV_RTC_GP12	(SUNXI_RTC_BASE + 0x130)
++static void zv_crumb(u32 step)
++{
++	clrsetbits_le32((void *)ZV_RTC_GP13, 0xff, step);
++}
++
++/* restore the pinned stock boot0 to the backup slot, then the primary, then clear the markers and reset; no DRAM */
++static void __noreturn zv_restore(struct blk_desc *bd)
++{
++	ulong pin;
++
++	zv_crumb(0x30);
++	pin = zv_pin_ok(bd, ZV_PIN_A) ? ZV_PIN_A : zv_pin_ok(bd, ZV_PIN_B) ? ZV_PIN_B : 0;
++	if (!pin) {
++		/* nothing trustworthy to restore from: never touch a BROM slot; stay pending, try again next start */
++		zv_crumb(0x3e);
++		if (readl((void *)ZV_RTC_GP15) != ZV_REFUSE)	/* a refusal keeps its reason */
++			writel(0x5a56fffe, (void *)ZV_RTC_GP14);
++		zv_reset();
++	}
++	zv_crumb(0x31);
++	if (zv_put_slot(bd, ZV_SLOT_BACKUP, pin)) {
++		zv_crumb(0x3f);
++		zv_reset();	/* still pending: retried on the next start */
++	}
++	zv_crumb(0x32);
++	if (zv_put_slot(bd, ZV_SLOT_PRIMARY, pin)) {
++		zv_crumb(0x3f);
++		zv_reset();
++	}
++	zv_crumb(0x33);
++	zv_marker_set(bd, 0);
++	writel(0, (void *)ZV_RTC_GP15);
++	zv_crumb(0x34);
++	zv_reset();
++}
++
++static int zv_pending(void)
++{
++	u32 v = readl((void *)ZV_RTC_GP15);
++
++	return v == ZV_RESTORE || v == ZV_REFUSE;
++}
++
++/* this build may not run on this unit: say why, and put its stock boot0 back (sticky until that succeeds, also on the
++ * card: the attempt marker survives an RTC loss mid-restore); the validated record goes */
++static void __noreturn zv_refuse(struct blk_desc *bd, int reason)
++{
++	writel(0x5a56fd00 | reason, (void *)ZV_RTC_GP14);
++	writel(ZV_REFUSE, (void *)ZV_RTC_GP15);
++	clrbits_le32((void *)ZV_RTC_GP13, 0x00ff0000);
++	zv_marker_set(bd, 1);
++	zv_restore(bd);
++}
++
++/* the unit binding (zero_dram_check.h), checked against the live SID; the bound DRAM words are kept for the hand-off */
++static u32 zv_bind_words[32];
++static int zv_bound;
++
++static int zv_bind_check(struct blk_desc *bd)
++{
++	u32 sid[4], i;
++	int r;
++
++	for (i = 0; zv_read(bd, ZDC_BIND_SECTOR, 512, zv_buf); i++)	/* a read error is not "never installed" */
++		if (i == 2)
++			return ZDC_BIND_IO;
++	for (i = 0; i < 4; i++)
++		sid[i] = readl((void *)(ulong)(SUNXI_SID_BASE + 4 * i));
++	r = zdc_check((const u32 *)zv_buf, ZV_TYPE, sid);
++	if (!r) {
++		memcpy(zv_bind_words, zv_buf + 32, sizeof(zv_bind_words));
++		zv_bound = 1;
++	}
++	return r;
++}
++
++/* stock boot0 drives the PMIC at 0x34 only when its register 0x0e reads 2 (H boot0 0x2a5b4, "PMU: AXP2202"; read 0x02
++ * from Linux on the RG35XX H and Plus, 2026-11-06). Read-only; a bus error is retried, then reported as such. */
++static int zv_pmic_id(void)
++{
++	u8 v;
++	int i;
++
++	for (i = 0; i < 3; i++) {
++		if (!pmic_bus_init() && !pmic_bus_read(0x0e, &v))
++			return v == 2 ? ZV_PMIC_OK : ZV_PMIC_OTHER;
++		udelay(1000);
++	}
++	return ZV_PMIC_BUSERR;
++}
++
++/*
++ * The card, brought up once: before DRAM by zero_vendor_early (card boots), else by the hand-off (FEL). Kept in BSS,
++ * which survives to the hand-off because crt0 skips its late BSS clear on this SoC.
++ */
++static struct blk_desc *zv_bd;
++static u32 zv_mmc_err;		/* zv_status step and detail of a failed bring-up */
++static int zv_marked;		/* the attempt marker is on the card for this start */
++
++static struct blk_desc *zv_mmc_up(void)
++{
++	struct mmc *mmc;
++	int ret;
++
++	if (zv_bd)
++		return zv_bd;
++	/*
++	 * Before DRAM the only heap is the early arena above gd, and with SPL_STACK_R + SYS_MALLOC_SIMPLE spl_init() leaves
++	 * its limit at 0 (the DRAM heap set up by spl_relocate_stack_gd is meant to be the first): every calloc failed, the
++	 * card never registered, and the hand-off could not register it either (Plus, 2026-11-06: a start loop). The
++	 * arena stays valid after the move to DRAM, and so does the card's struct in it.
++	 */
++	if (!gd->malloc_limit)
++		gd->malloc_limit = CONFIG_VAL(SYS_MALLOC_F_LEN);
++	ret = mmc_initialize(NULL);
++	if (ret) {
++		zv_mmc_err = 2 | (u32)ret << 8;
++		return NULL;
++	}
++	mmc = find_mmc_device(0);
++	if (!mmc && !board_mmc_init(NULL))	/* mmc_initialize() probes once: a failed early try must not end the retry */
++		mmc = find_mmc_device(0);
++	if (!mmc) {
++		zv_mmc_err = 3;
++		return NULL;
++	}
++	ret = mmc_init(mmc);
++	if (ret) {
++		/*
++		 * A card that fails high-speed init here would fail it on every start, before the safety net can restore
++		 * stock: slot 16 would keep a valid SPL forever (Codex review 2026-11-05). BROM just read us from this card
++		 * at its own default speed, so retry without high speed before giving up.
++		 */
++		struct mmc_config *cfg = (struct mmc_config *)mmc->cfg;
++
++		cfg->host_caps &= ~(MMC_MODE_HS | MMC_MODE_HS_52MHz);
++		cfg->f_max = 25000000;
++		mmc->has_init = 0;
++		ret = mmc_init(mmc);
++	}
++	if (ret) {
++		zv_mmc_err = 4 | (u32)ret << 8;
++		return NULL;
++	}
++	zv_stamp(0x120);
++	zv_crumb(0x20);
++	/* timing diagnostics (GP4): negotiated card clock in kHz, bus width in the top byte */
++	writel((mmc->bus_width << 24) | (mmc->clock / 1000), (void *)(SUNXI_RTC_BASE + 0x110));
++	zv_bd = mmc_get_blk_desc(mmc);
++	return zv_bd;
++}
++
++u32 sunxi_get_boot_device(void);
++
++extern char __bss_start[], __bss_end[];
++
++/* zv_early_flow's operations (zero_early.h) */
++static struct blk_desc *zv_early_bd;
++static void zvo_gp14(u32 v) { writel(v, (void *)ZV_RTC_GP14); }
++static void zvo_gp15(u32 v) { writel(v, (void *)ZV_RTC_GP15); }
++static void zvo_wdog(void) { zv_wdog_arm(0x7); }
++static int zvo_pmic_id(void) { return zv_pmic_id(); }
++static void zvo_crumb(u32 c) { zv_crumb(c); }
++static void __noreturn zvo_reset(void) { zv_reset(); }
++static int zvo_card_up(void) { return !!(zv_early_bd = zv_mmc_up()); }
++static int zvo_pending(void) { return zv_pending() || zv_marker_get(zv_early_bd); }
++static void __noreturn zvo_restore(void) { zv_restore(zv_early_bd); }
++static int zvo_bind_check(void) { return zv_bind_check(zv_early_bd); }
++static void __noreturn zvo_refuse(int r) { zv_refuse(zv_early_bd, r); }
++static void zvo_valid_set(u32 v) { clrsetbits_le32((void *)ZV_RTC_GP13, 0x00ff0000, v << 16); }
++static void zvo_pmic_note(u32 v) { clrsetbits_le32((void *)ZV_RTC_GP13, 0x0000ff00, v << 8); }
++static void zvo_marker_on(void) { zv_marked = !zv_marker_set(zv_early_bd, 1); }
++static void zvo_trained(void)
++{
++#ifdef CONFIG_SUNXI_DRAM_H616_LPDDR3
++	zero_dram_trained(zv_bind_words[26], zv_bind_words[28], zv_bind_words[29]);
++#endif
++}
++void zero_vendor_early(void)
++{
++	u32 last = readl((void *)ZV_RTC_GP15), gp13 = readl((void *)ZV_RTC_GP13);
++
++	/*
++	 * BSS is in SRAM here (SPL_BSS_START_ADDR, build.sh) and crt0 does not clear it on this SoC, so clear it now, before
++	 * anything uses it. Nothing earlier in board_init_f touches BSS: upstream keeps it in DRAM, which is not up yet.
++	 */
++	memset(__bss_start, 0, __bss_end - __bss_start);
++	zv_stamp(0x12c);
++	/* start count + 1, crumb 1; the validated record (23:16) stays */
++	writel(((gp13 & 0xff000000) + 0x01000000) | (gp13 & 0x00ff0000) | 1, (void *)ZV_RTC_GP13);
++	if (sunxi_get_boot_device() == BOOT_DEVICE_BOARD) {
++		zv_pmic_ok = zv_pmic_id() == ZV_PMIC_OK;	/* zv_reset's DCDC1, as on a card boot */
++		return;		/* FEL: nothing on the card to undo */
++	}
++	/*
++	 * A wake from suspend-to-RAM reboots through BROM. Stock boot0 resumes when RTC 0x1f8 bit 16 is set (DRAM kept,
++	 * jump to the monitor's warm entry in RTC 0x1fc) and clears the register; we cannot resume, and Linux puts stock
++	 * boot0 in slot 16 for every sleep. If that swap was missed, cold boot instead (the session is lost): drop the
++	 * flag, and release the DRAM pads. The monitor's suspend holds them once DRAM is in self-refresh (RTC 0x1f4 bit 0
++	 * cleared, monitor 0x48011820); stock boot0 sets the bit again in its DRAM init on both paths (0x27294 cold,
++	 * 0x24bfe resume), upstream DRAM init never does. Held, every start trained through frozen pads and hung before
++	 * DRAM came up: the bit is in the RTC domain, so neither the watchdog nor a power-off cleared it (RG35XX H,
++	 * 2026-11-05: 44 starts, all stopped before DRAM, until stock boot0 went back on the card). On every other start
++	 * the bit is already 1.
++	 */
++	setbits_le32((void *)(SUNXI_RTC_BASE + 0x1f4), BIT(0));
++	writel(0, (void *)(SUNXI_RTC_BASE + 0x1f8));
++	/*
++	 * Before PMIC and DRAM (zero_early.h): a pending restore (RTC flag, or the on-card marker an unacknowledged start
++	 * left, which survives a power cut that clears the RTC) puts stock boot0 back now; otherwise the binding and the
++	 * PMIC are checked, and the marker goes down for this start, so a DRAM init that hangs or fails is undone on the
++	 * next one (watchdog), with no DRAM needed.
++	 */
++	zv_early_flow(last, gp13 & 0xff, gp13 >> 16 & 0xff);
++}
++
++#ifdef ZV_TRACE
++/* test builds: markers at the monitor's and U-Boot's entry points that write their own code to RTC GP15, then carry on
++ * to the original first instruction. Stubs live in free DRAM just below each image. */
++#define ZV_STUB64	0x47ff1000UL	/* below the monitor (0x48000000) */
++#define ZV_STUB32	0x49ff0000UL	/* below U-Boot (0x4a000000), within an A32 branch */
++static void zv_trace_stubs(ulong monitor, ulong uboot)
++{
++	u32 *m = (u32 *)ZV_STUB64, *u = (u32 *)ZV_STUB32;
++	u32 w = readl((void *)monitor), t;
++	long off;
++
++	t = monitor + ((s32)(w << 6) >> 4);		/* imm26 * 4, sign-extended */
++	m[0] = 0xd2800000 | (0x013c << 5) | 16;		/* movz x16, #0x013c */
++	m[1] = 0xf2a00000 | (0x0700 << 5) | 16;		/* movk x16, #0x0700, lsl 16 */
++	m[2] = 0x52800000 | (0x0020 << 5) | 17;		/* movz w17, #0x20 */
++	m[3] = 0x72a00000 | (0x5a56 << 5) | 17;		/* movk w17, #0x5a56, lsl 16 */
++	m[4] = 0xb9000000 | (16 << 5) | 17;		/* str w17, [x16] */
++	off = (long)t - (long)(ZV_STUB64 + 20);
++	m[5] = 0x14000000 | ((off >> 2) & 0x3ffffff);	/* b <original entry> */
++	off = (long)ZV_STUB64 - (long)monitor;
++	writel(0x14000000 | ((off >> 2) & 0x3ffffff), (void *)monitor);
++
++	w = readl((void *)uboot);
++	t = uboot + 8 + ((s32)(w << 8) >> 6);
++	u[0] = 0xe59f0008;				/* ldr r0, [pc, #8] */
++	u[1] = 0xe59f1008;				/* ldr r1, [pc, #8] */
++	u[2] = 0xe5801000;				/* str r1, [r0] */
++	off = (long)t - (long)(ZV_STUB32 + 12 + 8);
++	u[3] = 0xea000000 | ((off >> 2) & 0xffffff);	/* b <original reset> */
++	u[4] = SUNXI_RTC_BASE + 0x13c;
++	u[5] = 0x5a560021;
++	off = (long)ZV_STUB32 - (long)(uboot + 8);
++	writel(0xea000000 | ((off >> 2) & 0xffffff), (void *)uboot);
++}
++#endif
++
++/* Reads stay within the IDMAC command limit, including the gzip kernel. */
++static int zv_read_large(struct blk_desc *bd, ulong sector, ulong bytes, void *dst)
++{
++	while (bytes) {
++		ulong n = min(bytes, 4UL << 20);
++
++		if (zv_read(bd, sector, n, dst))
++			return -EIO;
++		sector += (n + 511) / 512;
++		dst = (u8 *)dst + n;
++		bytes -= n;
++	}
++	return 0;
++}
++
++/* Vendor 4a03cd6c repairs ratio0 or ratio>60 at <=3499mV. Its low-voltage limit is3450mV.
++ * Be stricter than its median-of-three: any suspect sample leaves policy/repair to vendor U-Boot. */
++static int zv_stage2_battery_ok(void)
++{
++	u8 ratio, hi, lo;
++	u32 i;
++
++	if (pmic_bus_read(0xa4, &ratio) || !ratio || ratio > 100)
++		return 0;
++	for (i = 0; i < 3; i++) {
++		if (pmic_bus_read(0xc4, &hi) || pmic_bus_read(0xc5, &lo) ||
++		    (((hi & 0x3f) << 8) | lo) < 3500)
++			return 0;
++	}
++	return 1;
++}
++
++/* Invalid/absent loaders leave the stage-1 chain intact. All destinations are fixed, not card-controlled. */
++static void zv_stage2(struct blk_desc *bd, ulong monitor, ulong uboot, u32 toc_len, const u8 *pin, int card,
++		      u32 dtb_len, u32 dtbo_len, u32 *vendor_step)
++{
++	struct zero_loader_hdr *h = (void *)ZL_LOAD_ADDR;
++	struct zero_params *p = (void *)(ZL_HDR_ADDR + 2048);
++	u32 *b = (void *)ZL_HDR_ADDR;
++	u32 n, i, sum = 0, k, r, profile;
++	u8 reason, status, scratch, v;
++	int had_icache;
++	/* Plus AXP2202 normal-boot state, independently decoded in verify-uboot-effects.md.
++	 * Columns: register, bits cleared, bits set. Do not apply this profile to other PMICs. */
++	static const u8 power[][3] = {
++		{0x27, 0, 8}, {0x41, 0, 0x80}, {0x81, 0x0d, 0x0c},
++		{0x0b, 0x11, 1}, {0xd3, 0, 0x80},
++		{0x97, 0x1f, 0x0d}, {0x98, 0x1f, 0x0d}, {0x90, 0x30, 0x20},
++		{0x9e, 0x1f, 0x1c}, {0x91, 0, 8}, {0x19, 0, 0x10},
++		{0xc0, 2, 0}, {0x50, 0x0c, 0x10}, {0x08, 0, 3},
++		{0x5c, 0xff, 3}, {0x5d, 0xff, 0xeb},
++	};
++
++	if (zv_read(bd, 16896, 512, h) || memcmp(h->magic, ZL_HDR_MAGIC, 8))
++		return;
++	n = h->length;
++	if (n < 512 || n > ZL_LOAD_MAX - 65536 || (n & 511) || h->entry != ZL_HDR_LEN ||
++	    h->version != ZL_IMAGE_VERSION || zv_read_large(bd, 16896, n, h))
++		return;
++	for (i = 0; i < n / 4; i++)
++		sum += i == 4 ? ZL_SUM_STAMP : ((u32 *)h)[i];
++	if (sum != h->sum || h->length != n || h->entry != ZL_HDR_LEN || h->version != ZL_IMAGE_VERSION ||
++	    h->preflight < ZL_HDR_LEN || h->preflight > n - 4 || (h->preflight & 3) ||
++	    memcmp(h->magic, ZL_HDR_MAGIC, 8) || monitor != 0x48000000 || uboot != 0x4a000000 ||
++	    dtb_len < 40 || dtb_len > ZL_FDT_MAX)
++		return;
++	/* Qualified Android layout; the preflight hashes the entire header page, including its version. */
++	if (zv_read(bd, 188416, 2048, b) || memcmp(b, "ANDROID!", 8) || b[9] != 2048 ||
++	    b[3] != 0x40080000 || b[5] != 0x42000000 || b[6])
++		return;
++	k = b[2]; r = b[4];
++	if (!k || k > ZL_KGZ_MAX || r > 0x100000 ||
++	    zv_read_large(bd, 188420, k, (void *)ZL_KGZ_ADDR) ||
++	    (r && zv_read_large(bd, 188420 + ((k + 2047) & ~2047U) / 512, r, (void *)0x42000000)))
++		return;
++	if (pmic_bus_read(0x20, &reason) || pmic_bus_read(0, &status) || pmic_bus_read(0xf0, &scratch))
++		return;
++	/* Vendor's battery-absent repair and one-shot charger mode stay on the vendor path. */
++	if (!(status & 8))
++		return;
++	if ((scratch & 8) && (!reason || reason > 16 || (reason & (reason - 1)))) {
++		*vendor_step = 0x51; /* intentional one-shot charger handoff, not a loader receipt */
++		return;
++	}
++	if (!zv_stage2_battery_ok())
++		return;
++	memset(p, 0, sizeof(*p));
++	p->magic = ZP_MAGIC; p->version = ZP_VERSION; p->size = sizeof(*p);
++	p->flags = card ? ZP_FLAG_CARD : 0;
++	p->monitor = monitor; p->uboot = uboot;
++	p->dtb = uboot + 0x200000; p->dtb_len = dtb_len;
++	p->dtbo = uboot + 0x100000; p->dtbo_len = dtbo_len;
++	p->bootimg_hdr = ZL_HDR_ADDR;
++	p->kernel_gz = ZL_KGZ_ADDR; p->kernel_gz_len = k;
++	p->ramdisk = 0x42000000; p->ramdisk_len = r;
++	p->kernel_addr = 0x40080000; p->kernel_max = 0x42000000 - 0x40080000;
++	p->fdt_max = ZL_FDT_MAX; p->dram_mib = gd->ram_size >> 20; p->toc1_len = toc_len;
++	memcpy(p->dram_words, pin + 0x38, 128);
++	memcpy(p->board_block, pin + 0xf0, 8);
++	p->spl_us[0] = rd32(SUNXI_RTC_BASE + 0x12c);
++	p->spl_us[1] = rd32(SUNXI_RTC_BASE + 0x128);
++	p->spl_us[2] = rd32(SUNXI_RTC_BASE + 0x120);
++	zv_stamp(0x10c);
++	p->spl_us[3] = rd32(SUNXI_RTC_BASE + 0x10c);
++	p->card_khz = rd32(SUNXI_RTC_BASE + 0x110) & 0xffffff;
++	p->bus_width = rd32(SUNXI_RTC_BASE + 0x110) >> 24;
++	p->pmic_boot_regs = reason | (u32)status << 8 | (u32)scratch << 16;
++	p->toc1_head = ZV_TOC1_ADDR;
++	p->toc1_head_len = 64 + rd32(ZV_TOC1_ADDR + 32) * ZV_ITEM_SIZE;
++	/* Returning C ABI, not _start: preserve SPL's stack/MMU and x18 (gd). Newly loaded code needs
++	 * D-to-I synchronization before its first execution; the loader preflight has no hardware effects. */
++	flush_dcache_all();
++	invalidate_icache_all();
++	asm volatile("dsb sy; isb" ::: "memory");
++	/* The SPL itself runs from SRAM with I-cache off; executing SHA from uncached DRAM is slow. */
++	had_icache = icache_status();
++	icache_enable();
++	profile = ((u32 (*)(const struct zero_params *))(ulong)(ZL_LOAD_ADDR + h->preflight))(p);
++	if (!had_icache)
++		icache_disable();
++	if (!profile || profile > (ZP_PROFILE_MASK >> ZP_PROFILE_SHIFT)) {
++		/* Separate from universal-SPL fdXX refusal/restore: this returns to intact vendor U-Boot. */
++		writel(0x5a56fc01, (void *)ZV_RTC_GP14);
++		return;
++	}
++	p->flags |= profile << ZP_PROFILE_SHIFT;
++	/* Once a PMIC write is attempted, a failure is fatal: never continue vendor with partial state. */
++	for (i = 0; i < ARRAY_SIZE(power); i++) {
++		if (pmic_bus_read(power[i][0], &v) ||
++		    pmic_bus_write(power[i][0], (v & ~power[i][1]) | power[i][2])) {
++			writel(0x5a56004d, (void *)ZV_RTC_GP15);
++			zv_reset();
++		}
++	}
++	zv_plls_on();
++	flush_dcache_all();
++	dcache_disable();
++	icache_disable();
++	invalidate_icache_all();
++	asm volatile("dsb sy; isb" ::: "memory");
++	((void (*)(struct zero_params *))(ulong)(ZL_LOAD_ADDR + ZL_HDR_LEN))(p);
++	zv_reset();
++}
++
++void zero_vendor_boot(void)
++{
++	u8 *pin = (u8 *)ZV_PIN_BUF;
++	int card = sunxi_get_boot_device() != BOOT_DEVICE_BOARD;
++	struct blk_desc *bd;
++	ulong pkg = ZV_TOC1_ADDR, uboot = 0, monitor = 0;
++	u32 count, len, i, seen = 0, dtb_len = 0, dtbo_len = 0;
++	u32 vendor_step = 9;
++
++	zv_stamp(0x128);
++	zv_crumb(0x10);
++	writel((u32)(gd->ram_size >> 20) << 16, (void *)ZV_RTC_GP12);
++	zv_cache_on();
++	printf("zero: vendor hand-off\n" ZV_DRAM_ID "\n");
++	if (!card)
++		zv_wdog_arm(0x7);	/* FEL test runs: a hang still resets */
++	bd = zv_mmc_up();
++	if (!bd) {
++		zv_status(zv_mmc_err & 0xff, (int)zv_mmc_err >> 8);
++		return;
++	}
++	if (card && !zv_marked) {	/* the card did not come up before DRAM: do the early card work here */
++		if (zv_pending() || zv_marker_get(bd))
++			zv_restore(bd);
++		zv_marked = !zv_marker_set(bd, 1);
++	}
++	zv_status(10, 0);
++	if (ZV_STOP == 10)
++		return;
++	if (zv_load_pin(bd, pin)) {
++		printf("zero: no valid pinned stock boot0\n");
++		zv_status(5, 0);
++		return;
++	}
++	if (card && !zv_marked) {	/* written before DRAM (zero_vendor_early) */
++		zv_status(6, 0);
++		return;
++	}
++	if (card) {
++		/* the binding again (the skip path never saw it), the pin we hand over is the bound one, and DRAM came up at
++		 * the size stock recorded for this unit */
++		int r = zv_bound ? 0 : zv_bind_check(bd);
++
++		if (!r && memcmp(pin + 0x38, zv_bind_words, sizeof(zv_bind_words)))
++			r = ZDC_PIN_DIFFERS;
++		if (!r && (gd->ram_size >> 20) != zv_bind_words[7] >> 16)
++			r = ZDC_SIZE_DIFFERS;
++		if (r)
++			zv_refuse(bd, r);
++	}
++	zv_crumb(0x40);
++	zv_stamp(0x100);	/* timing: pinned copy checked, marker written (GP0) */
++	if (zv_read(bd, ZV_TOC1_SECTOR, 512, (void *)pkg) || memcmp((void *)pkg, "sunxi-package", 13)) {
++		zv_status(7, rd32(pkg));
++		return;
++	}
++	len = rd32(pkg + 36);
++	count = rd32(pkg + 32);
++	if (len < 512 || len > ZV_TOC1_MAX || count == 0 || count > 16 ||
++	    64 + count * ZV_ITEM_SIZE > len ||
++	    zv_read(bd, ZV_TOC1_SECTOR, 64 + count * ZV_ITEM_SIZE, (void *)pkg)) {
++		zv_status(7, len);
++		return;
++	}
++	zv_status(12, count);
++	if (ZV_STOP == 12)
++		return;
++	/* each item straight from the card to where it runs, as boot0 does; bounded by the package and by DRAM below the
++	 * SPL's own stack, heap and BSS (0x4fd00000 and up) */
++	for (i = 0; i < count; i++) {
++		const char *name = (const char *)(pkg + 64 + i * ZV_ITEM_SIZE);
++		u32 off = rd32(pkg + 64 + i * ZV_ITEM_SIZE + 64), size = rd32(pkg + 64 + i * ZV_ITEM_SIZE + 68);
++		ulong dst, end, want, span;
++		u32 role;
++
++		if (!memchr(name, 0, 64) || (off & 511) || off >= len || size > len - off) {
++			zv_status(13, i);
++			return;
++		}
++		if (!strcmp(name, "u-boot") || !strcmp(name, "monitor")) {
++			static u8 hdr[512] __aligned(64);
++
++			if (size < 512) {
++				zv_status(13, i);
++				return;
++			}
++			if (zv_read(bd, ZV_TOC1_SECTOR + off / 512, 512, hdr)) {
++				zv_status(14, i);
++				return;
++			}
++			dst = rd32((ulong)hdr + 0x2c);
++			role = name[0] == 'u' ? 1 : 2;
++			want = name[0] == 'u' ? 0x4a000000 : 0x48000000;
++			span = 0x100000;
++			if (name[0] == 'u')
++				uboot = dst;
++			else
++				monitor = dst;
++		} else if (!strcmp(name, "dtbo") && uboot) {
++			dst = uboot + 0x100000;
++			role = 4; want = 0x4a100000; span = 0x100000;
++			dtbo_len = size;
++		} else if (!strcmp(name, "dtb") && uboot) {
++			dst = uboot + 0x200000;
++			role = 8; want = 0x4a200000; span = ZL_FDT_MAX;
++			dtb_len = size;
++		} else {
++			continue;
++		}
++		end = dst + ((size + 511) & ~511UL);
++		/* Fixed, disjoint role windows protect both fallback images and all live SPL/DMA scratch.
++		 * Bound the sector-rounded read span, not only the logical item size. */
++		if ((seen & role) || !size || dst != want || end - dst > span) {
++			zv_status(15, dst);
++			return;
++		}
++		seen |= role;
++		if (dst < 0x40000000UL || end > 0x4fd00000UL || (dst < ZV_CHK_BUF + ZV_B0_LEN + 0x800 && end > ZV_TOC1_ADDR) ||
++		    (dst < ZV_TLB + ZV_TLB_LEN && end > ZV_TLB)) {	/* nor over the live page tables (code review) */
++			zv_status(15, dst);
++			return;
++		}
++		zv_status(20 + i, dst);
++		if (zv_read(bd, ZV_TOC1_SECTOR + off / 512, size, (void *)dst)) {
++			zv_status(16, dst);
++			return;
++		}
++	}
++	zv_stamp(0x10c);	/* timing: every package item read (GP3) */
++	zv_status(11, 0);
++	if (ZV_STOP == 11)
++		return;
++	if (!uboot || !monitor) {
++		zv_status(8, count);
++		return;
++	}
++	zv_stage2(bd, monitor, uboot, len, pin, card, dtb_len, dtbo_len, &vendor_step);
++	memcpy((void *)(uboot + 0x30), pin + 0x38, 0x80);
++	writel(readl((void *)(uboot + 0x8c)) | BIT(31), (void *)(uboot + 0x8c));	/* no boot0 write-back, see top */
++	writel(1, (void *)(uboot + 0xe4));			/* booted from the SD card (boot media 0) */
++	writeb(0, (void *)(uboot + 0x4e8));			/* no optee */
++	writeb(1, (void *)(uboot + 0x4e9));			/* monitor present */
++	writeb(0, (void *)(uboot + 0x4ea));			/* func mask: no logo item */
++	writel(len, (void *)(uboot + 0x4f4));
++	writel(gd->ram_size >> 20, (void *)(uboot + 0x4f8));
++	memcpy((void *)(monitor + 0x30), pin + 0x38, 0x80);
++	memcpy((void *)(monitor + 0x24), pin + 0xf0, 8);
++	writel(uboot + 0x200000, (void *)(monitor + 0xb0));
++	zv_plls_on();
++	zv_stamp(0x124);
++	zv_crumb(0x50);
++
++	zv_status(vendor_step, monitor);
++	if (ZV_STOP == 9)
++		return;
++#ifdef ZV_TRACE
++	zv_trace_stubs(monitor, uboot);
++#endif
++	writel(0, &zv_wdog()->mode);	/* the vendor chain does not expect a running watchdog */
++	flush_dcache_all();
++	/* as boot0.h's rmr_switch: the die variant picks the RVBAR mapping */
++	if (readl((void *)(SUNXI_SRAMC_BASE + 0x24)) & 0xff) {
++		writel(monitor, (void *)(ulong)CONFIG_SUNXI_RVBAR_ALTERNATIVE);
++		writel(0, (void *)((ulong)CONFIG_SUNXI_RVBAR_ALTERNATIVE + 4));
++	} else {
++		writel(monitor, (void *)(ulong)CONFIG_SUNXI_RVBAR_ADDRESS);
++		writel(0, (void *)((ulong)CONFIG_SUNXI_RVBAR_ADDRESS + 4));
++	}
++	dcache_disable();
++	invalidate_icache_all();
++	asm volatile("dsb sy; isb; mov x0, #3; msr rmr_el3, x0; isb");
++	for (;;)
++		asm volatile("wfi");
++}
+diff --git a/board/sunxi/board.c b/board/sunxi/board.c
+index 3d1afec7..9763ce14 100644
+--- a/board/sunxi/board.c
++++ b/board/sunxi/board.c
+@@ -571,10 +571,15 @@ static void status_led_init(void)
+ #endif
+ }
+ 
++void zero_vendor_early(void);
++
+ void sunxi_board_init(void)
+ {
+ 	int power_failed = 0;
+ 
++	if (IS_ENABLED(CONFIG_XPL_BUILD) && IS_ENABLED(CONFIG_MACH_SUN50I_H616))
++		zero_vendor_early();	/* MinUI Zero: card-boot safety net, before PMIC and DRAM */
++
+ 	if (CONFIG_IS_ENABLED(SUNXI_LED_STATUS))
+ 		status_led_init();
+ 
+diff --git a/drivers/mmc/sunxi_mmc.c b/drivers/mmc/sunxi_mmc.c
+index 84f4e4c2..9519b41c 100644
+--- a/drivers/mmc/sunxi_mmc.c
++++ b/drivers/mmc/sunxi_mmc.c
+@@ -19,6 +19,7 @@
+ #include <malloc.h>
+ #include <mmc.h>
+ #include <clk.h>
++#include <cpu_func.h>
+ #include <reset.h>
+ #include <asm/gpio.h>
+ #include <asm/io.h>
+@@ -343,10 +344,94 @@ static int mmc_rint_wait(struct sunxi_mmc_priv *priv, struct mmc *mmc,
+ 	return 0;
+ }
+ 
++#if defined(CONFIG_XPL_BUILD) && defined(CONFIG_MACH_SUN50I_H616)
++/*
++ * MinUI Zero (H700, 2026-11-05): large card reads in SPL through the controller's internal DMA (IDMAC) instead of the
++ * CPU FIFO loop, which moved the 1.3 MB vendor boot package at ~9 MB/s. Set up as mainline Linux does for this IP
++ * (sunxi-mmc.c, sun50i-a100/h616 config): chained descriptors, addresses shifted right by 2 (idma_des_shift), 16-bit
++ * size field, FIFO threshold 0x20070008. Reads only, into DRAM, 64-byte aligned (whole cache lines, so invalidating
++ * cannot touch a neighbour); anything else stays on the CPU path.
++ */
++#define ZDMA_CHUNK	0x8000				/* per descriptor */
++#define ZDMA_MAX_DESC	128				/* 4 MiB per command; bigger reads use the CPU path */
++#define ZDMA_DES_CH	BIT(4)
++#define ZDMA_DES_FD	BIT(3)
++#define ZDMA_DES_LD	BIT(2)
++#define ZDMA_DES_DIC	BIT(1)
++#define ZDMA_DES_ER	BIT(5)
++#define ZDMA_DES_OWN	BIT(31)
++
++struct zdma_des {
++	u32 config;
++	u32 buf_size;
++	u32 buf_addr;
++	u32 next;
++};
++
++/* in DRAM, not BSS: BSS is in SRAM on the H616 SPL, and this DMA only ever runs once DRAM is up (reads into DRAM) */
++#define zdma_des	((struct zdma_des *)0x43830000UL)
++
++static int zdma_usable(struct mmc_data *data)
++{
++	ulong dst = (ulong)data->dest, len = data->blocks * data->blocksize;
++
++	return (data->flags & MMC_DATA_READ) && len >= 4096 && len <= ZDMA_CHUNK * ZDMA_MAX_DESC && !(len & 63) &&
++	       !(dst & 63) && dst >= CFG_SYS_SDRAM_BASE && dst + len <= 0x100000000UL;
++}
++
++static void zdma_start(struct sunxi_mmc_priv *priv, struct mmc_data *data)
++{
++	ulong dst = (ulong)data->dest, len = data->blocks * data->blocksize;
++	int n = 0;
++
++	while (len) {
++		ulong sz = len > ZDMA_CHUNK ? ZDMA_CHUNK : len;
++
++		zdma_des[n].config = ZDMA_DES_CH | ZDMA_DES_OWN | ZDMA_DES_DIC;
++		zdma_des[n].buf_size = sz;
++		zdma_des[n].buf_addr = (u32)(dst >> 2);
++		zdma_des[n].next = (u32)((ulong)&zdma_des[n + 1] >> 2);
++		dst += sz;
++		len -= sz;
++		n++;
++	}
++	zdma_des[0].config |= ZDMA_DES_FD;
++	zdma_des[n - 1].config |= ZDMA_DES_LD | ZDMA_DES_ER;
++	zdma_des[n - 1].config &= ~ZDMA_DES_DIC;
++	zdma_des[n - 1].next = 0;
++	flush_dcache_range((ulong)zdma_des, (ulong)&zdma_des[ZDMA_MAX_DESC]);
++	invalidate_dcache_range((ulong)data->dest, (ulong)data->dest + data->blocks * data->blocksize);
++
++	writel(0x20070008, &priv->reg->ftrglevel);
++	clrbits_le32(&priv->reg->gctrl, SUNXI_MMC_GCTRL_ACCESS_BY_AHB);
++	setbits_le32(&priv->reg->gctrl, SUNXI_MMC_GCTRL_DMA_ENABLE | SUNXI_MMC_GCTRL_DMA_RESET);
++	writel(SUNXI_MMC_IDMAC_RESET, &priv->reg->dmac);
++	writel(0xffffffff, &priv->reg->idst);
++	writel(SUNXI_MMC_IDIE_RXIRQ, &priv->reg->idie);
++	writel((u32)((ulong)zdma_des >> 2), &priv->reg->dlba);
++	writel(SUNXI_MMC_IDMAC_FIXBURST | SUNXI_MMC_IDMAC_ENABLE, &priv->reg->dmac);
++}
++
++static void zdma_stop(struct sunxi_mmc_priv *priv, struct mmc_data *data)
++{
++	writel(0, &priv->reg->dmac);
++	writel(0, &priv->reg->idie);
++	writel(0xffffffff, &priv->reg->idst);
++	clrbits_le32(&priv->reg->gctrl, SUNXI_MMC_GCTRL_DMA_ENABLE);
++	setbits_le32(&priv->reg->gctrl, SUNXI_MMC_GCTRL_ACCESS_BY_AHB);
++	invalidate_dcache_range((ulong)data->dest, (ulong)data->dest + data->blocks * data->blocksize);
++}
++#else
++static int zdma_usable(struct mmc_data *data) { return 0; }
++static void zdma_start(struct sunxi_mmc_priv *priv, struct mmc_data *data) {}
++static void zdma_stop(struct sunxi_mmc_priv *priv, struct mmc_data *data) {}
++#endif
++
+ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
+ 				     struct mmc *mmc, struct mmc_cmd *cmd,
+ 				     struct mmc_data *data)
+ {
++	int dma = data && zdma_usable(data);
+ 	unsigned int cmdval = SUNXI_MMC_CMD_START;
+ 	unsigned int timeout_msecs;
+ 	int error = 0;
+@@ -401,8 +486,10 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
+ 
+ 		bytecnt = data->blocksize * data->blocks;
+ 		debug("trans data %d bytes\n", bytecnt);
++		if (dma)
++			zdma_start(priv, data);
+ 		writel(cmdval | cmd->cmdidx, &priv->reg->cmd);
+-		ret = mmc_trans_data_by_cpu(priv, mmc, data);
++		ret = dma ? 0 : mmc_trans_data_by_cpu(priv, mmc, data);
+ 		if (ret) {
+ 			error = readl(&priv->reg->rint) &
+ 				SUNXI_MMC_RINT_INTERRUPT_ERROR_BIT;
+@@ -418,6 +505,8 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
+ 
+ 	if (data) {
+ 		timeout_msecs = 120;
++		if (dma)	/* the whole transfer happens during this wait: allow 2 MB/s */
++			timeout_msecs += bytecnt / 2048;
+ 		debug("cacl timeout %x msec\n", timeout_msecs);
+ 		error = mmc_rint_wait(priv, mmc, timeout_msecs,
+ 				      data->blocks > 1 ?
+@@ -426,6 +515,16 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
+ 				      "data");
+ 		if (error)
+ 			goto out;
++		if (dma) {	/* and the DMA engine's own "written to DRAM", as Linux waits for both (Codex review) */
++			unsigned long start = get_timer(0);
++
++			while (!(readl(&priv->reg->idst) & SUNXI_MMC_IDIE_RXIRQ)) {
++				if (get_timer(start) > 100) {
++					error = -ETIMEDOUT;
++					goto out;
++				}
++			}
++		}
+ 	}
+ 
+ 	if (cmd->resp_type & MMC_RSP_BUSY) {
+@@ -455,6 +554,8 @@ static int sunxi_mmc_send_cmd_common(struct sunxi_mmc_priv *priv,
+ 		debug("mmc resp 0x%08x\n", cmd->response[0]);
+ 	}
+ out:
++	if (dma)
++		zdma_stop(priv, data);
+ 	if (error < 0) {
+ 		writel(SUNXI_MMC_GCTRL_RESET, &priv->reg->gctrl);
+ 		mmc_update_clk(priv);
+diff --git a/drivers/power/Kconfig b/drivers/power/Kconfig
+index 66c389d0..ccfe58e3 100644
+--- a/drivers/power/Kconfig
++++ b/drivers/power/Kconfig
+@@ -171,9 +171,10 @@ config AXP_I2C_ADDRESS
+ 
+ config AXP_DCDC1_VOLT
+ 	int "axp pmic dcdc1 voltage"
+-	depends on AXP221_POWER || AXP809_POWER || AXP818_POWER || AXP803_POWER
++	depends on AXP221_POWER || AXP809_POWER || AXP818_POWER || AXP803_POWER || AXP717_POWER
+ 	default 3300 if AXP818_POWER || MACH_SUN8I_R40 || AXP803_POWER
+ 	default 3000 if MACH_SUN6I || MACH_SUN8I || MACH_SUN9I
++	default 1100 if AXP717_POWER
+ 	help
+ 	  Set the voltage (mV) to program the axp pmic dcdc1 at, set to 0 to
+ 	  disable dcdc1. On A23 / A31 / A33 (axp221) boards dcdc1 is used for
+diff --git a/drivers/power/axp_spl.c b/drivers/power/axp_spl.c
+index 0162ef5e..27424fbc 100644
+--- a/drivers/power/axp_spl.c
++++ b/drivers/power/axp_spl.c
+@@ -140,7 +140,21 @@ static int axp_set_dcdc(int dcdc_num, unsigned int mvolt)
+ 	if (mvolt == 0)
+ 		return pmic_bus_clrbits(reg->enable_reg, reg->enable_mask);
+ 
++#ifdef CONFIG_AXP717_POWER
++	{
++		/*
++		 * MinUI Zero (H700, AXP717/2202): change only the voltage field. The register's other bit (bit 7) was set
++		 * after a stock boot on the RG35XX H and Linux kept it; a whole-byte write cleared it (2026-11-06).
++		 */
++		u8 v;
++
++		ret = pmic_bus_read(reg->volt_reg, &v);
++		if (!ret)
++			ret = pmic_bus_write(reg->volt_reg, (v & ~reg->volt_mask) | axp_mvolt_to_cfg(mvolt, reg));
++	}
++#else
+ 	ret = pmic_bus_write(reg->volt_reg, axp_mvolt_to_cfg(mvolt, reg));
++#endif
+ 	if (ret)
+ 		return ret;
+ 
