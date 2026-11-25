@@ -14,7 +14,7 @@ The complete corresponding source for zero-recovery.img and every .ko in
 
   zero-tg5040-kernel-4.9.191-zero-ship10-src.tar.gz
   sha256 09be0b470b138f615125722e97302d29be1a617c2807d26a6265a4f5141d3960
-  https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/download/v1.10.0/zero-tg5040-kernel-4.9.191-zero-ship10-src.tar.gz
+  https://github.com/Zero-Labs-CFW/zero-kernel-source/releases/download/ship10/zero-tg5040-kernel-4.9.191-zero-ship10-src.tar.gz
 
 It holds every patch in order, the kernel config, the build scripts, the
 toolchain Dockerfile and the source of the built-in init (zinit). The build
@@ -24,7 +24,7 @@ reproduces the shipped files byte for byte (Image md5
 
   linux-4.9.191-a133.tar.xz
   sha256 93710f3a1f1a54678641fe15b7898fd64bc151b63377ac698c5eced8806fa743
-  https://github.com/Zero-Labs-CFW/MinUI-Zero/releases/download/v1.10.0/linux-4.9.191-a133.tar.xz
+  https://github.com/Zero-Labs-CFW/zero-kernel-source/releases/download/ship10/linux-4.9.191-a133.tar.xz
   (also at github.com/ericreinsmidt/plastron, release brick-linux-4.9.191-base)
 
 Allwinner's Linux 4.9.191 for the A133, as Creality's Sonic Pad SDK has it

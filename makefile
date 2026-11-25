@@ -473,7 +473,7 @@ package: tidy check-payload
 	@if [ -d ./build/PAYLOAD/.system/tg5040/kernel ]; then \
 		mkdir -p ./build/PAYLOAD/.system/LICENSES/zero-kernel && \
 		cp ./workspace/tg5040/zerokernel/LICENSES/NOTICE.txt ./workspace/tg5040/zerokernel/LICENSES/COPYING ./build/PAYLOAD/.system/LICENSES/zero-kernel/ && \
-		printf '\nThe tg5040 Zero kernel (.system/tg5040/kernel) has its own source tarball, published with\nthe release: see LICENSES/zero-kernel/NOTICE.txt.\n' >> ./build/PAYLOAD/.system/LICENSES/SOURCES.txt; \
+		printf '\nThe tg5040 Zero kernel (.system/tg5040/kernel) has its own source tarball, published at\ngithub.com/Zero-Labs-CFW/zero-kernel-source: see LICENSES/zero-kernel/NOTICE.txt.\n' >> ./build/PAYLOAD/.system/LICENSES/SOURCES.txt; \
 	fi
 	cd ./build/PAYLOAD && zip -r MinUI.zip .system .tmp_update Tools
 	mv ./build/PAYLOAD/MinUI.zip ./build/BASE
