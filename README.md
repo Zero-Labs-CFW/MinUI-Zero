@@ -65,9 +65,33 @@ We don't build or tune these cores ourselves, but Zero's governor still runs the
 | Miyoo Mini / Plus / Flip | `MinUI-Zero-miyoo-*.zip` | copy onto the card |
 | Anbernic RG35XX Plus / 2024 / H / Pro / SP, RG40XX H / V, RG34XX / SP, RG SP, RG CubeXX, RG28XX | `MinUI-Zero-anbernic-h700-*.img.xz` to install, `MinUI-Zero-anbernic-h700-*-update.zip` to update | flash the card once, then copy onto the card |
 
-**TrimUI and Miyoo** ride along with the stock firmware, nothing is erased: unzip onto a blank FAT32 card, or drop `MinUI.zip` on the card root to update. On TrimUI, Zero also changes two boot settings on the device, which make it start about 3 to 4 seconds sooner: a quiet boot log and no wait for factory key programming. They stay if you remove Zero, and they're harmless on stock. To undo them, put `restore-boot-env.txt` on the card root and boot once. Doing that before the first boot keeps them from ever being set. On the TrimUI Brick, Brick Pro and Smart Pro, Zero also installs its own kernel in a spare internal partition and starts it from then on (the stock kernel stays where it was). If it ever fails to reach the menu, the next start uses the stock kernel by itself. If the screen stays dark, turn the device off by holding power, three starts in a row, and the fourth start is back on stock; three starts in a row that end without a normal power-off (a flat battery counts) do the same. A later Zero release with a new kernel tries again. `restore-boot-env.txt` removes it too, and putting it on the card before the first boot keeps it from ever being installed.
+**TrimUI and Miyoo** ride along with the stock firmware, nothing is erased: unzip onto a blank FAT32 card, or drop `MinUI.zip` on the card root to update. On TrimUI, Zero also changes two boot settings on the device, which make it start about 3 to 4 seconds sooner: a quiet boot log and no wait for factory key programming. They stay if you remove Zero, and they're harmless on stock. To undo them, put `restore-boot-env.txt` on the card root and boot once. Doing that before the first boot keeps them from ever being set, and `enable-zero-kernel.txt` turns them back on. On TrimUI, Zero also runs its own kernel: see [TrimUI kernel](#trimui-kernel).
 
 **Anbernic** *is* the operating system: flash the `.img.xz` with Raspberry Pi Imager, balenaEtcher, or `dd`, which erases the card. One image serves every board: on first boot, pick your model and hold START (a dark screen moves on to the next screen type by itself). To update later, drop the Anbernic zip on the card root, as downloaded or renamed to `MinUI.zip`, and restart; a few rare changes still need a reflash, and the update says so.
+
+**Fast boot (RG35XX Plus and H)**: on these two models, Zero sets up its own boot loader by itself during a normal start, and the starts after that use it. There's nothing to turn on. From kernel start to the menu it takes about 2.8 s. If a start with it ever fails, the device goes back to the stock boot by itself. To turn it off, put `fast-boot-off.txt` on the card root and boot once; the stock boot is back from the next start. Delete the file to turn it back on; it's set up again over the next two starts. Other Anbernic models keep the stock boot.
+
+### TrimUI kernel
+
+On the Brick, Brick Pro and Smart Pro, Zero starts its own Linux kernel instead of TrimUI's, so the menu comes up about 2.5 to 3 seconds sooner. TrimUI's own system stays installed and unchanged, and it takes over by itself whenever Zero's kernel doesn't make it to the menu.
+
+* **What it is**: a Linux 4.9 kernel (4.9.191-zero) and a small startup program, built from Allwinner's A133 kernel source with patches from [plastron](https://github.com/ericreinsmidt/plastron) by Eric Reinsmidt and Zero's own on top. The full source and build scripts are published with each release (GPL-2.0). The PowerVR GPU libraries and firmware (DDK 1.11) are closed and ship unmodified, and the WiFi firmware is the device's own copy.
+* **Why**: a faster start. From kernel start to menu: Brick about 1.2 to 1.5 s (was about 4.5 s before Zero's kernel), Brick Pro about 2.1 s (was about 4.9 s), Smart Pro about 1.6 to 1.8 s (was about 4.3 s). From power on, add about 3.3 s of TrimUI's loader, which runs the same either way.
+* **How a start works**: Zero's kernel is never the device's default. Each start is a one-time pass: the loader puts the stock setting back before Zero's kernel even begins, so if that start fails for any reason, the next one is a normal stock start, with nothing to do. Zero sets up the next pass only after the menu is up and its checks pass.
+* **Failed starts**: after two starts that don't reach the menu, the kernel turns itself off on that device, and `zero-kernel-FAILED.txt` on the card says why.
+* **Dark screen**: turn the device off by holding power. After three starts in a row that end that way, the next start is stock. Three starts in a row that end without a normal power-off for any other reason (a flat battery counts) do the same.
+* **What it changes**:
+    * the boot settings: the start command, the one-time step that puts it back, and a few status entries of its own
+    * the recovery partition, which TrimUI ships unused: its original content is backed up to `.userdata/shared/.minui/zerokernel/` on the card first, and the install waits until that backup is done. Keep it: on the Brick Pro and Smart Pro, undo puts the partition back from it.
+    * its own files on internal storage, in `/usr/lib/zero`, plus the kernel's module folder and two small startup entries the system looks for at fixed places. These are added files; no TrimUI file is changed.
+* **What it never touches**: the loader, TrimUI's kernel, TrimUI's system files, and your games and saves.
+* **Install**: the first start with this release installs the kernel, and the next start uses it. It waits until the battery is at 15% or a charger is in, and needs about 80 MB free on the card for the backup.
+* **Optimize CPU** measures on the stock kernel; the Zero kernel comes back after it finishes.
+* **Turn it off**: put `restore-boot-env.txt` on the card root and boot once. The device starts the stock kernel from then on, the recovery partition is put back, Zero's files are removed, and the boot settings above go back to stock too. Doing that before the first boot keeps the kernel from ever being installed. If the undo can't finish, `zero-kernel-restore-FAILED.txt` appears and Zero retries at every start.
+* **Turn it back on**: put `enable-zero-kernel.txt` on the card root and boot once. The boot settings come back and the kernel installs again, as on a first start. The file is removed once done, and you can turn it off and on as often as you like. If both files are on the card, the undo wins and the enable file is renamed `enable-zero-kernel-IGNORED.txt`. If it can't finish, `enable-zero-kernel-FAILED.txt` appears and Zero retries at every start; `restore-boot-env.txt` stops that.
+* **A kernel that stopped itself** (failed starts or a dark screen) stays off, through any off and on, until a later Zero release with a new kernel.
+* **Switching to another firmware**: put `restore-boot-env.txt` on your Zero card and boot once before you swap cards. If you forget, the first start without a MinUI Zero card restarts once into stock by itself.
+* **Last resort**: TrimUI's own firmware flasher restores any of these devices. Zero never touches the parts of the device it relies on.
 
 ## Settings
 
@@ -91,7 +115,9 @@ Tools > Settings is the one screen for everything you can change, drawn like the
 | `wifi.txt` | one network per line as `SSID:password`; the password is yours to type |
 | `timezone` | an IANA name like `America/New_York`, for the clock and DST (TrimUI) |
 | `devmode` | stays awake and starts SSH; for development, costs idle battery |
-| `restore-boot-env.txt` | puts the TrimUI boot settings and kernel back to stock and keeps Zero from setting them again on that device; removed once done (TrimUI) |
+| `restore-boot-env.txt` | puts the TrimUI boot settings and kernel back to stock and keeps Zero from setting them again on that device, until `enable-zero-kernel.txt`; removed once done (TrimUI) |
+| `enable-zero-kernel.txt` | turns the TrimUI boot settings and kernel back on after `restore-boot-env.txt`; removed once done (TrimUI) |
+| `fast-boot-off.txt` | turns fast boot off and puts the stock boot back; delete it to turn fast boot back on (RG35XX Plus and H) |
 | `authorized_keys` | your SSH public key; SSH accepts only this key, never a password (TrimUI keeps it in `.userdata/shared/`) |
 | `.userdata/shared/enable-simple-mode` | hides Tools and replaces Options with Reset in the game menu; no escape hatch and no Settings row on purpose, for a locked-down or kid's device |
 
@@ -128,7 +154,7 @@ Tools > Device Sync copies saves between two handhelds over a hotspot one of the
 
 ## Devices
 
-* **TrimUI (Brick, Brick Pro, Smart Pro)**: the primary platform, where Zero is tuned and measured.
+* **TrimUI (Brick, Brick Pro, Smart Pro)**: the primary platform, where Zero is tuned and measured, on its own kernel with stock as the fallback.
 * **Anbernic H700 boards**: Zero *is* the OS, so it boots straight to the launcher and idles with nothing else running. Newer and less proven: six of fifteen systems are launch-tested. The RG35XX Plus and H are verified on hardware; every other board is untested. Deep sleep is on for the Plus and H only, and the RG40XX H/V sticks and lights don't work yet.
 * **Miyoo Mini family**: same launcher and governor, cores rebuilt for ARMv7. The Plus is verified; the Mini and Flip are untested on hardware. The tuning gains don't transfer here (the CPU is a small share of this SoC's power), and deep sleep is impossible (the vendor kernel has no suspend).
 
@@ -140,4 +166,4 @@ MinUI Zero is unofficial personal firmware, provided as-is without warranty. Cus
 
 ## Credits
 
-Built on [MinUI](https://github.com/shauninman/MinUI) by Shaun Inman. Deep sleep from [zhaofengli](https://github.com/zhaofengli/MinUI); techniques from [MyMinUI](https://github.com/Turro75/MyMinUI) and [NextUI](https://github.com/LoveRetro/NextUI); dynamic rate control from [RetroArch](https://github.com/libretro/RetroArch); the power-off haptic cue from [SpruceOS](https://github.com/spruceUI/spruceOS); the Anbernic hardware layer from [muOS](https://muos.dev). An independent fork, not affiliated with or endorsed by any of them. See [`LICENSE.md`](LICENSE.md) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Built on [MinUI](https://github.com/shauninman/MinUI) by Shaun Inman. Deep sleep from [zhaofengli](https://github.com/zhaofengli/MinUI); techniques from [MyMinUI](https://github.com/Turro75/MyMinUI) and [NextUI](https://github.com/LoveRetro/NextUI); dynamic rate control from [RetroArch](https://github.com/libretro/RetroArch); the power-off haptic cue from [SpruceOS](https://github.com/spruceUI/spruceOS); the Anbernic hardware layer from [muOS](https://muos.dev). The TrimUI kernel builds on [plastron](https://github.com/ericreinsmidt/plastron) by Eric Reinsmidt (patches and build method) and Allwinner's A133 Linux 4.9; its GPL source is published with each release (see `THIRD_PARTY_NOTICES.md`). An independent fork, not affiliated with or endorsed by any of them. See [`LICENSE.md`](LICENSE.md) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
