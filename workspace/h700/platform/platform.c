@@ -648,12 +648,37 @@ static uint32_t disp_irq_now(void) {
 	return irq;
 }
 static uint32_t disp_commit_irq;
+static uint64_t disp_commit_us;
+static int disp_shown = -1; // page of the last commit, -1 = none yet
+// A board whose kernel has no usable counter (missing: 0, or stuck) used to fail quietly: no wait at all, or the
+// full 20 ms cap on every frame, and either way the next frame was written into the page the panel may still be
+// scanning (flicker, and a frame-rate drop when stuck). Suspected on the CubeXX (issue #4, 2026-11-26), which
+// boots its own kernel; the Plus and H count fine. After 3 misses in a row, pace by time instead: hold the page
+// until one panel period after the commit, and go back to the counter as soon as it advances again.
+static int disp_latch_misses;
 static void disp_wait_latch(void) {
-	if (!vid.use_disp || !disp_commit_irq) return;
-	for (int spins = 0; spins < 20; spins++) { // cap ~20ms: never wedge on a stalled counter
-		if (disp_irq_now() != disp_commit_irq) return;
-		usleep(1000);
+	if (!vid.use_disp || disp_shown < 0) return;
+	if (disp_latch_misses < 3) {
+		if (disp_commit_irq) for (int spins = 0; spins < 20; spins++) { // cap ~20ms: never wedge on a stalled counter
+			if (disp_irq_now() != disp_commit_irq) { disp_latch_misses = 0; return; }
+			usleep(1000);
+		}
+		if (++disp_latch_misses == 3) {
+			static int logged = 0;
+			if (!logged++) LOG_info("disp: vblank counter %s, pacing by time\n", disp_commit_irq ? "not advancing" : "missing");
+		}
+		return;
 	}
+	static uint64_t period_us = 0;
+	if (!period_us) {
+		const char* e = getenv("MINARCH_PANEL_FPS");
+		double hz = e ? atof(e) : 0;
+		if (hz < 30 || hz > 120) hz = 60;
+		period_us = (uint64_t)(1000000.0 / hz + 0.5);
+	}
+	uint64_t now = getMicroseconds(), due = disp_commit_us + period_us;
+	if (now < due) usleep((useconds_t)(due - now));
+	if (disp_commit_irq && disp_irq_now() != disp_commit_irq) disp_latch_misses = 0;
 }
 
 // NIGHT BACKDROP: global alpha only dims where the DE has something to blend with. Ours is the only enabled layer,
@@ -677,7 +702,6 @@ static void disp_backdrop(int on) {
 	disp_backdrop_on = on;
 }
 
-static int disp_shown = -1; // page of the last commit, -1 = none yet
 static int disp_commit(int page) {
 	vid.lraw.dwords[8] = (uint32_t)vid.ion_fds[page];
 	// NIGHT STEPS (D69): the layer's global alpha rides this commit. Every frame re-sends the whole config,
@@ -697,6 +721,7 @@ static int disp_commit(int page) {
 	args[0] = 0; args[1] = 0; args[2] = 0; args[3] = 0;
 	if (ioctl(vid.dispfd, DISP_SHADOW_PROTECT, &args) < 0) ret = -1;
 	disp_commit_irq = disp_irq_now();
+	disp_commit_us = getMicroseconds();
 	if (ret >= 0) disp_shown = page;
 	return ret;
 }
