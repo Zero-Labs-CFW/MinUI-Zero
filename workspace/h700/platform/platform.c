@@ -686,7 +686,15 @@ static void disp_wait_latch(void) {
 	if (now < due) { usleep((useconds_t)(due - now)); due += period_us; }
 	else if (now - due < period_us) due += period_us; // a little late: keep the cadence
 	else due = now + period_us; // idle menu or a long stall: restart the cadence here
-	if (disp_commit_irq && disp_irq_now() != disp_commit_irq) disp_latch_misses = 0;
+	// Recover by comparing reads one frame apart, not against the commit's read: this cadence runs at the panel
+	// rate, so a vblank that keeps landing in the copy window would never show between the commit and here.
+	// Two advances in a row, so one stray or failed read (0) cannot cost another three 20 ms stalls.
+	static uint32_t last_irq = 0;
+	static int advances = 0;
+	uint32_t irq = disp_irq_now();
+	advances = (irq && last_irq && irq != last_irq) ? advances + 1 : 0;
+	last_irq = irq;
+	if (advances >= 2) { disp_latch_misses = 0; advances = 0; last_irq = 0; }
 }
 
 // NIGHT BACKDROP: global alpha only dims where the DE has something to blend with. Ours is the only enabled layer,
