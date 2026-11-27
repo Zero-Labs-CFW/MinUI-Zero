@@ -656,16 +656,17 @@ static int disp_shown = -1; // page of the last commit, -1 = none yet
 // to a steady panel-rate cadence, and go back to the counter as soon as it advances again. Without a counter the
 // latch phase is unknown, so a write can still meet the scanned page when the vblank falls in the copy window.
 static int disp_latch_misses;
+static int disp_fallbacks; // times time pacing engaged; the 3rd keeps it for the rest of the process
 static void disp_wait_latch(void) {
-	if (!vid.use_disp || disp_shown < 0) return;
+	if (!vid.use_disp || (disp_shown < 0 && !disp_commit_irq)) return; // nothing committed yet
 	if (disp_latch_misses < 3) {
 		if (disp_commit_irq) for (int spins = 0; spins < 20; spins++) { // cap ~20ms: never wedge on a stalled counter
 			if (disp_irq_now() != disp_commit_irq) { disp_latch_misses = 0; return; }
 			usleep(1000);
 		}
 		if (++disp_latch_misses == 3) {
-			static int logged = 0;
-			if (!logged++) LOG_info("disp: vblank counter %s, pacing by time\n", disp_commit_irq ? "not advancing" : "missing");
+			disp_fallbacks++;
+			LOG_info("disp: vblank counter %s, pacing by time (%d)\n", disp_commit_irq ? "not advancing" : "missing", disp_fallbacks);
 		}
 		return;
 	}
@@ -688,13 +689,19 @@ static void disp_wait_latch(void) {
 	else due = now + period_us; // idle menu or a long stall: restart the cadence here
 	// Recover by comparing reads one frame apart, not against the commit's read: this cadence runs at the panel
 	// rate, so a vblank that keeps landing in the copy window would never show between the commit and here.
-	// Two advances in a row, so one stray or failed read (0) cannot cost another three 20 ms stalls.
+	// Two advances in a row, so one stray or failed read (0) cannot cost another three 20 ms stalls. A counter that
+	// passes this but still misses the 20 ms test (it counts something other than the latch) would flip modes and
+	// stall 60 ms each round, so the 3rd fallback stops probing. No probe for a missing counter: nothing to find.
+	if (!disp_commit_irq || disp_fallbacks >= 3) return;
 	static uint32_t last_irq = 0;
 	static int advances = 0;
 	uint32_t irq = disp_irq_now();
 	advances = (irq && last_irq && irq != last_irq) ? advances + 1 : 0;
 	last_irq = irq;
-	if (advances >= 2) { disp_latch_misses = 0; advances = 0; last_irq = 0; }
+	if (advances >= 2) {
+		disp_latch_misses = 0; advances = 0; last_irq = 0;
+		LOG_info("disp: vblank counter advancing again, pacing by counter\n");
+	}
 }
 
 // NIGHT BACKDROP: global alpha only dims where the DE has something to blend with. Ours is the only enabled layer,
