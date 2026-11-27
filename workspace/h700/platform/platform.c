@@ -648,13 +648,13 @@ static uint32_t disp_irq_now(void) {
 	return irq;
 }
 static uint32_t disp_commit_irq;
-static uint64_t disp_commit_us;
 static int disp_shown = -1; // page of the last commit, -1 = none yet
 // A board whose kernel has no usable counter (missing: 0, or stuck) used to fail quietly: no wait at all, or the
 // full 20 ms cap on every frame, and either way the next frame was written into the page the panel may still be
 // scanning (flicker, and a frame-rate drop when stuck). Suspected on the CubeXX (issue #4, 2026-11-26), which
-// boots its own kernel; the Plus and H count fine. After 3 misses in a row, pace by time instead: hold the page
-// until one panel period after the commit, and go back to the counter as soon as it advances again.
+// boots its own kernel; the Plus and H count fine. After 3 misses in a row, pace by time instead: hold each frame
+// to a steady panel-rate cadence, and go back to the counter as soon as it advances again. Without a counter the
+// latch phase is unknown, so a write can still meet the scanned page when the vblank falls in the copy window.
 static int disp_latch_misses;
 static void disp_wait_latch(void) {
 	if (!vid.use_disp || disp_shown < 0) return;
@@ -676,8 +676,16 @@ static void disp_wait_latch(void) {
 		if (hz < 30 || hz > 120) hz = 60;
 		period_us = (uint64_t)(1000000.0 / hz + 0.5);
 	}
-	uint64_t now = getMicroseconds(), due = disp_commit_us + period_us;
-	if (now < due) usleep((useconds_t)(due - now));
+	// Step a fixed cadence, not "one period after the last commit": the scale, copy and commit run after this
+	// wait, so anchoring to the commit made every frame period + that work (about 51 to 55 fps at 60 Hz).
+	// Monotonic, so a clock change cannot stretch the sleep; due is never more than one period ahead.
+	static uint64_t due = 0;
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	uint64_t now = (uint64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+	if (now < due) { usleep((useconds_t)(due - now)); due += period_us; }
+	else if (now - due < period_us) due += period_us; // a little late: keep the cadence
+	else due = now + period_us; // idle menu or a long stall: restart the cadence here
 	if (disp_commit_irq && disp_irq_now() != disp_commit_irq) disp_latch_misses = 0;
 }
 
@@ -721,7 +729,6 @@ static int disp_commit(int page) {
 	args[0] = 0; args[1] = 0; args[2] = 0; args[3] = 0;
 	if (ioctl(vid.dispfd, DISP_SHADOW_PROTECT, &args) < 0) ret = -1;
 	disp_commit_irq = disp_irq_now();
-	disp_commit_us = getMicroseconds();
 	if (ret >= 0) disp_shown = page;
 	return ret;
 }
