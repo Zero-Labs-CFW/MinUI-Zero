@@ -657,11 +657,13 @@ static int disp_shown = -1; // page of the last commit, -1 = none yet
 // latch phase is unknown, so a write can still meet the scanned page when the vblank falls in the copy window.
 static int disp_latch_misses;
 static int disp_fallbacks; // times time pacing engaged; the 3rd keeps it for the rest of the process
+static int disp_committed; // a commit was attempted
 static void disp_wait_latch(void) {
-	if (!vid.use_disp || (disp_shown < 0 && !disp_commit_irq)) return; // nothing committed yet
+	if (!vid.use_disp || !disp_committed) return;
 	if (disp_latch_misses < 3) {
 		if (disp_commit_irq) for (int spins = 0; spins < 20; spins++) { // cap ~20ms: never wedge on a stalled counter
-			if (disp_irq_now() != disp_commit_irq) { disp_latch_misses = 0; return; }
+			uint32_t irq = disp_irq_now(); // 0 is a failed read, not an advance
+			if (irq && irq != disp_commit_irq) { disp_latch_misses = 0; return; }
 			usleep(1000);
 		}
 		if (++disp_latch_misses == 3) {
@@ -726,6 +728,7 @@ static void disp_backdrop(int on) {
 }
 
 static int disp_commit(int page) {
+	disp_committed = 1; // pace from here on even if the ioctls below fail
 	vid.lraw.dwords[8] = (uint32_t)vid.ion_fds[page];
 	// NIGHT STEPS (D69): the layer's global alpha rides this commit. Every frame re-sends the whole config,
 	// so a separate DISP_LAYER_SET_CONFIG was reset to 255 by the next frame (Plus, 2026-10-07). Byte 2 of
